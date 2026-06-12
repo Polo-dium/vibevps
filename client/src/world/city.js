@@ -83,16 +83,40 @@ function buildGroundAndRivers(ctx) {
     }
 
     // Pont à z = 0
+    const bridgeCx = (river.minX + river.maxX) / 2;
     addBox(ctx, {
-      x: (river.minX + river.maxX) / 2, z: 0,
+      x: bridgeCx, z: 0,
       w: w + 6, h: 0.45, d: BRIDGE.halfWidth * 2,
       color: 0x8b8f99,
     });
     for (const zr of [-BRIDGE.halfWidth + 0.4, BRIDGE.halfWidth - 0.4]) {
       addBox(ctx, {
-        x: (river.minX + river.maxX) / 2, y: 0.45, z: zr,
+        x: bridgeCx, y: 0.45, z: zr,
         w: w + 6, h: 1.0, d: 0.4, color: 0x6f7884,
       });
+    }
+    // Arcs supérieurs style passerelle Saint-Georges (sur la Saône uniquement)
+    if (river === SAONE) {
+      const archMat = new THREE.MeshLambertMaterial({ color: 0x8a93a5 });
+      for (const zr of [-BRIDGE.halfWidth + 0.4, BRIDGE.halfWidth - 0.4]) {
+        const arc = new THREE.Mesh(
+          new THREE.TorusGeometry((w + 6) / 2 * 0.92, 0.18, 8, 24, Math.PI),
+          archMat
+        );
+        arc.scale.y = 0.42; // arc surbaissé
+        arc.position.set(bridgeCx, 0.45, zr);
+        ctx.scene.add(arc);
+        // Suspentes verticales
+        for (let k = -2; k <= 2; k++) {
+          const hgt = 5.6 * 0.42 * Math.cos((k / 3.4)) * 2.3;
+          const cable = new THREE.Mesh(
+            new THREE.BoxGeometry(0.08, Math.max(0.6, hgt), 0.08),
+            archMat
+          );
+          cable.position.set(bridgeCx + k * 4.2, 0.45 + Math.max(0.6, hgt) / 2, zr);
+          ctx.scene.add(cable);
+        }
+      }
     }
   }
 }
@@ -354,6 +378,28 @@ function buildRoads(ctx) {
     mesh.position.set(cx, alongX ? 0.015 : 0.018, cz);
     ctx.scene.add(mesh);
   }
+
+  // Passages piétons aux abords de Bellecour
+  const cwTex = makeCrosswalkTexture();
+  for (const [cx, cz] of [[12, -13], [12, 25], [-50, -13], [-50, 25]]) {
+    const cw = new THREE.Mesh(
+      new THREE.PlaneGeometry(9, 3.2),
+      new THREE.MeshLambertMaterial({ map: cwTex, transparent: true })
+    );
+    cw.rotation.x = -Math.PI / 2;
+    cw.position.set(cx, 0.02, cz);
+    ctx.scene.add(cw);
+  }
+}
+
+function makeCrosswalkTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 48;
+  const g = canvas.getContext('2d');
+  g.fillStyle = 'rgba(230, 232, 226, 0.85)';
+  for (let x = 4; x < 128; x += 22) g.fillRect(x, 2, 12, 44);
+  return new THREE.CanvasTexture(canvas);
 }
 
 function buildSkyline(ctx, rand) {
@@ -439,6 +485,36 @@ function buildBuildings(ctx, rand) {
       // Corniche / toit débordant
       addBox(ctx, { x, y: h, z, w: w + 0.8, h: 0.45, d: d + 0.8, color: 0x7d6a58, collider: false });
       lots.push({ x, z, w, d });
+
+      // Silhouettes variées pour casser le côté cubique
+      const style = rand();
+      if (style < 0.32) {
+        // Étage en retrait (attique)
+        const tw = w * 0.62, td = d * 0.62, th = 2.6 + rand() * 2.4;
+        const top = addBox(ctx, {
+          x: x + (rand() - 0.5) * (w - tw) * 0.4,
+          y: h + 0.45,
+          z: z + (rand() - 0.5) * (d - td) * 0.4,
+          w: tw, h: th, d: td,
+          color, collider: false,
+        });
+        paintFacade(top, rand, th + 4);
+        addBox(ctx, {
+          x: top.position.x, y: h + 0.45 + th, z: top.position.z,
+          w: tw + 0.6, h: 0.35, d: td + 0.6, color: 0x7d6a58, collider: false,
+        });
+      } else if (style < 0.62) {
+        // Toiture en pente (tuiles lyonnaises ou ardoise)
+        const roofH = 2.2 + rand() * 2.2;
+        const roof = new THREE.Mesh(
+          new THREE.ConeGeometry((w + 0.8) / Math.SQRT2, roofH, 4),
+          new THREE.MeshLambertMaterial({ color: rand() < 0.6 ? 0xa85b42 : 0x4a4f5c })
+        );
+        roof.rotation.y = Math.PI / 4;
+        roof.scale.z = (d + 0.8) / (w + 0.8);
+        roof.position.set(x, h + 0.45 + roofH / 2, z);
+        ctx.scene.add(roof);
+      }
 
       // Détails de toit (pas de collider : purement décoratif)
       if (rand() < 0.45) {
@@ -623,13 +699,23 @@ function buildDecor(ctx, rand) {
     treeSpots.push([SAONE.maxX + 4, -120 + i * 18]);
     treeSpots.push([RHONE.minX - 4, -120 + i * 18]);
   }
+  // Feuillages : amas de sphères, plus organique qu'un cône
+  const leavesMat2 = new THREE.MeshLambertMaterial({ color: 0x55833f });
+  const leavesMat3 = new THREE.MeshLambertMaterial({ color: 0x6d9447 });
+  let ti = 0;
   for (const [x, z] of treeSpots) {
     if (Math.abs(z) < 7) continue; // pas sur l'axe des ponts
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 2.4, 6), trunkMat);
-    trunk.position.set(x, 1.2, z);
-    const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.7, 3.6, 7), leavesMat);
-    leaves.position.set(x, 4.2, z);
-    ctx.scene.add(trunk, leaves);
+    ti += 1;
+    const s = 0.85 + ((ti * 37) % 10) / 22; // variation déterministe simple
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.32, 2.2 * s, 6), trunkMat);
+    trunk.position.set(x, 1.1 * s, z);
+    const blob1 = new THREE.Mesh(new THREE.SphereGeometry(1.5 * s, 8, 6), leavesMat);
+    blob1.position.set(x, 3.1 * s, z);
+    const blob2 = new THREE.Mesh(new THREE.SphereGeometry(1.1 * s, 7, 5), [leavesMat2, leavesMat3][ti % 2]);
+    blob2.position.set(x + 0.7 * s, 3.7 * s, z + 0.3 * s);
+    const blob3 = new THREE.Mesh(new THREE.SphereGeometry(0.9 * s, 7, 5), leavesMat2);
+    blob3.position.set(x - 0.6 * s, 3.9 * s, z - 0.3 * s);
+    ctx.scene.add(trunk, blob1, blob2, blob3);
   }
 
   // Lampadaires autour de Bellecour

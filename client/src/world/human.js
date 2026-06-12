@@ -17,8 +17,9 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
     const leg = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.74, 0.19), pantsMat);
     leg.position.y = -0.37;
     pivot.add(leg);
+    // La pointe du pied part vers -z, comme le nez
     const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.1, 0.3), shoeMat);
-    shoe.position.set(0, -0.78, 0.05);
+    shoe.position.set(0, -0.78, -0.05);
     pivot.add(shoe);
     group.add(pivot);
     return pivot;
@@ -77,6 +78,14 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
       group.position.y += Math.abs(Math.cos(t)) * 0.03;
     }
   }
+
+  // Ombres portées (sans effet si les ombres sont désactivées)
+  group.traverse((o) => {
+    if (o.isMesh) {
+      o.castShadow = true;
+      o.receiveShadow = true;
+    }
+  });
 
   return {
     group,

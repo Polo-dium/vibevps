@@ -11,6 +11,7 @@ import { createRemotePlayers } from './player/remotes.js';
 import { createTouchControls } from './ui/touch.js';
 import { SPAWN } from './world/layout.js';
 import { createNpcs } from './world/npcs.js';
+import { buildSky } from './world/sky.js';
 import { audio } from './audio.js';
 import { createSpray } from './tags/spray.js';
 import { createTagEditor } from './tags/editor.js';
@@ -28,15 +29,22 @@ async function boot() {
   state.tags = worldState.tags;
 
   // --- Scène Three.js ---
+  // Ombres dynamiques sur desktop ; désactivées sur mobile pour la fluidité
+  const SHADOWS = !IS_TOUCH;
+
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
+  if (SHADOWS) {
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  }
   document.querySelector('#app').appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  const skyColor = 0x8fb6e6; // ciel clair d'après-midi
+  const skyColor = 0xbcd2ea; // couleur de l'horizon (raccord avec le dôme)
   scene.background = new THREE.Color(skyColor);
   scene.fog = new THREE.Fog(skyColor, 180, 560);
 
@@ -45,11 +53,25 @@ async function boot() {
   );
   scene.add(camera); // nécessaire pour l'arme en vue subjective
 
-  // Lumières : grand soleil sur Lyon
-  scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x5a4c3c, 1.1));
-  const sun = new THREE.DirectionalLight(0xfff3d6, 1.6);
-  sun.position.set(-90, 130, 50);
+  // Lumières : grand soleil sur Lyon (plus de contraste quand il y a des ombres)
+  scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x5a4c3c, SHADOWS ? 0.8 : 1.1));
+  const sun = new THREE.DirectionalLight(0xfff3d6, SHADOWS ? 1.85 : 1.6);
+  const SUN_OFFSET = new THREE.Vector3(-90, 130, 50);
+  sun.position.copy(SUN_OFFSET);
   scene.add(sun);
+  scene.add(sun.target);
+  if (SHADOWS) {
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    const d = 95;
+    sun.shadow.camera.left = -d;
+    sun.shadow.camera.right = d;
+    sun.shadow.camera.top = d;
+    sun.shadow.camera.bottom = -d;
+    sun.shadow.camera.near = 10;
+    sun.shadow.camera.far = 420;
+    sun.shadow.bias = -0.0006;
+  }
 
   // Soleil visible dans le ciel (même direction que la lumière)
   const sunMesh = new THREE.Mesh(
@@ -79,6 +101,8 @@ async function boot() {
   };
 
   buildCity(ctx);
+  const sky = buildSky(scene);
+  ctx.updatables.push((dt) => sky.update(dt));
 
   const shell = createGameShell({ onToast: ui.toast });
   const arcade = buildArcade(ctx, {
@@ -126,6 +150,16 @@ async function boot() {
   spray.loadExisting(state.tags);
   const tagEditor = createTagEditor({ onToast: ui.toast });
   const npcs = createNpcs(ctx, { getPlayerPos: () => controls.position });
+
+  // Active les ombres sur tout le monde statique déjà construit
+  if (SHADOWS) {
+    scene.traverse((o) => {
+      if (o.isMesh && !o.userData.noShadow) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+      }
+    });
+  }
 
   // Peinture à main levée : clic maintenu en mode bombe
   window.addEventListener('mousedown', (e) => {
@@ -277,6 +311,12 @@ async function boot() {
       }
     } else {
       stepTimer = Math.min(stepTimer, 0.12);
+    }
+
+    // L'ombre suit le joueur (zone de 190 m autour de lui)
+    if (SHADOWS) {
+      sun.position.copy(controls.position).add(SUN_OFFSET);
+      sun.target.position.copy(controls.position);
     }
 
     nearestInteractable = state.overlayOpen ? null : findNearestInteractable();
