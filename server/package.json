@@ -1,0 +1,16 @@
+{
+  "name": "vibevps-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "better-sqlite3": "^11.8.0",
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}

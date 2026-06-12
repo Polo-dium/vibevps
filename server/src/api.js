@@ -1,0 +1,187 @@
+import { Router } from 'express';
+import crypto from 'node:crypto';
+import { db, q, insertTagWithLimit } from './db.js';
+import { aiAvailable, generateGame } from './ai.js';
+import { broadcast } from './ws.js';
+
+export const api = Router();
+
+const GAME_COOLDOWN_MS = 120_000;
+const MAX_CUSTOM_GAMES = 30;
+const MAX_IMAGE_BYTES = 400_000;
+
+function auth(req, res, next) {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  const player = token ? q.playerByToken.get(token) : null;
+  if (!player) return res.status(401).json({ error: 'Non authentifié.' });
+  req.player = player;
+  next();
+}
+
+function validImageDataUrl(data) {
+  return (
+    typeof data === 'string' &&
+    /^data:image\/(png|webp);base64,[A-Za-z0-9+/=]+$/.test(data) &&
+    data.length <= MAX_IMAGE_BYTES
+  );
+}
+
+// --- Joueurs -------------------------------------------------------------
+
+api.post('/register', (req, res) => {
+  const name = String(req.body?.name ?? '').trim();
+  if (!/^[\p{L}\p{N} _.-]{2,16}$/u.test(name)) {
+    return res.status(400).json({ error: 'Pseudo invalide (2 à 16 caractères).' });
+  }
+  if (q.playerByName.get(name)) {
+    return res.status(409).json({ error: 'Ce pseudo est déjà pris.' });
+  }
+  const id = crypto.randomUUID();
+  const token = crypto.randomBytes(24).toString('hex');
+  q.createPlayer.run(id, name, token, Date.now());
+  res.json({ id, name, token });
+});
+
+api.get('/me', auth, (req, res) => {
+  res.json({ id: req.player.id, name: req.player.name });
+});
+
+// --- État du monde -------------------------------------------------------
+
+api.get('/state', (req, res) => {
+  const games = q.listGames.all();
+  const leaderboards = {};
+  for (const g of games) leaderboards[g.id] = q.leaderboard.all(g.id);
+  res.json({ games, tags: q.listTags.all(), leaderboards });
+});
+
+api.get('/games/:id', (req, res) => {
+  const game = q.gameById.get(req.params.id);
+  if (!game) return res.status(404).json({ error: 'Borne introuvable.' });
+  res.json({
+    id: game.id,
+    title: game.title,
+    builtin: Boolean(game.builtin),
+    html: game.builtin ? null : game.html,
+  });
+});
+
+// --- Scores --------------------------------------------------------------
+
+api.post('/scores', auth, (req, res) => {
+  const { gameId, score, accuracy } = req.body ?? {};
+  const game = q.gameById.get(String(gameId ?? ''));
+  if (!game) return res.status(404).json({ error: 'Borne introuvable.' });
+
+  const s = Math.floor(Number(score));
+  if (!Number.isFinite(s) || s < 0 || s > 1_000_000_000) {
+    return res.status(400).json({ error: 'Score invalide.' });
+  }
+  let acc = null;
+  if (accuracy !== undefined && accuracy !== null) {
+    acc = Number(accuracy);
+    if (!Number.isFinite(acc) || acc < 0 || acc > 100) acc = null;
+  }
+
+  q.addScore.run(req.player.id, game.id, s, acc, Date.now());
+  const leaderboard = q.leaderboard.all(game.id);
+  broadcast({ t: 'leaderboard', gameId: game.id, rows: leaderboard });
+  res.json({ ok: true, leaderboard });
+});
+
+api.get('/leaderboard/:gameId', (req, res) => {
+  res.json({ rows: q.leaderboard.all(req.params.gameId) });
+});
+
+// --- Tags (graffiti) -----------------------------------------------------
+
+api.post('/tag-images', auth, (req, res) => {
+  const name = String(req.body?.name ?? 'tag').trim().slice(0, 24) || 'tag';
+  const data = req.body?.data;
+  if (!validImageDataUrl(data)) {
+    return res.status(400).json({ error: 'Image de tag invalide ou trop lourde.' });
+  }
+  const id = crypto.randomUUID();
+  q.createTagImage.run(id, req.player.id, name, data, Date.now());
+  res.json({ id, name, data });
+});
+
+api.get('/tag-images', auth, (req, res) => {
+  res.json({ images: q.tagImagesByPlayer.all(req.player.id) });
+});
+
+api.post('/tags', auth, (req, res) => {
+  const { image, p, quat, size } = req.body ?? {};
+  if (!validImageDataUrl(image)) {
+    return res.status(400).json({ error: 'Image de tag invalide.' });
+  }
+  const pos = Array.isArray(p) ? p.map(Number) : [];
+  const rot = Array.isArray(quat) ? quat.map(Number) : [];
+  const sz = Number(size);
+  if (
+    pos.length !== 3 || rot.length !== 4 ||
+    pos.some((v) => !Number.isFinite(v) || Math.abs(v) > 2000) ||
+    rot.some((v) => !Number.isFinite(v) || Math.abs(v) > 1.001) ||
+    !Number.isFinite(sz) || sz < 0.4 || sz > 6
+  ) {
+    return res.status(400).json({ error: 'Placement de tag invalide.' });
+  }
+
+  const id = crypto.randomUUID();
+  insertTagWithLimit([id, req.player.id, image, ...pos, ...rot, sz, Date.now()]);
+  const tag = {
+    id, image,
+    px: pos[0], py: pos[1], pz: pos[2],
+    qx: rot[0], qy: rot[1], qz: rot[2], qw: rot[3],
+    size: sz,
+    author: req.player.name,
+  };
+  broadcast({ t: 'tag', tag });
+  res.json({ tag });
+});
+
+// --- Génération IA de nouvelles bornes -----------------------------------
+
+api.post('/games', auth, async (req, res) => {
+  if (!aiAvailable()) {
+    return res.status(503).json({
+      error: "L'éditeur IA est désactivé : ANTHROPIC_API_KEY n'est pas configurée sur le serveur.",
+    });
+  }
+  const title = String(req.body?.title ?? '').trim();
+  const prompt = String(req.body?.prompt ?? '').trim();
+  if (title.length < 2 || title.length > 32) {
+    return res.status(400).json({ error: 'Titre invalide (2 à 32 caractères).' });
+  }
+  if (prompt.length < 10 || prompt.length > 2000) {
+    return res.status(400).json({ error: 'Description invalide (10 à 2000 caractères).' });
+  }
+  if (q.countCustomGames.get().n >= MAX_CUSTOM_GAMES) {
+    return res.status(409).json({ error: 'La salle d’arcade est pleine (30 bornes créées).' });
+  }
+  const last = q.lastGameByCreator.get(req.player.id)?.t ?? 0;
+  const wait = last + GAME_COOLDOWN_MS - Date.now();
+  if (wait > 0) {
+    return res.status(429).json({
+      error: `Patiente ${Math.ceil(wait / 1000)}s avant de créer une nouvelle borne.`,
+    });
+  }
+
+  try {
+    const html = await generateGame(title, prompt);
+    const id = 'g_' + crypto.randomUUID().slice(0, 8);
+    q.createGame.run(id, title.toUpperCase(), prompt, html, req.player.id, Date.now());
+    const meta = {
+      id, title: title.toUpperCase(), builtin: 0, prompt,
+      created_at: Date.now(), creator: req.player.name,
+    };
+    broadcast({ t: 'game', game: meta });
+    res.json({ game: meta });
+  } catch (err) {
+    console.error('Génération de borne échouée :', err);
+    res.status(502).json({
+      error: 'La génération du jeu a échoué : ' + (err?.message ?? 'erreur inconnue'),
+    });
+  }
+});
