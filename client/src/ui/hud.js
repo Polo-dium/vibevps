@@ -11,11 +11,28 @@ export function createUi() {
     <div id="hud-range" class="hidden"></div>
     <div id="hud-ammo" class="hidden"></div>
     <div id="toasts"></div>
+    <div id="hud-hp">❤ 100</div>
     <div id="help">
-      ZQSD bouger · Shift sprint · Espace saut · E interagir<br>
+      ZQSD bouger (sprint auto) · Espace saut · E interagir · clic tirer<br>
       F sprayer un tag · T éditeur de tags · 1 arme · R recharger · L classements
     </div>`;
   document.body.appendChild(hud);
+  const vignette = document.createElement('div');
+  vignette.id = 'vignette';
+  document.body.appendChild(vignette);
+
+  const hpEl = hud.querySelector('#hud-hp');
+  let vignetteTimer = null;
+
+  function setHp(hp) {
+    hpEl.textContent = `❤ ${Math.max(0, hp)}`;
+  }
+
+  function damageFlash(strong = false) {
+    vignette.style.opacity = strong ? '1' : '0.7';
+    clearTimeout(vignetteTimer);
+    vignetteTimer = setTimeout(() => { vignette.style.opacity = '0'; }, strong ? 500 : 180);
+  }
 
   const promptEl = hud.querySelector('#prompt');
   const infoEl = hud.querySelector('#hud-info');
@@ -239,6 +256,7 @@ export function createUi() {
 
   return {
     ensureAuth, toast, setPrompt, setInfo, setRange, setAmmo,
+    setHp, damageFlash,
     toggleLeaderboards, openCreator, closeTopOverlay,
   };
 }

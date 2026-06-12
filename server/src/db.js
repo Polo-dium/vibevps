@@ -67,6 +67,7 @@ const BUILTINS = [
   ['snake', 'SNAKE'],
   ['breakout', 'BREAKOUT'],
   ['shooting-range', 'STAND DE TIR'],
+  ['pvp', 'DUELS DE RUE'],
 ];
 const insertBuiltin = db.prepare(
   `INSERT OR IGNORE INTO games (id, title, builtin, created_at) VALUES (?, ?, 1, ?)`

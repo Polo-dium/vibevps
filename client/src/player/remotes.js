@@ -4,17 +4,17 @@ import * as net from '../net.js';
 
 const INTERP_DELAY = 0.12; // secondes de retard de rendu pour interpoler
 
-export function createRemotePlayers(scene) {
-  const remotes = new Map(); // id -> { group, buffer: [{t, p, ry}], name }
+export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
+  const remotes = new Map(); // id -> { group, body, head, buffer, name, flashUntil, baseColor }
 
   function spawn(id, name, p, ry) {
     if (remotes.has(id)) return;
     const group = new THREE.Group();
-    const color = hashColor(name);
+    const baseColor = hashColor(name);
 
     const body = new THREE.Mesh(
       new THREE.CapsuleGeometry(0.32, 0.85, 4, 10),
-      new THREE.MeshLambertMaterial({ color })
+      new THREE.MeshLambertMaterial({ color: baseColor })
     );
     body.position.y = 0.95;
     group.add(body);
@@ -39,20 +39,46 @@ export function createRemotePlayers(scene) {
     group.rotation.y = ry;
     scene.add(group);
 
-    remotes.set(id, { group, name, buffer: [{ t: performance.now() / 1000, p, ry }] });
+    // Le corps et la tête peuvent être touchés par les balles (PvP)
+    for (const mesh of [body, head]) {
+      mesh.userData.onHit = () => onHitRemote?.(id);
+      shootables?.push(mesh);
+    }
+
+    remotes.set(id, {
+      group, body, head, name, baseColor,
+      buffer: [{ t: performance.now() / 1000, p, ry }],
+      flashUntil: 0,
+    });
+  }
+
+  function remove(id) {
+    const r = remotes.get(id);
+    if (!r) return;
+    scene.remove(r.group);
+    if (shootables) {
+      for (const mesh of [r.body, r.head]) {
+        const i = shootables.indexOf(mesh);
+        if (i !== -1) shootables.splice(i, 1);
+      }
+    }
+    remotes.delete(id);
+  }
+
+  function flash(id) {
+    const r = remotes.get(id);
+    if (!r) return;
+    r.body.material.color.set(0xff2222);
+    r.flashUntil = performance.now() / 1000 + 0.25;
   }
 
   net.on('hello', (msg) => {
     for (const pl of msg.players) spawn(pl.id, pl.name, pl.p, pl.ry);
   });
   net.on('pjoin', (msg) => spawn(msg.id, msg.name, msg.p, msg.ry));
-  net.on('pleave', (msg) => {
-    const r = remotes.get(msg.id);
-    if (r) {
-      scene.remove(r.group);
-      remotes.delete(msg.id);
-    }
-  });
+  net.on('pleave', (msg) => remove(msg.id));
+  net.on('hp', (msg) => flash(msg.id));
+  net.on('death', (msg) => flash(msg.id));
   net.on('states', (msg) => {
     const now = performance.now() / 1000;
     for (const [id, x, y, z, ry] of msg.s) {
@@ -65,7 +91,12 @@ export function createRemotePlayers(scene) {
 
   function update() {
     const renderTime = performance.now() / 1000 - INTERP_DELAY;
+    const now = performance.now() / 1000;
     for (const r of remotes.values()) {
+      if (r.flashUntil && now > r.flashUntil) {
+        r.body.material.color.copy(r.baseColor);
+        r.flashUntil = 0;
+      }
       const buf = r.buffer;
       if (buf.length === 0) continue;
       let a = buf[0], b = buf[buf.length - 1];

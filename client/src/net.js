@@ -15,6 +15,10 @@ function emit(type, payload) {
   for (const fn of listeners.get(type) ?? []) fn(payload);
 }
 
+export function send(obj) {
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+}
+
 export function connect(stateProvider) {
   getLocalState = stateProvider;
   open();

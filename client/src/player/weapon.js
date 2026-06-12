@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 import { state } from '../state.js';
+import { IS_TOUCH } from './controls.js';
 
 const FIRE_INTERVAL = 0.1; // ~600 coups/min
 const MAG_SIZE = 30;
 const RELOAD_TIME = 1.6;
 const RANGE_DIST = 120;
+const TRACER_SPEED = 260; // m/s (visuel)
 
 export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot }) {
   const group = buildAkModel();
@@ -32,25 +34,84 @@ export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot }
   flash.position.set(0.02, 0.013, -0.62);
   group.add(flash);
 
-  // Impacts (étincelles temporaires)
-  const sparks = [];
-  const sparkGeo = new THREE.SphereGeometry(0.035, 6, 6);
-  const sparkMat = new THREE.MeshBasicMaterial({ color: 0xffe9a0 });
+  // --- Effets : traceurs et impacts (aussi utilisés pour les tirs des autres) ---
+  const tracers = []; // { mesh, dir, remaining }
+  const tracerGeo = new THREE.BoxGeometry(0.03, 0.03, 0.9);
+  const tracerMat = new THREE.MeshBasicMaterial({
+    color: 0xffe9a0, blending: THREE.AdditiveBlending, depthWrite: false,
+  });
 
+  const particles = []; // { mesh, vel, life, maxLife }
+  const particleGeo = new THREE.SphereGeometry(0.03, 5, 5);
+
+  function spawnTracer(a, b) {
+    const from = new THREE.Vector3(...a);
+    const to = new THREE.Vector3(...b);
+    const dir = to.clone().sub(from);
+    const dist = dir.length();
+    if (dist < 0.5) return;
+    dir.normalize();
+    const mesh = new THREE.Mesh(tracerGeo, tracerMat);
+    mesh.position.copy(from);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir);
+    scene.add(mesh);
+    tracers.push({ mesh, dir, remaining: dist });
+  }
+
+  function spawnImpact(point) {
+    const p = Array.isArray(point) ? new THREE.Vector3(...point) : point;
+    // Éclair central
+    const core = new THREE.Mesh(
+      particleGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0xfff3c0, transparent: true, opacity: 1,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      })
+    );
+    core.position.copy(p);
+    core.scale.setScalar(2.5);
+    scene.add(core);
+    particles.push({ mesh: core, vel: new THREE.Vector3(), life: 0.12, maxLife: 0.12 });
+    // Gerbe d'étincelles
+    for (let i = 0; i < 7; i++) {
+      const m = new THREE.Mesh(
+        particleGeo,
+        new THREE.MeshBasicMaterial({
+          color: i % 2 ? 0xffc964 : 0xff8a3d, transparent: true, opacity: 1,
+          blending: THREE.AdditiveBlending, depthWrite: false,
+        })
+      );
+      m.position.copy(p);
+      scene.add(m);
+      const vel = new THREE.Vector3(
+        (Math.random() - 0.5) * 5,
+        Math.random() * 4 + 1,
+        (Math.random() - 0.5) * 5
+      );
+      const life = 0.25 + Math.random() * 0.2;
+      particles.push({ mesh: m, vel, life, maxLife: life });
+    }
+  }
+
+  // --- Entrées ---
   window.addEventListener('mousedown', (e) => {
-    if (e.button === 0) triggerDown = true;
+    if (e.button === 0 && !IS_TOUCH) triggerDown = true;
   });
   window.addEventListener('mouseup', (e) => {
-    if (e.button === 0) triggerDown = false;
+    if (e.button === 0 && !IS_TOUCH) triggerDown = false;
   });
   window.addEventListener('keydown', (e) => {
     if (state.overlayOpen) return;
-    if (e.code === 'Digit1' || e.code === 'Ampersand') toggle();
-    if (e.code === 'KeyR' && state.weaponEquipped && reloading <= 0 && ammo < MAG_SIZE) {
+    if (e.code === 'Digit1') toggle();
+    if (e.code === 'KeyR') reload();
+  });
+
+  function reload() {
+    if (state.weaponEquipped && reloading <= 0 && ammo < MAG_SIZE) {
       reloading = RELOAD_TIME;
       onAmmoChange(ammo, true);
     }
-  });
+  }
 
   function toggle(force) {
     state.weaponEquipped = force ?? !state.weaponEquipped;
@@ -67,15 +128,23 @@ export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot }
     onAmmoChange(ammo, false);
 
     if (state.rangeSession) state.rangeSession.shots += 1;
-    onShot?.();
 
     raycaster.setFromCamera({ x: 0, y: 0 }, camera);
     const hits = raycaster.intersectObjects(shootables, false);
+
+    const muzzle = new THREE.Vector3();
+    flash.getWorldPosition(muzzle);
+    let end;
     if (hits.length > 0) {
       const hit = hits[0];
+      end = hit.point.clone();
       hit.object.userData.onHit?.(hit);
-      spawnSpark(hit.point);
+      spawnImpact(hit.point);
+    } else {
+      end = raycaster.ray.at(RANGE_DIST, new THREE.Vector3());
     }
+    spawnTracer(muzzle.toArray(), end.toArray());
+    onShot?.(muzzle.toArray(), end.toArray());
 
     if (ammo <= 0) {
       reloading = RELOAD_TIME;
@@ -83,24 +152,32 @@ export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot }
     }
   }
 
-  function spawnSpark(point) {
-    const mesh = new THREE.Mesh(sparkGeo, sparkMat.clone());
-    mesh.position.copy(point);
-    scene.add(mesh);
-    sparks.push({ mesh, life: 0.18 });
-  }
-
-  function update(dt, isMoving, isSprinting) {
+  function update(dt, isMoving) {
     flash.material.opacity = Math.max(0, flash.material.opacity - dt * 14);
     recoil = Math.max(0, recoil - dt * 9);
 
-    for (let i = sparks.length - 1; i >= 0; i--) {
-      sparks[i].life -= dt;
-      sparks[i].mesh.scale.multiplyScalar(1 + dt * 6);
-      sparks[i].mesh.material.opacity = sparks[i].life / 0.18;
-      if (sparks[i].life <= 0) {
-        scene.remove(sparks[i].mesh);
-        sparks.splice(i, 1);
+    // Traceurs en vol
+    for (let i = tracers.length - 1; i >= 0; i--) {
+      const t = tracers[i];
+      const step = TRACER_SPEED * dt;
+      t.mesh.position.addScaledVector(t.dir, step);
+      t.remaining -= step;
+      if (t.remaining <= 0) {
+        scene.remove(t.mesh);
+        tracers.splice(i, 1);
+      }
+    }
+    // Étincelles d'impact
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const s = particles[i];
+      s.life -= dt;
+      s.vel.y -= 12 * dt;
+      s.mesh.position.addScaledVector(s.vel, dt);
+      s.mesh.material.opacity = Math.max(0, s.life / s.maxLife);
+      if (s.life <= 0) {
+        scene.remove(s.mesh);
+        s.mesh.material.dispose();
+        particles.splice(i, 1);
       }
     }
 
@@ -115,21 +192,29 @@ export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot }
     }
 
     cooldown -= dt;
+    const inputOk = IS_TOUCH || state.pointerLocked;
     const canShoot =
-      state.pointerLocked && !state.overlayOpen &&
+      inputOk && !state.overlayOpen &&
       triggerDown && cooldown <= 0 && reloading <= 0 && ammo > 0;
     if (canShoot) shoot();
 
-    // Animation : balancement de marche + recul
-    bobTime += dt * (isMoving ? (isSprinting ? 11 : 7.5) : 2);
-    const bobX = Math.sin(bobTime) * (isMoving ? 0.009 : 0.002);
-    const bobY = Math.abs(Math.cos(bobTime)) * (isMoving ? 0.007 : 0.002);
+    // Animation : balancement de course + recul
+    bobTime += dt * (isMoving ? 10 : 2);
+    const bobX = Math.sin(bobTime) * (isMoving ? 0.01 : 0.002);
+    const bobY = Math.abs(Math.cos(bobTime)) * (isMoving ? 0.008 : 0.002);
     const reloadDip = reloading > 0 ? Math.sin((reloading / RELOAD_TIME) * Math.PI) * 0.16 : 0;
     group.position.set(0.26 + bobX, -0.24 - bobY - reloadDip, -0.45 + recoil * 0.06);
     group.rotation.set(recoil * 0.09 - reloadDip * 0.8, 0, 0);
   }
 
-  return { update, toggle, get ammo() { return ammo; } };
+  return {
+    update,
+    toggle,
+    reload,
+    setTrigger(down) { triggerDown = down; },
+    fx: { spawnTracer, spawnImpact },
+    get ammo() { return ammo; },
+  };
 }
 
 // AK-47 low-poly construite en primitives

@@ -5,9 +5,11 @@ import * as net from './net.js';
 import { buildCity } from './world/city.js';
 import { buildArcade } from './world/arcade.js';
 import { buildRange } from './world/range.js';
-import { createControls } from './player/controls.js';
+import { createControls, IS_TOUCH } from './player/controls.js';
 import { createWeapon } from './player/weapon.js';
 import { createRemotePlayers } from './player/remotes.js';
+import { createTouchControls } from './ui/touch.js';
+import { SPAWN } from './world/layout.js';
 import { createSpray } from './tags/spray.js';
 import { createTagEditor } from './tags/editor.js';
 import { createGameShell } from './games/shell.js';
@@ -100,12 +102,40 @@ async function boot() {
   const controls = createControls(camera, renderer.domElement, ctx.colliders);
   const weapon = createWeapon(camera, scene, ctx.shootables, {
     onAmmoChange: (ammo, reloading) => ui.setAmmo(ammo, reloading, state.weaponEquipped),
-    onShot: null,
+    onShot: (a, b) => net.send({ t: 'shot', a, b }),
   });
-  const remotes = createRemotePlayers(scene);
+  const remotes = createRemotePlayers(scene, ctx.shootables, {
+    onHitRemote: (id) => net.send({ t: 'hit', target: id }),
+  });
   const spray = createSpray(scene, camera, ctx.taggables, { onToast: ui.toast });
   spray.loadExisting(state.tags);
   const tagEditor = createTagEditor({ onToast: ui.toast });
+
+  // --- PvP ---
+  let myNetId = null;
+  net.on('hello', (msg) => { myNetId = msg.id; ui.setHp(100); });
+  net.on('shot', (msg) => {
+    weapon.fx.spawnTracer(msg.a, msg.b);
+    weapon.fx.spawnImpact(msg.b);
+  });
+  net.on('hp', (msg) => {
+    if (msg.id === myNetId) {
+      ui.setHp(msg.hp);
+      ui.damageFlash();
+    }
+  });
+  net.on('death', (msg) => {
+    if (msg.id === myNetId) {
+      controls.teleport(SPAWN.x, SPAWN.y, SPAWN.z);
+      ui.setHp(100);
+      ui.damageFlash(true);
+      ui.toast(`💀 Tu as été abattu par ${msg.byName} ! Retour à Bellecour.`);
+    } else if (msg.by === myNetId) {
+      ui.toast(`🎯 Tu as abattu ${msg.victimName} ! (${msg.kills} kill${msg.kills > 1 ? 's' : ''} cette session)`);
+    } else {
+      ui.toast(`☠ ${msg.byName} a abattu ${msg.victimName}`);
+    }
+  });
 
   // --- Réseau ---
   net.connect(() => controls.netState());
@@ -141,6 +171,14 @@ async function boot() {
     if (e.code === 'KeyL') ui.toggleLeaderboards();
   });
 
+  // --- Contrôles tactiles (mobile) ---
+  if (IS_TOUCH) {
+    createTouchControls({
+      controls, weapon, spray, tagEditor, ui,
+      interact: () => nearestInteractable?.action(),
+    });
+  }
+
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
@@ -170,7 +208,7 @@ async function boot() {
     const dt = Math.min(clock.getDelta(), 0.05);
 
     controls.update(dt);
-    weapon.update(dt, controls.isMoving(), controls.isSprinting());
+    weapon.update(dt, controls.isMoving());
     remotes.update();
     range.update(dt);
 

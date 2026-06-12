@@ -93,7 +93,8 @@ export function buildArcade(ctx, { onPlayGame, onOpenCreator }) {
 
   function syncMachines(games) {
     for (const game of games) {
-      if (game.id === 'shooting-range' || placed.has(game.id)) continue;
+      // Le stand de tir et le PvP ont un leaderboard mais pas de borne
+      if (game.id === 'shooting-range' || game.id === 'pvp' || placed.has(game.id)) continue;
       if (nextSlot >= slots.length) return;
       const slot = slots[nextSlot++];
       placed.set(game.id, true);

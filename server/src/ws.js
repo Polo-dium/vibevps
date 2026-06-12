@@ -3,8 +3,11 @@ import crypto from 'node:crypto';
 import { q } from './db.js';
 
 const TICK_MS = 66; // ~15 Hz
+const HIT_DAMAGE = 25;
+const HIT_MIN_INTERVAL_MS = 75; // cadence max de l'AK côté serveur
+const SHOT_MIN_INTERVAL_MS = 60;
 
-/** @type {Map<string, {ws: import('ws').WebSocket, name: string, p: number[], ry: number, m: number, dirty: boolean}>} */
+/** @type {Map<string, object>} */
 const players = new Map();
 let wss = null;
 
@@ -33,10 +36,15 @@ export function setupWs(httpServer) {
         const entry = {
           ws,
           name: player.name,
+          playerId: player.id,
           p: [0, 2, 0],
           ry: 0,
           m: 0,
           dirty: false,
+          hp: 100,
+          kills: 0,
+          lastHitAt: 0,
+          lastShotAt: 0,
         };
         const others = [...players.entries()].map(([oid, o]) => ({
           id: oid, name: o.name, p: o.p, ry: o.ry,
@@ -48,18 +56,65 @@ export function setupWs(httpServer) {
       }
 
       if (!id) return;
+      const me = players.get(id);
+      if (!me) return;
 
       if (msg.t === 's') {
-        const entry = players.get(id);
-        if (!entry) return;
         const p = Array.isArray(msg.p) ? msg.p.map(Number) : null;
         const ry = Number(msg.ry);
         if (!p || p.length !== 3 || p.some((v) => !Number.isFinite(v))) return;
         if (!Number.isFinite(ry)) return;
-        entry.p = p;
-        entry.ry = ry;
-        entry.m = msg.m ? 1 : 0;
-        entry.dirty = true;
+        me.p = p;
+        me.ry = ry;
+        me.m = msg.m ? 1 : 0;
+        me.dirty = true;
+        return;
+      }
+
+      // Trajectoire de balle, relayée aux autres pour les traceurs
+      if (msg.t === 'shot') {
+        const now = Date.now();
+        if (now - me.lastShotAt < SHOT_MIN_INTERVAL_MS) return;
+        me.lastShotAt = now;
+        const a = Array.isArray(msg.a) ? msg.a.map(Number) : null;
+        const b = Array.isArray(msg.b) ? msg.b.map(Number) : null;
+        if (!a || !b || a.length !== 3 || b.length !== 3) return;
+        if ([...a, ...b].some((v) => !Number.isFinite(v) || Math.abs(v) > 2000)) return;
+        broadcast({ t: 'shot', id, a, b }, id);
+        return;
+      }
+
+      // Un joueur déclare avoir touché un autre joueur
+      if (msg.t === 'hit') {
+        const now = Date.now();
+        if (now - me.lastHitAt < HIT_MIN_INTERVAL_MS) return;
+        me.lastHitAt = now;
+
+        const target = players.get(String(msg.target ?? ''));
+        if (!target || target === me) return;
+
+        target.hp -= HIT_DAMAGE;
+        if (target.hp > 0) {
+          broadcast({ t: 'hp', id: msg.target, hp: target.hp, by: id });
+        } else {
+          target.hp = 100; // respawn
+          me.kills += 1;
+          try {
+            q.addScore.run(me.playerId, 'pvp', me.kills, null, Date.now());
+            broadcast({ t: 'leaderboard', gameId: 'pvp', rows: q.leaderboard.all('pvp') });
+          } catch (err) {
+            console.error('Score PvP non enregistré :', err);
+          }
+          broadcast({
+            t: 'death',
+            id: msg.target,
+            by: id,
+            byName: me.name,
+            victimName: target.name,
+            kills: me.kills,
+          });
+        }
+        return;
       }
     });
 
