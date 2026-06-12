@@ -10,8 +10,10 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, in
     <div class="touch-col" id="touch-actions">
       <button class="tbtn tbtn-small" id="tb-tag">🎨</button>
       <button class="tbtn tbtn-small" id="tb-lb">🏆</button>
+      <button class="tbtn tbtn-small" id="tb-color">🌈</button>
       <button class="tbtn tbtn-small" id="tb-gun">🔫</button>
       <button class="tbtn" id="tb-spray">TAG</button>
+      <button class="tbtn" id="tb-stamp">🖼</button>
       <button class="tbtn" id="tb-use">E</button>
       <button class="tbtn" id="tb-jump">SAUT</button>
       <button class="tbtn tbtn-fire" id="tb-fire">TIR</button>
@@ -97,12 +99,22 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, in
 
   bind('#tb-jump', () => controls.jump());
   bind('#tb-use', () => interact());
-  bind('#tb-spray', () => spray.trySpray());
+  bind('#tb-spray', () => spray.toggleMode()); // mode bombe de peinture
+  bind('#tb-stamp', () => spray.stampTag());
+  bind('#tb-color', () => spray.cycleColor(1));
   bind('#tb-gun', () => weapon.toggle());
   bind('#tb-tag', () => tagEditor.open());
   bind('#tb-lb', () => ui.toggleLeaderboards());
+  // En mode bombe, le bouton TIR devient le bouton PEINDRE
   bind('#tb-fire', () => {
-    if (!state.weaponEquipped) weapon.toggle(true);
-    weapon.setTrigger(true);
-  }, () => weapon.setTrigger(false));
+    if (state.tagMode) {
+      spray.setPaint(true);
+    } else {
+      if (!state.weaponEquipped) weapon.toggle(true);
+      weapon.setTrigger(true);
+    }
+  }, () => {
+    spray.setPaint(false);
+    weapon.setTrigger(false);
+  });
 }

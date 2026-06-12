@@ -158,6 +158,8 @@ export function createControls(camera, domElement, colliders) {
     get position() { return pos; },
     get yaw() { return yaw; },
     isMoving() { return Math.hypot(vel.x, vel.z) > 0.5; },
+    speed() { return Math.hypot(vel.x, vel.z); },
+    get onGround() { return onGround; },
     setTouchMove(fwd, strafe) {
       touchMove.fwd = fwd;
       touchMove.strafe = strafe;

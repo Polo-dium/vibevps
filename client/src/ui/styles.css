@@ -254,3 +254,37 @@ button.ghost {
   box-shadow: inset 0 0 140px rgba(255, 20, 30, 0.85);
   opacity: 0; transition: opacity 0.35s;
 }
+
+/* Bannière de série de kills */
+#killbanner {
+  position: absolute; left: 50%; top: 24%;
+  transform: translateX(-50%);
+  font-family: 'Courier New', monospace;
+  font-size: 52px; font-weight: 900;
+  letter-spacing: 4px;
+  color: #ff4d4d;
+  text-shadow: 0 0 24px rgba(255, 40, 40, 0.9), 0 2px 4px #000;
+  animation: kill-pop 1.9s ease-out;
+  white-space: nowrap;
+}
+@keyframes kill-pop {
+  0% { opacity: 0; transform: translateX(-50%) scale(2.2); }
+  12% { opacity: 1; transform: translateX(-50%) scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Indication mode bombe de peinture */
+#tagmode-hint {
+  position: absolute; left: 50%; bottom: 12%;
+  transform: translateX(-50%);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+@media (pointer: coarse) {
+  #tagmode-hint { display: none; }
+}

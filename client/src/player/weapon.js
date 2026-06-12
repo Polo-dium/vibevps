@@ -1,14 +1,16 @@
 import * as THREE from 'three';
 import { state } from '../state.js';
 import { IS_TOUCH } from './controls.js';
+import { audio } from '../audio.js';
 
 const FIRE_INTERVAL = 0.1; // ~600 coups/min
 const MAG_SIZE = 30;
 const RELOAD_TIME = 1.6;
 const RANGE_DIST = 120;
 const TRACER_SPEED = 260; // m/s (visuel)
+const MAX_SHELLS = 36;
 
-export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot }) {
+export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot, getGroundY }) {
   const group = buildAkModel();
   group.visible = false;
   camera.add(group);
@@ -43,6 +45,37 @@ export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot }
 
   const particles = []; // { mesh, vel, life, maxLife }
   const particleGeo = new THREE.SphereGeometry(0.03, 5, 5);
+
+  // Douilles éjectées
+  const shells = []; // { mesh, vel, spin, life, bounces }
+  const shellGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.04, 6);
+  const shellMat = new THREE.MeshLambertMaterial({ color: 0xc9a227 });
+
+  function spawnShell() {
+    if (shells.length >= MAX_SHELLS) {
+      const old = shells.shift();
+      scene.remove(old.mesh);
+    }
+    const mesh = new THREE.Mesh(shellGeo, shellMat);
+    // Éjection depuis la culasse (à droite de l'arme)
+    const breech = new THREE.Vector3(0.05, -0.01, -0.2);
+    group.localToWorld(breech);
+    mesh.position.copy(breech);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    const up = new THREE.Vector3(0, 1, 0);
+    const vel = right.multiplyScalar(1.6 + Math.random() * 0.8)
+      .addScaledVector(up, 2.2 + Math.random() * 0.8);
+    vel.x += (Math.random() - 0.5) * 0.6;
+    vel.z += (Math.random() - 0.5) * 0.6;
+    mesh.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+    scene.add(mesh);
+    shells.push({
+      mesh, vel,
+      spin: new THREE.Vector3(Math.random() * 14 - 7, Math.random() * 14 - 7, Math.random() * 14 - 7),
+      life: 2.4,
+      bounces: 0,
+    });
+  }
 
   function spawnTracer(a, b) {
     const from = new THREE.Vector3(...a);
@@ -109,6 +142,7 @@ export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot }
   function reload() {
     if (state.weaponEquipped && reloading <= 0 && ammo < MAG_SIZE) {
       reloading = RELOAD_TIME;
+      audio.reload();
       onAmmoChange(ammo, true);
     }
   }
@@ -125,6 +159,8 @@ export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot }
     recoil = 1;
     flash.material.opacity = 1;
     flash.rotation.z = Math.random() * Math.PI;
+    audio.gunshot();
+    spawnShell();
     onAmmoChange(ammo, false);
 
     if (state.rangeSession) state.rangeSession.shots += 1;
@@ -148,6 +184,7 @@ export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot }
 
     if (ammo <= 0) {
       reloading = RELOAD_TIME;
+      audio.reload();
       onAmmoChange(0, true);
     }
   }
@@ -167,6 +204,32 @@ export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot }
         tracers.splice(i, 1);
       }
     }
+    // Douilles : chute, rebond métallique, disparition
+    const groundY = getGroundY ? getGroundY() : 0;
+    for (let i = shells.length - 1; i >= 0; i--) {
+      const s = shells[i];
+      s.life -= dt;
+      s.vel.y -= 18 * dt;
+      s.mesh.position.addScaledVector(s.vel, dt);
+      s.mesh.rotation.x += s.spin.x * dt;
+      s.mesh.rotation.y += s.spin.y * dt;
+      s.mesh.rotation.z += s.spin.z * dt;
+      if (s.mesh.position.y < groundY + 0.02 && s.vel.y < 0) {
+        s.mesh.position.y = groundY + 0.02;
+        s.vel.y *= -0.35;
+        s.vel.x *= 0.55;
+        s.vel.z *= 0.55;
+        s.spin.multiplyScalar(0.5);
+        if (s.bounces < 2) audio.shellBounce();
+        s.bounces += 1;
+        if (s.bounces > 3) s.vel.set(0, 0, 0);
+      }
+      if (s.life <= 0) {
+        scene.remove(s.mesh);
+        shells.splice(i, 1);
+      }
+    }
+
     // Étincelles d'impact
     for (let i = particles.length - 1; i >= 0; i--) {
       const s = particles[i];
@@ -194,7 +257,7 @@ export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot }
     cooldown -= dt;
     const inputOk = IS_TOUCH || state.pointerLocked;
     const canShoot =
-      inputOk && !state.overlayOpen &&
+      inputOk && !state.overlayOpen && !state.tagMode &&
       triggerDown && cooldown <= 0 && reloading <= 0 && ammo > 0;
     if (canShoot) shoot();
 

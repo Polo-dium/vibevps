@@ -12,9 +12,12 @@ export function createUi() {
     <div id="hud-ammo" class="hidden"></div>
     <div id="toasts"></div>
     <div id="hud-hp">❤ 100</div>
+    <div id="killbanner" class="hidden"></div>
+    <div id="tagmode-hint" class="hidden"></div>
     <div id="help">
       ZQSD bouger (sprint auto) · Espace saut · E interagir · clic tirer<br>
-      F sprayer un tag · T éditeur de tags · 1 arme · R recharger · L classements
+      F bombe de peinture (clic = graffiti, molette = couleur) · G poser ton tag<br>
+      T éditeur de tags · 1 arme · R recharger · L classements
     </div>`;
   document.body.appendChild(hud);
   const vignette = document.createElement('div');
@@ -22,7 +25,39 @@ export function createUi() {
   document.body.appendChild(vignette);
 
   const hpEl = hud.querySelector('#hud-hp');
+  const crosshairEl = hud.querySelector('#crosshair');
+  const killbannerEl = hud.querySelector('#killbanner');
+  const tagHintEl = hud.querySelector('#tagmode-hint');
   let vignetteTimer = null;
+  let killbannerTimer = null;
+
+  function killBanner(text) {
+    killbannerEl.textContent = text;
+    killbannerEl.classList.remove('hidden');
+    killbannerEl.style.animation = 'none';
+    void killbannerEl.offsetWidth; // relance l'animation CSS
+    killbannerEl.style.animation = '';
+    clearTimeout(killbannerTimer);
+    killbannerTimer = setTimeout(() => killbannerEl.classList.add('hidden'), 1900);
+  }
+
+  function setTagMode(paintColor) {
+    if (paintColor) {
+      crosshairEl.style.background = paintColor;
+      crosshairEl.style.width = '12px';
+      crosshairEl.style.height = '12px';
+      crosshairEl.style.margin = '-6px';
+      tagHintEl.textContent = `🎨 Mode bombe — clic : graffiti à main levée · G : poser ton tag · molette : couleur`;
+      tagHintEl.style.borderColor = paintColor;
+      tagHintEl.classList.remove('hidden');
+    } else {
+      crosshairEl.style.background = 'rgba(255, 255, 255, 0.9)';
+      crosshairEl.style.width = '6px';
+      crosshairEl.style.height = '6px';
+      crosshairEl.style.margin = '-3px';
+      tagHintEl.classList.add('hidden');
+    }
+  }
 
   function setHp(hp) {
     hpEl.textContent = `❤ ${Math.max(0, hp)}`;
@@ -256,7 +291,7 @@ export function createUi() {
 
   return {
     ensureAuth, toast, setPrompt, setInfo, setRange, setAmmo,
-    setHp, damageFlash,
+    setHp, damageFlash, killBanner, setTagMode,
     toggleLeaderboards, openCreator, closeTopOverlay,
   };
 }

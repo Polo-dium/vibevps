@@ -9,8 +9,10 @@ const PALETTE = ['#cbb697', '#d8c3a5', '#c49a7a', '#b98d6f', '#d6a77a', '#bfae9b
 export function buildCity(ctx) {
   const rand = makeRand(1337);
   buildGroundAndRivers(ctx);
+  buildRoads(ctx);
   buildBellecour(ctx);
   buildBuildings(ctx, rand);
+  buildSkyline(ctx, rand);
   buildMurPeint(ctx);
   buildLandmarks(ctx, rand);
   buildDecor(ctx, rand);
@@ -27,10 +29,13 @@ export function buildCity(ctx) {
 }
 
 function buildGroundAndRivers(ctx) {
-  // Sol asphalte
+  // Sol asphalte texturé (grain procédural)
+  const groundTex = makeAsphaltTexture();
+  groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping;
+  groundTex.repeat.set(90, 90);
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(560, 560),
-    new THREE.MeshLambertMaterial({ color: 0x3c4250 })
+    new THREE.MeshLambertMaterial({ map: groundTex })
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = 0;
@@ -73,6 +78,100 @@ function buildGroundAndRivers(ctx) {
   }
 }
 
+function makeAsphaltTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#414755';
+  g.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 900; i++) {
+    const v = 50 + Math.random() * 40;
+    g.fillStyle = `rgba(${v + 10}, ${v + 14}, ${v + 24}, 0.5)`;
+    g.fillRect(Math.random() * 128, Math.random() * 128, 1.6, 1.6);
+  }
+  return new THREE.CanvasTexture(canvas);
+}
+
+function makeRoadTexture() {
+  // Bande de route sombre avec ligne centrale en pointillés
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 128;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#31363f';
+  g.fillRect(0, 0, 64, 128);
+  for (let i = 0; i < 200; i++) {
+    const v = 40 + Math.random() * 30;
+    g.fillStyle = `rgba(${v}, ${v + 4}, ${v + 12}, 0.5)`;
+    g.fillRect(Math.random() * 64, Math.random() * 128, 1.5, 1.5);
+  }
+  g.fillStyle = '#cdd2b8';
+  g.fillRect(29, 12, 6, 44); // pointillé central
+  g.fillRect(29, 76, 6, 44);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+function buildRoads(ctx) {
+  const tex = makeRoadTexture();
+  // [cx, cz, largeur, longueur, le long de X ?]
+  const segments = [
+    [-119, 0, 9, 30, true],   // EW : Vieux Lyon
+    [-11, 0, 9, 132, true],   // EW : Presqu'île (entre les deux fleuves)
+    [111, 0, 9, 96, true],    // EW : rive gauche du Rhône
+    [12, -75.5, 9, 119, false], // NS : nord de Bellecour
+    [12, 82, 9, 108, false],    // NS : sud de Bellecour
+    [-50, -75.5, 9, 119, false],
+    [-50, 82, 9, 108, false],
+    [110, -70, 9, 130, false],  // NS : Part-Dieu
+  ];
+  for (const [cx, cz, w, len, alongX] of segments) {
+    const t = tex.clone();
+    t.needsUpdate = true;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(1, Math.max(1, Math.round(len / 9)));
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, len),
+      new THREE.MeshLambertMaterial({ map: t })
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    if (alongX) mesh.rotation.z = Math.PI / 2;
+    // Hauteurs distinctes pour éviter le scintillement aux croisements
+    mesh.position.set(cx, alongX ? 0.015 : 0.018, cz);
+    ctx.scene.add(mesh);
+  }
+}
+
+function buildSkyline(ctx, rand) {
+  // Silhouette urbaine au-delà de la zone jouable : 1 seul draw call
+  const positions = [];
+  for (let i = 0; i < 70; i++) {
+    const angle = rand() * Math.PI * 2;
+    const dist = 165 + rand() * 110;
+    const x = Math.cos(angle) * dist;
+    const z = Math.sin(angle) * dist;
+    if (x < -130 && Math.abs(z) < 70) continue; // on laisse la place à Fourvière
+    positions.push([x, z, 10 + rand() * 16, 15 + rand() * 40]);
+  }
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  geo.translate(0, 0.5, 0);
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const inst = new THREE.InstancedMesh(geo, mat, positions.length);
+  const m = new THREE.Matrix4();
+  const c = new THREE.Color();
+  positions.forEach(([x, z, w, h], i) => {
+    m.makeScale(w, h, w);
+    m.setPosition(x, 0, z);
+    inst.setMatrixAt(i, m);
+    c.setHSL(0.6, 0.12, 0.32 + rand() * 0.12);
+    inst.setColorAt(i, c);
+  });
+  inst.instanceMatrix.needsUpdate = true;
+  ctx.scene.add(inst);
+}
+
 function buildBellecour(ctx) {
   const plaza = new THREE.Mesh(
     new THREE.PlaneGeometry(BELLECOUR.maxX - BELLECOUR.minX, BELLECOUR.maxZ - BELLECOUR.minZ),
@@ -108,45 +207,127 @@ function buildBuildings(ctx, rand) {
       x + half > r.minX && x - half < r.maxX && z + half > r.minZ && z - half < r.maxZ
     );
 
-  for (let gx = -126; gx <= 126; gx += 26) {
-    for (let gz = -126; gz <= 126; gz += 26) {
-      const x = gx + (rand() - 0.5) * 5;
-      const z = gz + (rand() - 0.5) * 5;
-      const w = 13 + rand() * 6;
-      const d = 13 + rand() * 6;
+  const lots = [];
+  const antennaMat = new THREE.MeshLambertMaterial({ color: 0x444a55 });
+  const acMat = new THREE.MeshLambertMaterial({ color: 0x9aa0a8 });
+
+  for (let gx = -126; gx <= 126; gx += 24) {
+    for (let gz = -126; gz <= 126; gz += 24) {
+      const x = gx + (rand() - 0.5) * 4;
+      const z = gz + (rand() - 0.5) * 4;
+      const w = 12 + rand() * 6;
+      const d = 12 + rand() * 6;
       if (isReserved(x, z, Math.max(w, d) / 2 + 1)) continue;
       // Croix-Rousse (nord) et Vieux Lyon (ouest) : immeubles plus hauts/serrés
       const tall = z < -90 || x < -104;
       const h = (tall ? 12 : 8) + rand() * (tall ? 14 : 12);
       const color = new THREE.Color(PALETTE[Math.floor(rand() * PALETTE.length)]);
       const mesh = addBox(ctx, { x, z, w, h, d, color, taggable: true });
-      paintFacade(mesh, rand);
-      // Toit
-      addBox(ctx, { x, y: h, z, w: w + 0.6, h: 0.5, d: d + 0.6, color: 0x6b4f3f, collider: false });
+      paintFacade(mesh, rand, h);
+      // Corniche / toit débordant
+      addBox(ctx, { x, y: h, z, w: w + 0.8, h: 0.45, d: d + 0.8, color: 0x7d6a58, collider: false });
+      lots.push({ x, z, w, d });
+
+      // Détails de toit (pas de collider : purement décoratif)
+      if (rand() < 0.45) {
+        const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2 + rand() * 3, 5), antennaMat);
+        ant.position.set(x + (rand() - 0.5) * w * 0.5, h + 1.4, z + (rand() - 0.5) * d * 0.5);
+        ctx.scene.add(ant);
+      }
+      if (rand() < 0.35) {
+        const ac = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.7, 1.2), acMat);
+        ac.position.set(x + (rand() - 0.5) * w * 0.4, h + 0.8, z + (rand() - 0.5) * d * 0.4);
+        ctx.scene.add(ac);
+      }
+      // Cheminées lyonnaises
+      if (rand() < 0.5) {
+        const chim = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.4, 0.6),
+          new THREE.MeshLambertMaterial({ color: 0xb05a4a }));
+        chim.position.set(x + (rand() - 0.5) * w * 0.5, h + 1.1, z + (rand() - 0.5) * d * 0.5);
+        ctx.scene.add(chim);
+      }
     }
   }
+
+  // Trottoirs : un seul InstancedMesh pour tous les îlots
+  const walkGeo = new THREE.PlaneGeometry(1, 1);
+  walkGeo.rotateX(-Math.PI / 2);
+  const walk = new THREE.InstancedMesh(
+    walkGeo,
+    new THREE.MeshLambertMaterial({ color: 0x596170 }),
+    lots.length
+  );
+  const m = new THREE.Matrix4();
+  lots.forEach((lot, i) => {
+    m.makeScale(lot.w + 5, 1, lot.d + 5);
+    m.setPosition(lot.x, 0.012, lot.z);
+    walk.setMatrixAt(i, m);
+  });
+  walk.instanceMatrix.needsUpdate = true;
+  ctx.scene.add(walk);
 }
 
-// Fenêtres : une texture canvas par immeuble, dimensionnée selon sa taille.
-function paintFacade(mesh, rand) {
+// Façade : texture canvas par immeuble — fenêtres encadrées avec appuis,
+// rez-de-chaussée commerçant, corniche claire et ombrage au pied du mur.
+function paintFacade(mesh, rand, buildingH) {
   const { width, height, depth } = mesh.geometry.parameters;
   const canvas = document.createElement('canvas');
-  canvas.width = 64;
-  canvas.height = 64;
+  canvas.width = 96;
+  canvas.height = 192;
   const g = canvas.getContext('2d');
-  const base = '#' + mesh.material.color.getHexString();
-  g.fillStyle = base;
-  g.fillRect(0, 0, 64, 64);
+  const baseColor = mesh.material.color;
+  g.fillStyle = '#' + baseColor.getHexString();
+  g.fillRect(0, 0, 96, 192);
+
+  const storeH = Math.min(40, Math.round(192 * (3.2 / buildingH))); // rez-de-chaussée
   const rows = Math.max(2, Math.floor(height / 3));
-  const cols = Math.max(2, Math.floor(Math.max(width, depth) / 3));
-  const ch = 64 / rows, cw = 64 / cols;
+  const cols = Math.max(2, Math.floor(Math.max(width, depth) / 2.6));
+  const usableH = 192 - storeH - 8;
+  const ch = usableH / rows, cw = 96 / cols;
+
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      g.fillStyle = rand() < 0.25 ? '#ffd98a' : '#222a38';
-      g.fillRect(c * cw + cw * 0.25, r * ch + ch * 0.2, cw * 0.5, ch * 0.55);
+      const wx = c * cw + cw * 0.22;
+      const wy = 8 + r * ch + ch * 0.18;
+      const ww = cw * 0.56, wh = ch * 0.6;
+      // Encadrement clair
+      g.fillStyle = 'rgba(255, 255, 255, 0.35)';
+      g.fillRect(wx - 1.5, wy - 1.5, ww + 3, wh + 3);
+      // Vitre (allumée ou pas) avec léger dégradé
+      const lit = rand() < 0.22;
+      g.fillStyle = lit ? '#ffd98a' : '#26303f';
+      g.fillRect(wx, wy, ww, wh);
+      if (!lit) {
+        g.fillStyle = 'rgba(140, 175, 210, 0.35)'; // reflet de ciel
+        g.fillRect(wx, wy, ww, wh * 0.35);
+      }
+      // Appui de fenêtre
+      g.fillStyle = 'rgba(0, 0, 0, 0.25)';
+      g.fillRect(wx - 2, wy + wh, ww + 4, 2);
     }
   }
+
+  // Bande de corniche claire en haut
+  g.fillStyle = 'rgba(255, 255, 255, 0.25)';
+  g.fillRect(0, 0, 96, 5);
+
+  // Rez-de-chaussée : devanture sombre + porte
+  g.fillStyle = 'rgba(20, 24, 34, 0.85)';
+  g.fillRect(0, 192 - storeH, 96, storeH);
+  g.fillStyle = 'rgba(255, 220, 150, 0.5)'; // vitrine éclairée
+  g.fillRect(8, 192 - storeH + 6, 50, storeH - 12);
+  g.fillStyle = '#3a2c1e';
+  g.fillRect(68, 192 - storeH + 4, 18, storeH - 4); // porte
+
+  // Ombre au pied du mur (faux ambient occlusion)
+  const grad = g.createLinearGradient(0, 192 - storeH - 18, 0, 192);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.28)');
+  g.fillStyle = grad;
+  g.fillRect(0, 192 - storeH - 18, 96, storeH + 18);
+
   const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
   mesh.material = new THREE.MeshLambertMaterial({ map: tex });
 }
 

@@ -10,6 +10,8 @@ import { createWeapon } from './player/weapon.js';
 import { createRemotePlayers } from './player/remotes.js';
 import { createTouchControls } from './ui/touch.js';
 import { SPAWN } from './world/layout.js';
+import { createNpcs } from './world/npcs.js';
+import { audio } from './audio.js';
 import { createSpray } from './tags/spray.js';
 import { createTagEditor } from './tags/editor.js';
 import { createGameShell } from './games/shell.js';
@@ -29,6 +31,8 @@ async function boot() {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
   document.querySelector('#app').appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -103,13 +107,37 @@ async function boot() {
   const weapon = createWeapon(camera, scene, ctx.shootables, {
     onAmmoChange: (ammo, reloading) => ui.setAmmo(ammo, reloading, state.weaponEquipped),
     onShot: (a, b) => net.send({ t: 'shot', a, b }),
+    getGroundY: () => controls.position.y,
   });
   const remotes = createRemotePlayers(scene, ctx.shootables, {
-    onHitRemote: (id) => net.send({ t: 'hit', target: id }),
+    onHitRemote: (id) => {
+      audio.hitmarker();
+      net.send({ t: 'hit', target: id });
+    },
   });
-  const spray = createSpray(scene, camera, ctx.taggables, { onToast: ui.toast });
+  const spray = createSpray(scene, camera, ctx.taggables, {
+    onToast: ui.toast,
+    onModeChange: (on, paintColor) => {
+      if (on && state.weaponEquipped) weapon.toggle(false);
+      ui.setTagMode(on ? paintColor : null);
+    },
+  });
   spray.loadExisting(state.tags);
   const tagEditor = createTagEditor({ onToast: ui.toast });
+  const npcs = createNpcs(ctx, { getPlayerPos: () => controls.position });
+
+  // Peinture à main levée : clic maintenu en mode bombe
+  window.addEventListener('mousedown', (e) => {
+    if (e.button === 0 && state.tagMode) spray.setPaint(true);
+  });
+  window.addEventListener('mouseup', (e) => {
+    if (e.button === 0) spray.setPaint(false);
+  });
+  window.addEventListener('wheel', (e) => {
+    if (state.tagMode && !state.overlayOpen) {
+      spray.cycleColor(e.deltaY > 0 ? 1 : -1);
+    }
+  });
 
   // --- PvP ---
   let myNetId = null;
@@ -124,6 +152,11 @@ async function boot() {
       ui.damageFlash();
     }
   });
+  // Série de kills → annonce vocale + bannière
+  let killTimes = [];
+  const STREAK_LABELS = ['K.O. !', 'DOUBLE KILL !', 'TRIPLE KILL !', 'QUADRA KILL !', 'MONSTER KILL !!'];
+  const STREAK_VOICE = ['K.O.', 'Double kill', 'Triple kill', 'Quadra kill', 'Monster kill'];
+
   net.on('death', (msg) => {
     if (msg.id === myNetId) {
       controls.teleport(SPAWN.x, SPAWN.y, SPAWN.z);
@@ -131,6 +164,12 @@ async function boot() {
       ui.damageFlash(true);
       ui.toast(`💀 Tu as été abattu par ${msg.byName} ! Retour à Bellecour.`);
     } else if (msg.by === myNetId) {
+      const now = Date.now();
+      killTimes = killTimes.filter((t) => now - t < 9000);
+      killTimes.push(now);
+      const idx = Math.min(killTimes.length, STREAK_LABELS.length) - 1;
+      ui.killBanner(STREAK_LABELS[idx]);
+      audio.announce(STREAK_VOICE[idx]);
       ui.toast(`🎯 Tu as abattu ${msg.victimName} ! (${msg.kills} kill${msg.kills > 1 ? 's' : ''} cette session)`);
     } else {
       ui.toast(`☠ ${msg.byName} a abattu ${msg.victimName}`);
@@ -166,7 +205,8 @@ async function boot() {
     if (state.overlayOpen) return;
 
     if (e.code === 'KeyE' && nearestInteractable) nearestInteractable.action();
-    if (e.code === 'KeyF') spray.trySpray();
+    if (e.code === 'KeyF') spray.toggleMode();
+    if (e.code === 'KeyG') spray.stampTag();
     if (e.code === 'KeyT') tagEditor.open();
     if (e.code === 'KeyL') ui.toggleLeaderboards();
   });
@@ -203,14 +243,33 @@ async function boot() {
     return best;
   }
 
+  let stepTimer = 0;
+
   function loop() {
     requestAnimationFrame(loop);
     const dt = Math.min(clock.getDelta(), 0.05);
 
     controls.update(dt);
     weapon.update(dt, controls.isMoving());
+    spray.update(dt);
     remotes.update();
     range.update(dt);
+    npcs.update(dt);
+
+    // L'arme range la bombe (et inversement)
+    if (state.weaponEquipped && state.tagMode) spray.setMode(false);
+
+    // Bruits de pas : cadence et volume selon la vitesse réelle
+    const speed = controls.speed();
+    if (controls.onGround && speed > 1.2) {
+      stepTimer -= dt;
+      if (stepTimer <= 0) {
+        audio.footstep(Math.min(1, speed / 10));
+        stepTimer = Math.max(0.27, Math.min(0.7, 3.3 / speed));
+      }
+    } else {
+      stepTimer = Math.min(stepTimer, 0.12);
+    }
 
     nearestInteractable = state.overlayOpen ? null : findNearestInteractable();
     ui.setPrompt(nearestInteractable?.label ?? null);

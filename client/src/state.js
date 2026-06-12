@@ -8,6 +8,7 @@ export const state = {
   overlayOpen: false, // un overlay UI est ouvert (jeu, éditeur, etc.)
   pointerLocked: false,
   weaponEquipped: false,
+  tagMode: false, // bombe de peinture en main
   rangeSession: null, // session de stand de tir en cours
 };
 
