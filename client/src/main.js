@@ -30,20 +30,37 @@ async function boot() {
   document.querySelector('#app').appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  const skyColor = 0x2a3354;
+  const skyColor = 0x8fb6e6; // ciel clair d'après-midi
   scene.background = new THREE.Color(skyColor);
-  scene.fog = new THREE.Fog(skyColor, 110, 380);
+  scene.fog = new THREE.Fog(skyColor, 180, 560);
 
   const camera = new THREE.PerspectiveCamera(
-    75, window.innerWidth / window.innerHeight, 0.1, 600
+    75, window.innerWidth / window.innerHeight, 0.1, 1000
   );
   scene.add(camera); // nécessaire pour l'arme en vue subjective
 
-  // Lumières : fin de journée lyonnaise
-  scene.add(new THREE.HemisphereLight(0x9db4ff, 0x4a3b2d, 0.85));
-  const sun = new THREE.DirectionalLight(0xffd9a0, 1.25);
+  // Lumières : grand soleil sur Lyon
+  scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x5a4c3c, 1.1));
+  const sun = new THREE.DirectionalLight(0xfff3d6, 1.6);
   sun.position.set(-90, 130, 50);
   scene.add(sun);
+
+  // Soleil visible dans le ciel (même direction que la lumière)
+  const sunMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(24, 20, 20),
+    new THREE.MeshBasicMaterial({ color: 0xfff6d8, fog: false })
+  );
+  sunMesh.position.set(-360, 520, 200);
+  scene.add(sunMesh);
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: makeHaloTexture(),
+    transparent: true,
+    depthWrite: false,
+    fog: false,
+  }));
+  halo.scale.set(220, 220, 1);
+  halo.position.copy(sunMesh.position);
+  scene.add(halo);
 
   // --- Construction du monde ---
   const ctx = {
@@ -188,3 +205,19 @@ boot().catch((err) => {
        Erreur au démarrage : ${err.message}<br>Le serveur est-il lancé ?
      </div>`;
 });
+
+// Halo lumineux autour du soleil (dégradé radial)
+function makeHaloTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const g = canvas.getContext('2d');
+  const grad = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  grad.addColorStop(0, 'rgba(255, 248, 220, 0.9)');
+  grad.addColorStop(0.25, 'rgba(255, 240, 190, 0.45)');
+  grad.addColorStop(0.6, 'rgba(255, 235, 170, 0.12)');
+  grad.addColorStop(1, 'rgba(255, 235, 170, 0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 256, 256);
+  return new THREE.CanvasTexture(canvas);
+}
