@@ -1,63 +1,47 @@
 import * as THREE from 'three';
 import { hashColor } from '../world/utils.js';
+import { buildHuman } from '../world/human.js';
 import * as net from '../net.js';
 
 const INTERP_DELAY = 0.12; // secondes de retard de rendu pour interpoler
 
+const PANTS = [0x39404e, 0x4e4439, 0x2e3a4e, 0x44394e];
+
 export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
-  const remotes = new Map(); // id -> { group, body, head, buffer, name, flashUntil, baseColor }
+  const remotes = new Map();
 
   function spawn(id, name, p, ry) {
     if (remotes.has(id)) return;
-    const group = new THREE.Group();
     const baseColor = hashColor(name);
+    const human = buildHuman({
+      shirt: baseColor.getHex(),
+      pants: PANTS[name.length % PANTS.length],
+    });
+    human.group.add(makeNameplate(name));
+    human.group.position.set(p[0], p[1], p[2]);
+    human.group.rotation.y = ry;
+    scene.add(human.group);
 
-    const body = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.32, 0.85, 4, 10),
-      new THREE.MeshLambertMaterial({ color: baseColor })
-    );
-    body.position.y = 0.95;
-    group.add(body);
-
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.21, 12, 10),
-      new THREE.MeshLambertMaterial({ color: 0xe8c39e })
-    );
-    head.position.y = 1.62;
-    group.add(head);
-
-    // Visière (indique la direction du regard)
-    const visor = new THREE.Mesh(
-      new THREE.BoxGeometry(0.26, 0.08, 0.1),
-      new THREE.MeshLambertMaterial({ color: 0x222222 })
-    );
-    visor.position.set(0, 1.64, -0.18);
-    group.add(visor);
-
-    group.add(makeNameplate(name));
-    group.position.set(p[0], p[1], p[2]);
-    group.rotation.y = ry;
-    scene.add(group);
-
-    // Le corps et la tête peuvent être touchés par les balles (PvP)
-    for (const mesh of [body, head]) {
+    for (const mesh of human.hitMeshes) {
       mesh.userData.onHit = () => onHitRemote?.(id);
       shootables?.push(mesh);
     }
 
     remotes.set(id, {
-      group, body, head, name, baseColor,
+      human, name, baseColor,
       buffer: [{ t: performance.now() / 1000, p, ry }],
       flashUntil: 0,
+      animTime: Math.random() * 10,
+      prevPos: new THREE.Vector3(p[0], p[1], p[2]),
     });
   }
 
   function remove(id) {
     const r = remotes.get(id);
     if (!r) return;
-    scene.remove(r.group);
+    scene.remove(r.human.group);
     if (shootables) {
-      for (const mesh of [r.body, r.head]) {
+      for (const mesh of r.human.hitMeshes) {
         const i = shootables.indexOf(mesh);
         if (i !== -1) shootables.splice(i, 1);
       }
@@ -68,7 +52,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
   function flash(id) {
     const r = remotes.get(id);
     if (!r) return;
-    r.body.material.color.set(0xff2222);
+    r.human.shirtMat.color.set(0xff2222);
     r.flashUntil = performance.now() / 1000 + 0.25;
   }
 
@@ -89,12 +73,17 @@ export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
     }
   });
 
+  let lastFrame = performance.now() / 1000;
+
   function update() {
-    const renderTime = performance.now() / 1000 - INTERP_DELAY;
-    const now = performance.now() / 1000;
+    const nowSec = performance.now() / 1000;
+    const frameDt = Math.min(0.1, nowSec - lastFrame);
+    lastFrame = nowSec;
+    const renderTime = nowSec - INTERP_DELAY;
+
     for (const r of remotes.values()) {
-      if (r.flashUntil && now > r.flashUntil) {
-        r.body.material.color.copy(r.baseColor);
+      if (r.flashUntil && nowSec > r.flashUntil) {
+        r.human.shirtMat.color.copy(r.baseColor);
         r.flashUntil = 0;
       }
       const buf = r.buffer;
@@ -109,16 +98,23 @@ export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
       }
       const span = b.t - a.t;
       const alpha = span > 0 ? Math.min(1, (renderTime - a.t) / span) : 1;
-      r.group.position.set(
+      const g = r.human.group;
+      g.position.set(
         a.p[0] + (b.p[0] - a.p[0]) * alpha,
         a.p[1] + (b.p[1] - a.p[1]) * alpha,
         a.p[2] + (b.p[2] - a.p[2]) * alpha
       );
-      // Interpolation d'angle (chemin le plus court)
       let dry = b.ry - a.ry;
       while (dry > Math.PI) dry -= Math.PI * 2;
       while (dry < -Math.PI) dry += Math.PI * 2;
-      r.group.rotation.y = a.ry + dry * alpha;
+      g.rotation.y = a.ry + dry * alpha;
+
+      // Animation de marche selon la vitesse réelle observée
+      const speed = frameDt > 0 ? g.position.distanceTo(r.prevPos) / frameDt : 0;
+      r.prevPos.copy(g.position);
+      r.animTime += frameDt * (3 + Math.min(speed, 12) * 0.9);
+      r.human.group.userData.baseY = g.position.y;
+      r.human.animate(r.animTime, speed);
     }
   }
 

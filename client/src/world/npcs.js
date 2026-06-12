@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { audio } from '../audio.js';
 import { SAONE, RHONE } from './layout.js';
+import { buildHuman } from './human.js';
 
 const NPC_COUNT = 18;
 const NPC_HP = 50; // deux balles
@@ -55,27 +56,13 @@ export function createNpcs(ctx, { getPlayerPos }) {
   }
 
   for (let i = 0; i < NPC_COUNT; i++) {
-    const group = new THREE.Group();
     const color = CIVIL_COLORS[i % CIVIL_COLORS.length];
-
-    const body = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.3, 0.8, 4, 8),
-      new THREE.MeshLambertMaterial({ color })
-    );
-    body.position.y = 0.9;
-    group.add(body);
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.2, 10, 8),
-      new THREE.MeshLambertMaterial({ color: 0xe8c39e })
-    );
-    head.position.y = 1.55;
-    group.add(head);
-    const hair = new THREE.Mesh(
-      new THREE.SphereGeometry(0.205, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2.4),
-      new THREE.MeshLambertMaterial({ color: Math.random() < 0.5 ? 0x3a2c1e : 0x55514c })
-    );
-    hair.position.y = 1.58;
-    group.add(hair);
+    const human = buildHuman({
+      shirt: color,
+      pants: [0x39404e, 0x4e4439, 0x57514a][i % 3],
+      hair: Math.random() < 0.5 ? 0x3a2c1e : 0x55514c,
+    });
+    const group = human.group;
 
     const bubble = makeBubble();
     bubble.visible = false;
@@ -83,23 +70,25 @@ export function createNpcs(ctx, { getPlayerPos }) {
 
     const [x, z] = freeSpot();
     group.position.set(x, 0, z);
+    group.userData.baseY = 0;
     ctx.scene.add(group);
 
     const npc = {
-      group, body, head, bubble,
+      group, human, bubble,
       baseColor: new THREE.Color(color),
       dir: Math.random() * Math.PI * 2,
       speed: 1.0 + Math.random() * 0.8,
       hp: NPC_HP,
       mode: 'walk', // walk | dying | dead
       timer: 0,
+      animTime: Math.random() * 10,
       turnTimer: 2 + Math.random() * 5,
       talkCd: Math.random() * 12,
       bubbleTimer: 0,
       flashUntil: 0,
     };
 
-    for (const mesh of [body, head]) {
+    for (const mesh of human.hitMeshes) {
       mesh.userData.onHit = () => hitNpc(npc);
       ctx.shootables.push(mesh);
     }
@@ -122,7 +111,7 @@ export function createNpcs(ctx, { getPlayerPos }) {
   function hitNpc(npc) {
     if (npc.mode !== 'walk') return;
     npc.hp -= 25;
-    npc.body.material.color.set(0xff3333);
+    npc.human.shirtMat.color.set(0xff3333);
     npc.flashUntil = performance.now() + 220;
     if (npc.hp <= 0) {
       npc.mode = 'dying';
@@ -143,7 +132,7 @@ export function createNpcs(ctx, { getPlayerPos }) {
     npc.hp = NPC_HP;
     npc.mode = 'walk';
     npc.speed = 1.0 + Math.random() * 0.8;
-    npc.body.material.color.copy(npc.baseColor);
+    npc.human.shirtMat.color.copy(npc.baseColor);
     npc.bubble.visible = false;
   }
 
@@ -153,7 +142,7 @@ export function createNpcs(ctx, { getPlayerPos }) {
 
     for (const npc of npcs) {
       if (npc.flashUntil && now > npc.flashUntil && npc.mode === 'walk') {
-        npc.body.material.color.copy(npc.baseColor);
+        npc.human.shirtMat.color.copy(npc.baseColor);
         npc.flashUntil = 0;
       }
 
@@ -190,8 +179,10 @@ export function createNpcs(ctx, { getPlayerPos }) {
       } else {
         npc.group.position.x = nx;
         npc.group.position.z = nz;
-        npc.group.rotation.y = npc.dir + Math.PI; // visière face à la marche
+        npc.group.rotation.y = npc.dir + Math.PI; // nez face à la marche
       }
+      npc.animTime += dt * (3 + npc.speed * 2.2);
+      npc.human.animate(npc.animTime, npc.speed);
 
       // Bavardage quand le joueur est proche
       npc.talkCd -= dt;

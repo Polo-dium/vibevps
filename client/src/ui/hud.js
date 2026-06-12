@@ -17,7 +17,7 @@ export function createUi() {
     <div id="help">
       ZQSD bouger (sprint auto) · Espace saut · E interagir · clic tirer<br>
       F bombe de peinture (clic = graffiti, molette = couleur) · G poser ton tag<br>
-      T éditeur de tags · 1 arme · R recharger · L classements
+      T éditeur de tags · 1 arme · R recharger · L classements · P admin
     </div>`;
   document.body.appendChild(hud);
   const vignette = document.createElement('div');
@@ -131,7 +131,8 @@ export function createUi() {
     if (saved) {
       try {
         state.auth = JSON.parse(saved);
-        await apiFetch('/me');
+        const me = await apiFetch('/me');
+        state.isAdmin = Boolean(me.admin);
         return state.auth;
       } catch {
         state.auth = null;
@@ -283,16 +284,92 @@ export function createUi() {
     }
   };
 
+  // --- Panneau admin (touche P) ---
+  const adminOverlay = document.createElement('div');
+  adminOverlay.className = 'overlay hidden';
+  adminOverlay.innerHTML = `
+    <div class="panel" style="width:480px;">
+      <h2>ADMINISTRATION</h2>
+      <div id="admin-login">
+        <p class="sub">Entre la clé admin du serveur (variable ADMIN_KEY).</p>
+        <input type="text" id="admin-key" placeholder="Clé admin">
+        <div class="err" id="admin-err"></div>
+        <button id="admin-go">SE CONNECTER</button>
+      </div>
+      <div id="admin-tools" class="hidden">
+        <p class="sub">Mode modération actif.<br>
+        En jeu : vise un graffiti et appuie sur <b style="color:var(--neon)">X</b> pour le supprimer.</p>
+        <div class="err" id="admin-err2"></div>
+        <button id="admin-clear" style="background:linear-gradient(135deg,#ff5252,#b0413e);color:#fff;">
+          🗑 SUPPRIMER TOUS LES TAGS
+        </button>
+      </div>
+      <div style="margin-top:14px; text-align:right;">
+        <button class="ghost" id="admin-close">Fermer (Échap)</button>
+      </div>
+    </div>`;
+  document.body.appendChild(adminOverlay);
+  adminOverlay.querySelector('#admin-close').onclick = () => toggleAdmin(false);
+  adminOverlay.querySelector('#admin-go').onclick = async () => {
+    const errEl = adminOverlay.querySelector('#admin-err');
+    errEl.textContent = '';
+    try {
+      await apiFetch('/admin/login', {
+        method: 'POST',
+        body: JSON.stringify({ key: adminOverlay.querySelector('#admin-key').value }),
+      });
+      state.isAdmin = true;
+      refreshAdminPanel();
+      toast('Mode admin activé. Vise un tag et appuie sur X pour le supprimer.');
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
+  };
+  adminOverlay.querySelector('#admin-clear').onclick = async () => {
+    const errEl = adminOverlay.querySelector('#admin-err2');
+    errEl.textContent = '';
+    if (!confirm('Supprimer TOUS les tags de la ville ? (irréversible)')) return;
+    try {
+      const res = await apiFetch('/tags', { method: 'DELETE' });
+      toast(`${res.deleted} tag(s) supprimé(s).`);
+      toggleAdmin(false);
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
+  };
+
+  function refreshAdminPanel() {
+    adminOverlay.querySelector('#admin-login').classList.toggle('hidden', state.isAdmin);
+    adminOverlay.querySelector('#admin-tools').classList.toggle('hidden', !state.isAdmin);
+  }
+
+  function toggleAdmin(force) {
+    const show = force ?? adminOverlay.classList.contains('hidden');
+    if (show) {
+      refreshAdminPanel();
+      adminOverlay.classList.remove('hidden');
+      state.overlayOpen = true;
+      document.exitPointerLock?.();
+      if (!state.isAdmin) {
+        setTimeout(() => adminOverlay.querySelector('#admin-key').focus(), 50);
+      }
+    } else {
+      adminOverlay.classList.add('hidden');
+      state.overlayOpen = false;
+    }
+  }
+
   function closeTopOverlay() {
     if (!creatorOverlay.classList.contains('hidden')) { closeCreator(); return true; }
     if (!lbOverlay.classList.contains('hidden')) { toggleLeaderboards(false); return true; }
+    if (!adminOverlay.classList.contains('hidden')) { toggleAdmin(false); return true; }
     return false;
   }
 
   return {
     ensureAuth, toast, setPrompt, setInfo, setRange, setAmmo,
     setHp, damageFlash, killBanner, setTagMode,
-    toggleLeaderboards, openCreator, closeTopOverlay,
+    toggleLeaderboards, openCreator, toggleAdmin, closeTopOverlay,
   };
 }
 

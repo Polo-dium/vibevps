@@ -67,7 +67,16 @@ npm run dev   # serveur API sur :3000 + Vite sur :5173 (proxy /api et /ws)
 | 1 | Sortir / ranger l'AK-47 |
 | R | Recharger |
 | L | Classements de tous les jeux |
+| P | Panneau admin (modération des tags) |
+| X | (admin) Supprimer le graffiti visé |
 | Échap | Fermer le panneau ouvert |
+
+## Mode admin
+
+Définis `ADMIN_KEY` dans l'environnement du serveur, puis en jeu : touche **P**,
+entre la clé. Une fois admin : vise un tag et appuie sur **X** pour le
+supprimer (synchronisé chez tous les joueurs), ou utilise le bouton « Supprimer
+tous les tags » du panneau P. Le statut admin est lié à ton pseudo (persistant).
 
 ## Architecture
 

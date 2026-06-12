@@ -1,6 +1,7 @@
 // État global partagé de l'application.
 export const state = {
   auth: null, // { id, name, token }
+  isAdmin: false,
   games: [], // métadonnées des bornes
   leaderboards: {}, // gameId -> rows
   tags: [], // tags déjà posés dans le monde

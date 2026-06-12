@@ -75,6 +75,7 @@ async function boot() {
     taggables: [],
     interactables: [],
     shootables: [],
+    updatables: [], // animations du monde (eau, péniches, grande roue…)
   };
 
   buildCity(ctx);
@@ -209,6 +210,12 @@ async function boot() {
     if (e.code === 'KeyG') spray.stampTag();
     if (e.code === 'KeyT') tagEditor.open();
     if (e.code === 'KeyL') ui.toggleLeaderboards();
+    if (e.code === 'KeyP') ui.toggleAdmin();
+    if (e.code === 'KeyX' && state.isAdmin) {
+      spray.deleteAimedTag().then((res) => {
+        ui.toast(res.ok ? '🗑 Tag supprimé.' : res.error);
+      });
+    }
   });
 
   // --- Contrôles tactiles (mobile) ---
@@ -255,6 +262,7 @@ async function boot() {
     remotes.update();
     range.update(dt);
     npcs.update(dt);
+    for (const u of ctx.updatables) u(dt);
 
     // L'arme range la bombe (et inversement)
     if (state.weaponEquipped && state.tagMode) spray.setMode(false);

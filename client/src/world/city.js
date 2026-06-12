@@ -16,6 +16,10 @@ export function buildCity(ctx) {
   buildMurPeint(ctx);
   buildLandmarks(ctx, rand);
   buildDecor(ctx, rand);
+  buildPeniches(ctx);
+  buildGrandeRoue(ctx);
+  buildFountain(ctx);
+  buildStreetFurniture(ctx);
 
   // Limites du monde
   for (const [x, z, w, d] of [
@@ -42,16 +46,31 @@ function buildGroundAndRivers(ctx) {
   ground.userData.taggable = false;
   ctx.scene.add(ground);
 
-  // Eau des deux fleuves (légèrement au-dessus du sol, bordée de parapets)
+  // Eau animée des deux fleuves (texture qui défile lentement)
+  const waterTex = makeWaterTexture();
+  waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping;
+  waterTex.repeat.set(3, 60);
   const waterMat = new THREE.MeshLambertMaterial({
-    color: 0x1d5b66, emissive: 0x06222a, transparent: true, opacity: 0.92,
+    map: waterTex, transparent: true, opacity: 0.94,
   });
+  ctx.updatables.push((dt) => { waterTex.offset.y -= dt * 0.018; });
   for (const river of [SAONE, RHONE]) {
     const w = river.maxX - river.minX;
     const water = new THREE.Mesh(new THREE.PlaneGeometry(w, 560), waterMat);
     water.rotation.x = -Math.PI / 2;
     water.position.set((river.minX + river.maxX) / 2, 0.05, 0);
     ctx.scene.add(water);
+
+    // Bandes de quai en pierre claire le long des berges
+    for (const x of [river.minX - 2.2, river.maxX + 2.2]) {
+      const quay = new THREE.Mesh(
+        new THREE.PlaneGeometry(4, 270),
+        new THREE.MeshLambertMaterial({ color: 0x8d8676 })
+      );
+      quay.rotation.x = -Math.PI / 2;
+      quay.position.set(x, 0.011, 0);
+      ctx.scene.add(quay);
+    }
 
     // Parapets de quai, avec une ouverture au niveau du pont (z = 0)
     for (const x of [river.minX, river.maxX]) {
@@ -91,6 +110,199 @@ function makeAsphaltTexture() {
     g.fillRect(Math.random() * 128, Math.random() * 128, 1.6, 1.6);
   }
   return new THREE.CanvasTexture(canvas);
+}
+
+function makeWaterTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#1d5b66';
+  g.fillRect(0, 0, 64, 64);
+  for (let i = 0; i < 36; i++) {
+    g.strokeStyle = `rgba(${120 + Math.random() * 60}, ${190 + Math.random() * 40}, ${200}, ${0.06 + Math.random() * 0.1})`;
+    g.lineWidth = 1 + Math.random() * 1.5;
+    const y = Math.random() * 64;
+    g.beginPath();
+    g.moveTo(0, y);
+    g.bezierCurveTo(20, y + 4, 44, y - 4, 64, y);
+    g.stroke();
+  }
+  return new THREE.CanvasTexture(canvas);
+}
+
+// Péniches qui remontent lentement les fleuves
+function buildPeniches(ctx) {
+  const configs = [
+    { river: SAONE, offset: -5, z: -60, speed: 2.2, hull: 0x7a3b30 },
+    { river: SAONE, offset: 5, z: 70, speed: -1.8, hull: 0x2f4f3e },
+    { river: RHONE, offset: -7, z: 20, speed: 2.6, hull: 0x3e3f59 },
+    { river: RHONE, offset: 6, z: -90, speed: -2.0, hull: 0x6e5a2e },
+  ];
+  for (const cfg of configs) {
+    const group = new THREE.Group();
+    const hull = new THREE.Mesh(
+      new THREE.BoxGeometry(4.4, 1.1, 16),
+      new THREE.MeshLambertMaterial({ color: cfg.hull })
+    );
+    hull.position.y = 0.55;
+    group.add(hull);
+    const deck = new THREE.Mesh(
+      new THREE.BoxGeometry(3.8, 0.25, 12),
+      new THREE.MeshLambertMaterial({ color: 0x9aa0a8 })
+    );
+    deck.position.y = 1.2;
+    deck.position.z = 1;
+    group.add(deck);
+    const cabin = new THREE.Mesh(
+      new THREE.BoxGeometry(3, 1.6, 3),
+      new THREE.MeshLambertMaterial({ color: 0xe5e1d4 })
+    );
+    cabin.position.set(0, 1.9, -5.5);
+    group.add(cabin);
+
+    const cx = (cfg.river.minX + cfg.river.maxX) / 2 + cfg.offset;
+    group.position.set(cx, 0.05, cfg.z);
+    if (cfg.speed < 0) group.rotation.y = Math.PI;
+    ctx.scene.add(group);
+
+    ctx.updatables.push((dt) => {
+      group.position.z += cfg.speed * dt;
+      if (group.position.z > 150) group.position.z = -150;
+      if (group.position.z < -150) group.position.z = 150;
+      group.position.y = 0.05 + Math.sin(performance.now() / 900 + cfg.z) * 0.04;
+    });
+  }
+}
+
+// Grande roue de Bellecour
+function buildGrandeRoue(ctx) {
+  const x = 20, z = 20;
+  const R = 7.5;
+  const hubY = R + 2;
+
+  // Pylônes
+  const pylonMat = new THREE.MeshLambertMaterial({ color: 0xdfe3e8 });
+  for (const dx of [-1.6, 1.6]) {
+    const pylon = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.35, hubY, 8), pylonMat);
+    pylon.position.set(x + dx, hubY / 2, z);
+    pylon.rotation.z = dx > 0 ? -0.12 : 0.12;
+    ctx.scene.add(pylon);
+  }
+
+  // Roue (tourne autour de l'axe X)
+  const wheel = new THREE.Group();
+  const rim = new THREE.Mesh(
+    new THREE.TorusGeometry(R, 0.16, 8, 36),
+    new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x222a3a })
+  );
+  wheel.add(rim);
+  const spokeMat = new THREE.MeshLambertMaterial({ color: 0xc5ccd6 });
+  for (let i = 0; i < 6; i++) {
+    const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.1, R * 2, 0.1), spokeMat);
+    spoke.rotation.z = (i / 6) * Math.PI;
+    wheel.add(spoke);
+  }
+  const cabinMat = new THREE.MeshLambertMaterial({ color: 0xd9534f });
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1, 0.9), cabinMat);
+    cabin.position.set(Math.cos(a) * R, Math.sin(a) * R, 0);
+    wheel.add(cabin);
+  }
+  const holder = new THREE.Group();
+  holder.add(wheel);
+  holder.rotation.y = Math.PI / 2; // axe de rotation le long de X (face à l'est-ouest)
+  holder.position.set(x, hubY, z);
+  ctx.scene.add(holder);
+  ctx.updatables.push((dt) => { wheel.rotation.z += dt * 0.12; });
+
+  // Socle (collision)
+  addInvisibleWall(ctx, { x, z, w: 4.5, h: 3, d: 2.5 });
+}
+
+// Fontaine (clin d'œil à Bartholdi)
+function buildFountain(ctx) {
+  const x = -22, z = 12;
+  const basin = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.6, 2.8, 0.7, 14),
+    new THREE.MeshLambertMaterial({ color: 0x9aa49e })
+  );
+  basin.position.set(x, 0.35, z);
+  ctx.scene.add(basin);
+  const water = new THREE.Mesh(
+    new THREE.CircleGeometry(2.35, 14),
+    new THREE.MeshLambertMaterial({ color: 0x3d8a96, emissive: 0x123238 })
+  );
+  water.rotation.x = -Math.PI / 2;
+  water.position.set(x, 0.66, z);
+  ctx.scene.add(water);
+  const column = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.4, 0.55, 1.6, 10),
+    new THREE.MeshLambertMaterial({ color: 0x8a948e })
+  );
+  column.position.set(x, 1.4, z);
+  ctx.scene.add(column);
+  const jet = new THREE.Mesh(
+    new THREE.ConeGeometry(0.5, 1.6, 10),
+    new THREE.MeshLambertMaterial({ color: 0xcfe8ee, transparent: true, opacity: 0.55 })
+  );
+  jet.position.set(x, 2.8, z);
+  ctx.scene.add(jet);
+  ctx.updatables.push((dt) => {
+    void dt;
+    const s = 0.9 + Math.sin(performance.now() / 300) * 0.12;
+    jet.scale.set(s, 1 + Math.sin(performance.now() / 410) * 0.1, s);
+  });
+  ctx.colliders.push({
+    minX: x - 2.8, maxX: x + 2.8, minY: 0, maxY: 1.0, minZ: z - 2.8, maxZ: z + 2.8,
+  });
+}
+
+// Mobilier urbain : bancs et stations Vélo'v
+function buildStreetFurniture(ctx) {
+  const woodMat = new THREE.MeshLambertMaterial({ color: 0x5d4632 });
+  const ironMat = new THREE.MeshLambertMaterial({ color: 0x2c2f36 });
+  const benchSpots = [
+    [-14, BELLECOUR.minZ + 4], [4, BELLECOUR.minZ + 4],
+    [-14, BELLECOUR.maxZ - 4], [4, BELLECOUR.maxZ - 4],
+    [SAONE.maxX + 6, 30], [SAONE.maxX + 6, -40],
+    [RHONE.minX - 6, 50], [RHONE.minX - 6, -30],
+  ];
+  for (const [bx, bz] of benchSpots) {
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.1, 0.5), woodMat);
+    seat.position.set(bx, 0.48, bz);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.45, 0.08), woodMat);
+    back.position.set(bx, 0.78, bz - 0.24);
+    const legs = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.45, 0.4), ironMat);
+    legs.position.set(bx, 0.24, bz);
+    ctx.scene.add(seat, back, legs);
+    ctx.colliders.push({
+      minX: bx - 0.95, maxX: bx + 0.95, minY: 0, maxY: 0.85, minZ: bz - 0.3, maxZ: bz + 0.3,
+    });
+  }
+
+  // Stations Vélo'v (rouge emblématique)
+  const veloMat = new THREE.MeshLambertMaterial({ color: 0xc0392b });
+  for (const [sx, sz] of [[34, BELLECOUR.maxZ + 3], [-38, BELLECOUR.minZ - 3]]) {
+    for (let i = 0; i < 5; i++) {
+      const bike = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.85, 1.4), veloMat);
+      bike.position.set(sx + i * 0.65, 0.55, sz);
+      ctx.scene.add(bike);
+      const wheelF = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.04, 6, 10), ironMat);
+      wheelF.rotation.y = Math.PI / 2;
+      wheelF.position.set(sx + i * 0.65, 0.3, sz + 0.5);
+      ctx.scene.add(wheelF);
+    }
+    const sign = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.5, 0.06), veloMat);
+    sign.position.set(sx + 1.3, 2.2, sz - 0.8);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.2, 6), ironMat);
+    pole.position.set(sx + 1.3, 1.1, sz - 0.8);
+    ctx.scene.add(sign, pole);
+    ctx.colliders.push({
+      minX: sx - 0.4, maxX: sx + 3.4, minY: 0, maxY: 0.9, minZ: sz - 0.4, maxZ: sz + 0.4,
+    });
+  }
 }
 
 function makeRoadTexture() {

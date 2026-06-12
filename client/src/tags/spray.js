@@ -63,6 +63,38 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange })
   }
 
   net.on('tag', (msg) => addDecal(msg.tag));
+  net.on('tagDel', (msg) => {
+    const mesh = decals.get(msg.id);
+    if (mesh) {
+      scene.remove(mesh);
+      decals.delete(msg.id);
+    }
+  });
+  net.on('tagsClear', () => {
+    for (const mesh of decals.values()) scene.remove(mesh);
+    decals.clear();
+  });
+
+  // Admin : supprimer le tag visé (raycast sur les décals)
+  async function deleteAimedTag() {
+    raycaster.far = 18;
+    raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+    const meshes = [...decals.values()];
+    const hits = raycaster.intersectObjects(meshes, false);
+    raycaster.far = SPRAY_RANGE;
+    if (hits.length === 0) return { ok: false, error: 'Aucun tag visé (vise un graffiti à moins de 18 m).' };
+    let tagId = null;
+    for (const [id, mesh] of decals) {
+      if (mesh === hits[0].object) { tagId = id; break; }
+    }
+    if (!tagId) return { ok: false, error: 'Tag introuvable.' };
+    try {
+      await apiFetch(`/tags/${tagId}`, { method: 'DELETE' });
+      return { ok: true }; // le décal disparaît via le broadcast tagDel
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  }
 
   // --- Mode bombe ---
   function setMode(on) {
@@ -289,7 +321,7 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange })
   }
 
   return {
-    loadExisting, addDecal,
+    loadExisting, addDecal, deleteAimedTag,
     setMode, toggleMode, cycleColor, setPaint, stampTag, update,
     finishSession,
     get color() { return color(); },

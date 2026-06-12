@@ -74,6 +74,11 @@ const insertBuiltin = db.prepare(
 );
 for (const [id, title] of BUILTINS) insertBuiltin.run(id, title, Date.now());
 
+// Migration : colonne admin sur les joueurs existants
+try {
+  db.exec(`ALTER TABLE players ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0`);
+} catch { /* colonne déjà présente */ }
+
 const MAX_TAGS = 600;
 
 export const q = {
@@ -132,6 +137,10 @@ export const q = {
   pruneOldestTag: db.prepare(
     `DELETE FROM tags WHERE id = (SELECT id FROM tags ORDER BY created_at ASC LIMIT 1)`
   ),
+
+  setAdmin: db.prepare(`UPDATE players SET is_admin = 1 WHERE id = ?`),
+  deleteTag: db.prepare(`DELETE FROM tags WHERE id = ?`),
+  deleteAllTags: db.prepare(`DELETE FROM tags`),
 };
 
 export function insertTagWithLimit(args) {

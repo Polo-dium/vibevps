@@ -44,7 +44,39 @@ api.post('/register', (req, res) => {
 });
 
 api.get('/me', auth, (req, res) => {
-  res.json({ id: req.player.id, name: req.player.name });
+  res.json({ id: req.player.id, name: req.player.name, admin: Boolean(req.player.is_admin) });
+});
+
+// --- Administration -------------------------------------------------------
+
+function adminOnly(req, res, next) {
+  if (!req.player.is_admin) return res.status(403).json({ error: 'Réservé aux admins.' });
+  next();
+}
+
+api.post('/admin/login', auth, (req, res) => {
+  const key = process.env.ADMIN_KEY;
+  if (!key) {
+    return res.status(503).json({ error: "ADMIN_KEY n'est pas configurée sur le serveur." });
+  }
+  if (String(req.body?.key ?? '') !== key) {
+    return res.status(403).json({ error: 'Clé admin incorrecte.' });
+  }
+  q.setAdmin.run(req.player.id);
+  res.json({ ok: true });
+});
+
+api.delete('/tags/:id', auth, adminOnly, (req, res) => {
+  const info = q.deleteTag.run(req.params.id);
+  if (info.changes === 0) return res.status(404).json({ error: 'Tag introuvable.' });
+  broadcast({ t: 'tagDel', id: req.params.id });
+  res.json({ ok: true });
+});
+
+api.delete('/tags', auth, adminOnly, (req, res) => {
+  const info = q.deleteAllTags.run();
+  broadcast({ t: 'tagsClear' });
+  res.json({ ok: true, deleted: info.changes });
 });
 
 // --- État du monde -------------------------------------------------------
