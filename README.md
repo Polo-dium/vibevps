@@ -101,3 +101,20 @@ autonome dans une iframe `sandbox="allow-scripts"`, qui envoie
 `postMessage({type:'arcade:score', score})` en fin de partie. Le shell
 soumet alors le score au serveur, qui met à jour le leaderboard et le
 diffuse à tous les joueurs connectés.
+
+## Vrai Lyon (données OpenStreetMap)
+
+Le jeu peut remplacer la ville procédurale par le **vrai centre de Lyon**
+(empreintes réelles des bâtiments et rues, de Bellecour aux Terreaux,
+échelle 1:2). Une seule commande, à lancer sur le serveur :
+
+```bash
+node tools/fetch-osm.mjs && npm run build && systemctl restart vibevps
+```
+
+Le fichier `client/public/lyon-osm.json` est généré localement (il n'est pas
+versionné) et embarqué dans chaque build. Sans ce fichier, le jeu garde la
+ville procédurale. Données © les contributeurs OpenStreetMap (ODbL).
+
+⚠️ Après le passage à la vraie ville, les anciens tags posés sur la ville
+procédurale flotteront dans le vide : purge-les via le panneau admin (P).

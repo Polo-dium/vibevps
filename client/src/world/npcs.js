@@ -31,12 +31,18 @@ export function createNpcs(ctx, { getPlayerPos }) {
   const npcs = [];
 
   function blocked(x, z) {
-    if (Math.abs(x) > 130 || Math.abs(z) > 130) return true;
-    // Fleuves infranchissables sauf au niveau des ponts (z ≈ 0)
-    for (const r of [SAONE, RHONE]) {
-      if (x > r.minX - 1 && x < r.maxX + 1 && Math.abs(z) > 4.2) return true;
+    const bound = Math.min(ctx.worldBound ?? 130, 200); // les PNJ restent au centre
+    if (Math.abs(x) > bound || Math.abs(z) > bound) return true;
+    // Fleuves infranchissables (sauf l'axe des ponts en ville procédurale)
+    const water = ctx.waterBands ?? [SAONE, RHONE];
+    const bridgeOk = !ctx.waterBands; // ponts garantis à z=0 en mode procédural
+    for (const r of water) {
+      if (x > r.minX - 1 && x < r.maxX + 1 && (!bridgeOk || Math.abs(z) > 4.2)) return true;
     }
-    for (const b of ctx.colliders) {
+    const boxes = ctx.colliders.nearby
+      ? ctx.colliders.nearby(x, z, 1)
+      : ctx.colliders;
+    for (const b of boxes) {
       if (
         x + 0.45 > b.minX && x - 0.45 < b.maxX &&
         1.0 > b.minY && 0.1 < b.maxY &&

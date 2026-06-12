@@ -136,7 +136,7 @@ function makeAsphaltTexture() {
   return new THREE.CanvasTexture(canvas);
 }
 
-function makeWaterTexture() {
+export function makeWaterTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = 64;
   canvas.height = 64;
@@ -156,12 +156,13 @@ function makeWaterTexture() {
 }
 
 // Péniches qui remontent lentement les fleuves
-function buildPeniches(ctx) {
+export function buildPeniches(ctx, bands = [SAONE, RHONE]) {
+  const wrap = (ctx.worldBound ?? 140) + 14;
   const configs = [
-    { river: SAONE, offset: -5, z: -60, speed: 2.2, hull: 0x7a3b30 },
-    { river: SAONE, offset: 5, z: 70, speed: -1.8, hull: 0x2f4f3e },
-    { river: RHONE, offset: -7, z: 20, speed: 2.6, hull: 0x3e3f59 },
-    { river: RHONE, offset: 6, z: -90, speed: -2.0, hull: 0x6e5a2e },
+    { river: bands[0], offset: -5, z: -60, speed: 2.2, hull: 0x7a3b30 },
+    { river: bands[0], offset: 5, z: 70, speed: -1.8, hull: 0x2f4f3e },
+    { river: bands[1] ?? bands[0], offset: -7, z: 20, speed: 2.6, hull: 0x3e3f59 },
+    { river: bands[1] ?? bands[0], offset: 6, z: -90, speed: -2.0, hull: 0x6e5a2e },
   ];
   for (const cfg of configs) {
     const group = new THREE.Group();
@@ -192,15 +193,15 @@ function buildPeniches(ctx) {
 
     ctx.updatables.push((dt) => {
       group.position.z += cfg.speed * dt;
-      if (group.position.z > 150) group.position.z = -150;
-      if (group.position.z < -150) group.position.z = 150;
+      if (group.position.z > wrap) group.position.z = -wrap;
+      if (group.position.z < -wrap) group.position.z = wrap;
       group.position.y = 0.05 + Math.sin(performance.now() / 900 + cfg.z) * 0.04;
     });
   }
 }
 
 // Grande roue de Bellecour
-function buildGrandeRoue(ctx) {
+export function buildGrandeRoue(ctx) {
   const x = 20, z = 20;
   const R = 7.5;
   const hubY = R + 2;
@@ -246,7 +247,7 @@ function buildGrandeRoue(ctx) {
 }
 
 // Fontaine (clin d'œil à Bartholdi)
-function buildFountain(ctx) {
+export function buildFountain(ctx) {
   const x = -22, z = 12;
   const basin = new THREE.Mesh(
     new THREE.CylinderGeometry(2.6, 2.8, 0.7, 14),
@@ -284,7 +285,7 @@ function buildFountain(ctx) {
 }
 
 // Mobilier urbain : bancs et stations Vélo'v
-function buildStreetFurniture(ctx) {
+export function buildStreetFurniture(ctx) {
   const woodMat = new THREE.MeshLambertMaterial({ color: 0x5d4632 });
   const ironMat = new THREE.MeshLambertMaterial({ color: 0x2c2f36 });
   const benchSpots = [
@@ -430,7 +431,7 @@ function buildSkyline(ctx, rand) {
   ctx.scene.add(inst);
 }
 
-function buildBellecour(ctx) {
+export function buildBellecour(ctx) {
   const plaza = new THREE.Mesh(
     new THREE.PlaneGeometry(BELLECOUR.maxX - BELLECOUR.minX, BELLECOUR.maxZ - BELLECOUR.minZ),
     new THREE.MeshLambertMaterial({ color: 0xc08552 })
@@ -619,7 +620,7 @@ function paintFacade(mesh, rand, buildingH) {
   mesh.material = new THREE.MeshLambertMaterial({ map: tex });
 }
 
-function buildMurPeint(ctx) {
+export function buildMurPeint(ctx) {
   // Grande fresque murale à taguer, hommage au mur des Canuts
   const { x, z, w, h } = MUR_PEINT;
   const wall = addBox(ctx, { x, z, w, h, d: 2.5, color: 0xd9cdb8, taggable: true });

@@ -57,6 +57,9 @@ export function createControls(camera, domElement, colliders) {
     return !state.overlayOpen && (IS_TOUCH || state.pointerLocked);
   }
 
+  // Liste de colliders proches, rafraîchie à chaque frame (grille spatiale)
+  let activeColliders = colliders;
+
   function overlaps(box) {
     return (
       pos.x + HALF_W > box.minX && pos.x - HALF_W < box.maxX &&
@@ -68,7 +71,7 @@ export function createControls(camera, domElement, colliders) {
   function resolveAxis(axis, delta) {
     if (delta === 0) return;
     pos[axis] += delta;
-    for (const box of colliders) {
+    for (const box of activeColliders) {
       if (!overlaps(box)) continue;
       if (axis === 'y') {
         if (delta < 0) {
@@ -98,7 +101,7 @@ export function createControls(camera, domElement, colliders) {
   }
 
   function canStandAt(x, y, z, ignore) {
-    for (const box of colliders) {
+    for (const box of activeColliders) {
       if (box === ignore) continue;
       if (
         x + HALF_W > box.minX && x - HALF_W < box.maxX &&
@@ -111,6 +114,9 @@ export function createControls(camera, domElement, colliders) {
 
   function update(dt) {
     const active = inputActive();
+    if (colliders.nearby) {
+      activeColliders = colliders.nearby(pos.x, pos.z, 4);
+    }
 
     // Direction souhaitée dans le plan horizontal
     let fwd = 0, strafe = 0;

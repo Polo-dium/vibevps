@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { state, apiFetch } from './state.js';
 import * as net from './net.js';
 import { buildCity } from './world/city.js';
+import { buildRealCity } from './world/cityReal.js';
+import { ColliderGrid } from './world/grid.js';
 import { buildArcade } from './world/arcade.js';
 import { buildRange } from './world/range.js';
 import { createControls, IS_TOUCH } from './player/controls.js';
@@ -93,15 +95,34 @@ async function boot() {
   // --- Construction du monde ---
   const ctx = {
     scene,
-    colliders: [],
+    colliders: new ColliderGrid(),
     taggables: [],
     interactables: [],
     shootables: [],
     updatables: [], // animations du monde (eau, péniches, grande roue…)
+    worldBound: null,
+    waterBands: null,
   };
 
-  buildCity(ctx);
-  const sky = buildSky(scene);
+  // Vrai Lyon (données OpenStreetMap) si le fichier a été généré sur le
+  // serveur avec tools/fetch-osm.mjs, sinon ville procédurale.
+  let osmData = null;
+  try {
+    const res = await fetch('/lyon-osm.json');
+    if (res.ok) osmData = await res.json();
+  } catch { /* pas de données : ville procédurale */ }
+
+  if (osmData?.buildings?.length > 50) {
+    buildRealCity(ctx, osmData);
+    camera.far = Math.max(1200, ctx.worldBound * 2.6);
+    camera.updateProjectionMatrix();
+    scene.fog = new THREE.Fog(skyColor, 200, Math.max(620, ctx.worldBound * 1.5));
+    ui.toast('Vrai centre de Lyon chargé — données © OpenStreetMap');
+  } else {
+    buildCity(ctx);
+  }
+
+  const sky = buildSky(scene, ctx.worldBound ? ctx.worldBound * 1.7 : 470);
   ctx.updatables.push((dt) => sky.update(dt));
 
   const shell = createGameShell({ onToast: ui.toast });

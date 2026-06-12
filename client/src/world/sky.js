@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 
 // Dôme de ciel en dégradé + nuages dérivants.
-export function buildSky(scene) {
+export function buildSky(scene, radius = 470) {
   const dome = new THREE.Mesh(
-    new THREE.SphereGeometry(470, 24, 12),
+    new THREE.SphereGeometry(radius, 24, 12),
     new THREE.ShaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
