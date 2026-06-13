@@ -21,12 +21,14 @@ export function buildRealCity(ctx, data) {
   const bound = data.bound;
   ctx.worldBound = bound;
   ctx.waterBands = data.water;
+  ctx.osmScale = data.scale ?? 0.5;
   const rand = makeRand(7);
 
   buildGround(ctx, bound);
   buildWater(ctx, data.water, bound);
   buildOsmBuildings(ctx, data, rand);
   buildOsmRoads(ctx, data);
+  buildGreenery(ctx, data, rand);
 
   // Lieux de gameplay (zones déjà déblayées des bâtiments OSM)
   buildBellecour(ctx);
@@ -250,51 +252,146 @@ function buildOsmRoads(ctx, data) {
 }
 
 function buildFarLandmarks(ctx, bound) {
-  // Colline de Fourvière + basilique stylisée, à l'ouest hors zone
-  const hill = new THREE.Mesh(
-    new THREE.SphereGeometry(120, 24, 16),
-    new THREE.MeshLambertMaterial({ color: 0x4a6741 })
-  );
-  hill.scale.set(1.5, 0.42, 1.9);
-  hill.position.set(-bound - 90, -6, -120);
-  ctx.scene.add(hill);
+  // Position réelle de Fourvière par rapport à Bellecour (≈ 730 m O, 490 m N),
+  // ramenée à l'échelle de la carte. fog:false partout : la colline domine la
+  // ville depuis la Presqu'île quelle que soit la distance, comme en vrai.
+  const sc = (ctx.osmScale ?? 0.5) / 0.5;
+  const FX = -365 * sc;
+  const FZ = -244 * sc;
 
-  const white = new THREE.MeshLambertMaterial({ color: 0xe8e2d5 });
+  // Grande colline boisée (deux dômes pour une silhouette organique)
+  const hillMat = new THREE.MeshLambertMaterial({ color: 0x55733f, fog: false });
+  const hill = new THREE.Mesh(new THREE.SphereGeometry(150, 28, 18), hillMat);
+  hill.scale.set(1.5, 0.55, 1.6);
+  hill.position.set(FX - 10, -40, FZ);
+  ctx.scene.add(hill);
+  const hill2 = new THREE.Mesh(new THREE.SphereGeometry(95, 22, 14), hillMat);
+  hill2.scale.set(1.4, 0.6, 1.5);
+  hill2.position.set(FX + 70, -28, FZ + 60);
+  ctx.scene.add(hill2);
+
+  // Basilique Notre-Dame de Fourvière, perchée au sommet (~62 m de haut en jeu)
+  const HILL_TOP = 46 * sc;
+  const white = new THREE.MeshLambertMaterial({ color: 0xeae3d4, fog: false });
+  const cream = new THREE.MeshLambertMaterial({ color: 0xcdbf9f, fog: false });
   const bas = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(26, 16, 42), white);
-  body.position.y = 8;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(30, 22, 52), white);
+  body.position.y = 11;
   bas.add(body);
-  for (const [tx, tz] of [[-10, -18], [10, -18], [-10, 18], [10, 18]]) {
-    const tower = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 24, 8), white);
-    tower.position.set(tx, 12, tz);
+  // Toiture
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(31, 4, 53), cream);
+  roof.position.y = 23.5;
+  bas.add(roof);
+  // 4 tours d'angle octogonales + flèches
+  for (const [tx, tz] of [[-12, -22], [12, -22], [-12, 22], [12, 22]]) {
+    const tower = new THREE.Mesh(new THREE.CylinderGeometry(4, 4.5, 34, 8), white);
+    tower.position.set(tx, 17, tz);
     bas.add(tower);
-    const top = new THREE.Mesh(new THREE.ConeGeometry(3.5, 5, 8), new THREE.MeshLambertMaterial({ color: 0xc7bba4 }));
-    top.position.set(tx, 26, tz);
-    bas.add(top);
+    const spire = new THREE.Mesh(new THREE.ConeGeometry(4.6, 9, 8), cream);
+    spire.position.set(tx, 38, tz);
+    bas.add(spire);
   }
-  bas.position.set(-bound - 80, 38, -120);
+  // Statue dorée de la Vierge au faîte
+  const virgin = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.8, 1.2, 5, 6),
+    new THREE.MeshLambertMaterial({ color: 0xd9b44a, emissive: 0x5a4310, fog: false })
+  );
+  virgin.position.set(0, 30, 0);
+  bas.add(virgin);
+  bas.position.set(FX, HILL_TOP, FZ);
   ctx.scene.add(bas);
 
-  const tower = new THREE.Mesh(
-    new THREE.ConeGeometry(6, 44, 4, 1, true),
-    new THREE.MeshLambertMaterial({ color: 0x5a4438, wireframe: true })
+  // Tour métallique de Fourvière, juste à côté
+  const metal = new THREE.Mesh(
+    new THREE.ConeGeometry(7, 50, 4, 1, true),
+    new THREE.MeshLambertMaterial({ color: 0x4a4a52, wireframe: true, fog: false })
   );
-  tower.position.set(-bound - 60, 38 + 22, -60);
-  ctx.scene.add(tower);
+  metal.position.set(FX + 55, HILL_TOP + 25, FZ + 30);
+  ctx.scene.add(metal);
 
-  // Le Crayon, à l'est
+  // Le Crayon (tour Part-Dieu), à l'est
+  const EX = bound + 70;
   const crayon = new THREE.Mesh(
-    new THREE.CylinderGeometry(14, 14, 90, 18),
-    new THREE.MeshLambertMaterial({ color: 0xb05a4a })
+    new THREE.CylinderGeometry(15, 15, 100, 20),
+    new THREE.MeshLambertMaterial({ color: 0xa9594a, fog: false })
   );
-  crayon.position.set(bound + 100, 45, -70);
+  crayon.position.set(EX, 50, -70);
   ctx.scene.add(crayon);
   const tip = new THREE.Mesh(
-    new THREE.ConeGeometry(14, 20, 18),
-    new THREE.MeshLambertMaterial({ color: 0x8d4538 })
+    new THREE.ConeGeometry(15, 24, 20),
+    new THREE.MeshLambertMaterial({ color: 0x8d4538, fog: false })
   );
-  tip.position.set(bound + 100, 100, -70);
+  tip.position.set(EX, 112, -70);
   ctx.scene.add(tip);
+}
+
+// Verdure : parcs, alignements le long des quais et de Bellecour. Tout le
+// feuillage en un seul InstancedMesh, les troncs en un autre → 2 draw calls.
+function buildGreenery(ctx, data, rand) {
+  const spots = [];
+  const reserved = reservedRects();
+  const inReserved = (x, z) => reserved.some(
+    (r) => x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ
+  );
+  const inWater = (x) => data.water.some((w) => x > w.minX - 4 && x < w.maxX + 4);
+
+  // Alignements le long des deux rives
+  for (const band of data.water) {
+    for (const x of [band.minX - 4.5, band.maxX + 4.5]) {
+      for (let z = -ctx.worldBound + 10; z < ctx.worldBound - 10; z += 9) {
+        if (Math.abs(z) < 6) continue; // dégage les ponts
+        spots.push([x, z + (rand() - 0.5) * 2]);
+      }
+    }
+  }
+  // Pourtour de Bellecour
+  for (let i = 0; i < 26; i++) {
+    const t = i / 26;
+    spots.push([BELLECOUR.minX + t * (BELLECOUR.maxX - BELLECOUR.minX), BELLECOUR.minZ - 2]);
+    spots.push([BELLECOUR.minX + t * (BELLECOUR.maxX - BELLECOUR.minX), BELLECOUR.maxZ + 2]);
+  }
+  // Quelques arbres épars dans les rues
+  for (let i = 0; i < 140; i++) {
+    spots.push([(rand() - 0.5) * ctx.worldBound * 1.9, (rand() - 0.5) * ctx.worldBound * 1.9]);
+  }
+
+  // Filtre : pas dans l'eau, pas dans une zone de jeu, pas dans un bâtiment
+  const valid = [];
+  for (const [x, z] of spots) {
+    if (inWater(x) || inReserved(x, z)) continue;
+    const near = ctx.colliders.nearby ? ctx.colliders.nearby(x, z, 1.5) : [];
+    let hit = false;
+    for (const b of near) {
+      if (x > b.minX - 1 && x < b.maxX + 1 && z > b.minZ - 1 && z < b.maxZ + 1) { hit = true; break; }
+    }
+    if (!hit) valid.push([x, z, 0.85 + rand() * 0.5]);
+  }
+  if (valid.length === 0) return;
+
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5d4632 });
+  const trunkGeo = new THREE.CylinderGeometry(0.22, 0.32, 2.4, 6);
+  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, valid.length);
+
+  const foliageGeo = new THREE.IcosahedronGeometry(1.6, 0); // facetté = feuillage
+  const foliageMat = new THREE.MeshLambertMaterial({ color: 0x5b8a3f, flatShading: true });
+  const foliage = new THREE.InstancedMesh(foliageGeo, foliageMat, valid.length);
+
+  const m = new THREE.Matrix4();
+  const col = new THREE.Color();
+  valid.forEach(([x, z, s], i) => {
+    m.makeScale(s, s, s);
+    m.setPosition(x, 1.2 * s, z);
+    trunks.setMatrixAt(i, m);
+    m.makeScale(s * 1.6, s * 1.5, s * 1.6);
+    m.setPosition(x, 3.6 * s, z);
+    foliage.setMatrixAt(i, m);
+    col.setHSL(0.28 + rand() * 0.06, 0.45, 0.32 + rand() * 0.12);
+    foliage.setColorAt(i, col);
+  });
+  trunks.instanceMatrix.needsUpdate = true;
+  foliage.instanceMatrix.needsUpdate = true;
+  if (foliage.instanceColor) foliage.instanceColor.needsUpdate = true;
+  ctx.scene.add(trunks, foliage);
 }
 
 // Cellule de fenêtre unique, répétée tous les 3 m. Quasi blanche : elle est

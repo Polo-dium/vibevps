@@ -114,9 +114,10 @@ async function boot() {
 
   if (osmData?.buildings?.length > 50) {
     buildRealCity(ctx, osmData);
-    camera.far = Math.max(1200, ctx.worldBound * 2.6);
+    camera.far = Math.max(1400, ctx.worldBound * 3);
     camera.updateProjectionMatrix();
-    scene.fog = new THREE.Fog(skyColor, 200, Math.max(620, ctx.worldBound * 1.5));
+    // Brouillard atmosphérique léger, repoussé loin pour garder la skyline
+    scene.fog = new THREE.FogExp2(skyColor, 0.0011);
     ui.toast('Vrai centre de Lyon chargé — données © OpenStreetMap');
   } else {
     buildCity(ctx);
