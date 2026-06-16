@@ -321,3 +321,44 @@ html, body {
 @media (pointer: coarse) {
   #hud-info { top: calc(10px + env(safe-area-inset-top)); left: calc(14px + env(safe-area-inset-left)); }
 }
+
+/* Manette tactile des bornes d'arcade (mobile) */
+#game-frame-slot { position: relative; }
+#game-pad {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; justify-content: space-between; align-items: flex-end;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  pointer-events: none;
+}
+#game-pad .padbtn { pointer-events: auto; }
+#pad-dir {
+  position: relative; width: 132px; height: 132px;
+}
+#pad-dir .padbtn {
+  position: absolute;
+  width: 44px; height: 44px;
+}
+#pad-dir [data-code="ArrowUp"]    { left: 44px; top: 0; }
+#pad-dir [data-code="ArrowLeft"]  { left: 0; top: 44px; }
+#pad-dir [data-code="ArrowDown"]  { left: 44px; top: 88px; }
+#pad-dir [data-code="ArrowRight"] { left: 88px; top: 44px; }
+#pad-act { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
+.padbtn {
+  border-radius: 12px;
+  background: rgba(10, 14, 28, 0.6);
+  border: 2px solid var(--border);
+  color: var(--neon);
+  font-weight: 800; font-size: 18px;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.padbtn.on { background: rgba(0, 255, 213, 0.35); }
+.pad-a {
+  width: 70px; height: 70px; border-radius: 50%;
+  border-color: #ff5252; color: #ff5252; font-size: 26px;
+}
+.pad-a.on { background: rgba(255, 82, 82, 0.4); }
+.pad-start {
+  width: 90px; height: 40px;
+  font-size: 14px; letter-spacing: 1px;
+}
