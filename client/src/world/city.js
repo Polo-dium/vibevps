@@ -443,11 +443,105 @@ export function buildBellecour(ctx) {
   );
   ctx.scene.add(plaza);
 
-  // Statue équestre stylisée (Louis XIV)
-  addBox(ctx, { x: -2, z: 6, w: 5, h: 2.2, d: 3.4, color: 0x7d7468 }); // socle
-  addBox(ctx, { x: -2, y: 2.2, z: 6, w: 3.4, h: 1.6, d: 1.2, color: 0x3f5247, collider: false }); // cheval
-  addBox(ctx, { x: -2.9, y: 3.4, z: 6, w: 0.9, h: 1.5, d: 0.8, color: 0x3f5247, collider: false }); // cavalier
-  addBox(ctx, { x: -0.6, y: 3.0, z: 6, w: 1.0, h: 0.9, d: 0.7, color: 0x3f5247, collider: false }); // tête du cheval
+  // Statue équestre de Louis XIV (le « Roi de bronze » de Bellecour)
+  buildLouisXIV(ctx, -2, 6);
+}
+
+function buildLouisXIV(ctx, x, z) {
+  const stone = new THREE.MeshLambertMaterial({ color: 0x9b9384 });
+  const stoneLight = new THREE.MeshLambertMaterial({ color: 0xb0a896 });
+  // Bronze patiné (vert-de-gris léger) — Phong pour le reflet au soleil
+  const bronze = new THREE.MeshPhongMaterial({
+    color: 0x3c5a4a, specular: 0x9fb8a8, shininess: 35, emissive: 0x0c1813,
+  });
+
+  // --- Piédestal en pierre (base étagée + fût + corniche) ---
+  const ped = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.5, 3.6), stoneLight);
+  base.position.y = 0.25;
+  ped.add(base);
+  const shaft = new THREE.Mesh(new THREE.BoxGeometry(4.2, 2.4, 2.8), stone);
+  shaft.position.y = 1.7;
+  ped.add(shaft);
+  const cornice = new THREE.Mesh(new THREE.BoxGeometry(4.7, 0.4, 3.2), stoneLight);
+  cornice.position.y = 3.1;
+  ped.add(cornice);
+  ped.position.set(x, 0, z);
+  ctx.scene.add(ped);
+  ctx.colliders.push({ minX: x - 2.6, maxX: x + 2.6, minY: 0, maxY: 3.3, minZ: z - 1.8, maxZ: z + 1.8 });
+
+  // --- Statue de bronze (cheval + cavalier) au sommet ---
+  const st = new THREE.Group();
+  st.position.set(x, 3.3, z);
+
+  // Corps du cheval
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.62, 1.7, 6, 12), bronze);
+  body.rotation.z = Math.PI / 2;
+  body.position.set(0, 1.65, 0);
+  st.add(body);
+  // Poitrail / arrière
+  const chest = new THREE.Mesh(new THREE.SphereGeometry(0.62, 12, 10), bronze);
+  chest.position.set(1.15, 1.65, 0);
+  st.add(chest);
+  const rump = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 10), bronze);
+  rump.position.set(-1.15, 1.7, 0);
+  st.add(rump);
+  // Encolure + tête
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.5, 1.2, 10), bronze);
+  neck.position.set(1.55, 2.4, 0);
+  neck.rotation.z = -0.7;
+  st.add(neck);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.42, 0.4), bronze);
+  head.position.set(2.15, 2.75, 0);
+  head.rotation.z = -0.35;
+  st.add(head);
+  for (const dz of [-0.13, 0.13]) {
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.22, 5), bronze);
+    ear.position.set(1.95, 3.0, dz);
+    st.add(ear);
+  }
+  // Queue
+  const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.05, 1.3, 7), bronze);
+  tail.position.set(-1.7, 1.4, 0);
+  tail.rotation.z = 0.8;
+  st.add(tail);
+  // Quatre jambes (avant levées façon statue cabrée légère)
+  const legPos = [[1.0, 0.2], [1.0, -0.2], [-1.0, 0.2], [-1.0, -0.2]];
+  for (const [lx, lz] of legPos) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.1, 1.5, 7), bronze);
+    leg.position.set(lx, 0.78, lz);
+    st.add(leg);
+    const hoof = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.16, 7), bronze);
+    hoof.position.set(lx, 0.08, lz);
+    st.add(hoof);
+  }
+
+  // Cavalier (Louis XIV)
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.55, 5, 10), bronze);
+  torso.position.set(0.1, 2.85, 0);
+  st.add(torso);
+  const rhead = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 10), bronze);
+  rhead.position.set(0.1, 3.5, 0);
+  st.add(rhead);
+  // Jambes le long du cheval
+  for (const dz of [-0.32, 0.32]) {
+    const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.55, 4, 8), bronze);
+    leg.position.set(0.05, 2.05, dz);
+    leg.rotation.x = dz > 0 ? 0.25 : -0.25;
+    st.add(leg);
+  }
+  // Bras droit levé (bâton de commandement)
+  const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.1, 0.5, 4, 8), bronze);
+  arm.position.set(0.35, 3.2, -0.35);
+  arm.rotation.z = -0.9;
+  st.add(arm);
+  const baton = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.7, 6), bronze);
+  baton.position.set(0.75, 3.55, -0.5);
+  baton.rotation.z = -0.5;
+  st.add(baton);
+
+  st.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  ctx.scene.add(st);
 }
 
 function buildBuildings(ctx, rand) {

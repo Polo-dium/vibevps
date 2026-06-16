@@ -396,30 +396,84 @@ function buildGreenery(ctx, data, rand) {
 
 // Cellule de fenêtre unique, répétée tous les 3 m. Quasi blanche : elle est
 // multipliée par la teinte (vertex color) de chaque bâtiment.
+// Cellule d'étage haussmannien (1 fenêtre, répétée tous les 3 m). Quasi
+// blanche : multipliée par la teinte (vertex color) de chaque immeuble.
 function makeFacadeTexture() {
+  const S = 128;
   const canvas = document.createElement('canvas');
-  canvas.width = 64;
-  canvas.height = 64;
+  canvas.width = S;
+  canvas.height = S;
   const g = canvas.getContext('2d');
-  g.fillStyle = '#f5f1e9';
-  g.fillRect(0, 0, 64, 64);
-  // Légère bande d'étage
-  g.fillStyle = 'rgba(0, 0, 0, 0.07)';
-  g.fillRect(0, 60, 64, 4);
-  // Encadrement
-  g.fillStyle = 'rgba(255, 255, 255, 0.9)';
-  g.fillRect(16, 10, 32, 44);
-  // Vitre
-  g.fillStyle = '#46505f';
-  g.fillRect(19, 13, 26, 38);
-  // Reflet de ciel
-  g.fillStyle = 'rgba(150, 185, 215, 0.4)';
-  g.fillRect(19, 13, 26, 13);
-  // Meneau central
-  g.fillStyle = 'rgba(245, 241, 233, 0.85)';
-  g.fillRect(30.5, 13, 3, 38);
+
+  // Pierre de taille avec léger grain
+  g.fillStyle = '#f3eee4';
+  g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 500; i++) {
+    const v = 225 + Math.random() * 25;
+    g.fillStyle = `rgba(${v}, ${v - 4}, ${v - 12}, 0.25)`;
+    g.fillRect(Math.random() * S, Math.random() * S, 2, 2);
+  }
+  // Refend horizontal entre étages (joint de pierre + ombre)
+  g.fillStyle = 'rgba(120, 110, 92, 0.55)';
+  g.fillRect(0, S - 4, S, 3);
+  g.fillStyle = 'rgba(255, 255, 255, 0.5)';
+  g.fillRect(0, S - 1, S, 1);
+
+  const wx = S * 0.27, ww = S * 0.46;
+  const wy = S * 0.12, wh = S * 0.6;
+
+  // Bandeau d'appui sous la fenêtre
+  g.fillStyle = 'rgba(150, 140, 120, 0.5)';
+  g.fillRect(wx - 6, wy + wh + 2, ww + 12, 4);
+
+  // Encadrement en pierre saillante (clair dessus/gauche, ombré dessous/droite)
+  g.fillStyle = '#fbf7ee';
+  g.fillRect(wx - 5, wy - 5, ww + 10, wh + 10);
+  g.fillStyle = 'rgba(110, 100, 84, 0.45)';
+  g.fillRect(wx - 5, wy + wh + 3, ww + 10, 2);
+  g.fillRect(wx + ww + 3, wy - 5, 2, wh + 10);
+  // Clé de voûte stylisée au-dessus
+  g.fillStyle = '#fdfaf2';
+  g.fillRect(wx + ww / 2 - 5, wy - 9, 10, 8);
+
+  // Vitre sombre avec dégradé de reflet de ciel
+  const grad = g.createLinearGradient(0, wy, 0, wy + wh);
+  grad.addColorStop(0, '#5b6675');
+  grad.addColorStop(0.5, '#3c4654');
+  grad.addColorStop(1, '#2c343f');
+  g.fillStyle = grad;
+  g.fillRect(wx, wy, ww, wh);
+  // Reflet diagonal
+  g.fillStyle = 'rgba(170, 200, 225, 0.22)';
+  g.beginPath();
+  g.moveTo(wx, wy);
+  g.lineTo(wx + ww * 0.6, wy);
+  g.lineTo(wx, wy + wh * 0.6);
+  g.closePath();
+  g.fill();
+  // Croisée (meneau + traverse)
+  g.fillStyle = 'rgba(245, 240, 230, 0.92)';
+  g.fillRect(wx + ww / 2 - 1.5, wy, 3, wh);
+  g.fillRect(wx, wy + wh / 2 - 1.5, ww, 3);
+
+  // Garde-corps / balconnet en fer forgé devant l'appui
+  g.strokeStyle = 'rgba(30, 32, 36, 0.8)';
+  g.lineWidth = 1.4;
+  const ry0 = wy + wh + 6, ry1 = ry0 + S * 0.12;
+  g.beginPath();
+  g.moveTo(wx - 6, ry0); g.lineTo(wx + ww + 6, ry0);
+  g.moveTo(wx - 6, ry1); g.lineTo(wx + ww + 6, ry1);
+  g.stroke();
+  g.lineWidth = 1;
+  for (let bx = wx - 4; bx <= wx + ww + 4; bx += 5) {
+    g.beginPath();
+    g.moveTo(bx, ry0); g.lineTo(bx, ry1);
+    g.stroke();
+  }
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
   return tex;
 }
 
