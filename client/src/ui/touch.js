@@ -7,14 +7,16 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, in
   root.id = 'touch-ui';
   root.innerHTML = `
     <div id="joy-base"><div id="joy-knob"></div></div>
-    <button class="tbtn tbtn-small" id="tb-fs">⛶</button>
-    <div class="touch-col" id="touch-actions">
-      <button class="tbtn tbtn-small" id="tb-tag">🎨</button>
-      <button class="tbtn tbtn-small" id="tb-lb">🏆</button>
-      <button class="tbtn tbtn-small" id="tb-color">🌈</button>
+    <div class="touch-top" id="touch-top">
+      <button class="tbtn tbtn-small" id="tb-fs">⛶</button>
       <button class="tbtn tbtn-small" id="tb-gun">🔫</button>
-      <button class="tbtn" id="tb-spray">TAG</button>
+      <button class="tbtn tbtn-small" id="tb-tag">🎨</button>
+      <button class="tbtn tbtn-small" id="tb-color">🌈</button>
+      <button class="tbtn tbtn-small" id="tb-lb">🏆</button>
+    </div>
+    <div class="touch-actions" id="touch-actions">
       <button class="tbtn" id="tb-stamp">🖼</button>
+      <button class="tbtn" id="tb-spray">TAG</button>
       <button class="tbtn" id="tb-use">E</button>
       <button class="tbtn" id="tb-jump">SAUT</button>
       <button class="tbtn tbtn-fire" id="tb-fire">TIR</button>

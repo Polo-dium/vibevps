@@ -212,9 +212,23 @@ button.ghost {
   background: rgba(0, 255, 213, 0.45);
   border: 2px solid rgba(255, 255, 255, 0.6);
 }
-.touch-col {
-  position: fixed; right: 14px; bottom: 16px;
-  display: flex; flex-direction: column; gap: 10px; align-items: flex-end;
+/* Boutons utilitaires en haut à droite (rangée horizontale) */
+.touch-top {
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top));
+  right: calc(12px + env(safe-area-inset-right));
+  display: flex; flex-direction: row; gap: 8px;
+  pointer-events: none; z-index: 21;
+}
+/* Boutons d'action en bas à droite, en grille 2 colonnes (tient en paysage) */
+.touch-actions {
+  position: fixed;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  right: calc(12px + env(safe-area-inset-right));
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 9px;
+  align-items: end; justify-items: end;
   pointer-events: none;
 }
 .tbtn {
@@ -237,7 +251,7 @@ button.ghost {
 .tbtn-fire:active { background: rgba(255, 82, 82, 0.35); }
 @media (pointer: coarse) {
   #help { display: none; }
-  #hud-ammo { right: 116px; bottom: 36px; }
+  #hud-ammo { right: auto; left: 50%; transform: translateX(-50%); bottom: 12px; }
 }
 
 /* PvP : santé et flash de dégâts */
@@ -297,14 +311,13 @@ html, body {
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
 }
-#tb-fs {
-  position: fixed;
-  top: calc(12px + env(safe-area-inset-top));
-  right: calc(14px + env(safe-area-inset-right));
-  pointer-events: auto;
-  z-index: 21;
+/* Écran bas (paysage téléphone) : on réduit les boutons pour tout faire tenir */
+@media (pointer: coarse) and (max-height: 480px) {
+  .tbtn { width: 58px; height: 58px; }
+  .tbtn-small { width: 44px; height: 44px; font-size: 17px; }
+  .tbtn-fire { width: 72px; height: 72px; }
+  .touch-actions { gap: 7px; }
 }
 @media (pointer: coarse) {
-  .touch-col { bottom: calc(16px + env(safe-area-inset-bottom)); right: calc(14px + env(safe-area-inset-right)); }
-  #hud-info { top: calc(12px + env(safe-area-inset-top)); left: calc(14px + env(safe-area-inset-left)); }
+  #hud-info { top: calc(10px + env(safe-area-inset-top)); left: calc(14px + env(safe-area-inset-left)); }
 }
