@@ -34,9 +34,19 @@ async function boot() {
   // Ombres dynamiques sur desktop ; désactivées sur mobile pour la fluidité
   const SHADOWS = !IS_TOUCH;
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  const renderer = new THREE.WebGLRenderer({ antialias: !IS_TOUCH, powerPreference: 'high-performance' });
+  // Sur mobile on plafonne la résolution interne : moins de pixels à calculer
+  const maxRatio = IS_TOUCH ? 1.5 : 2;
+  function viewSize() {
+    const vv = window.visualViewport;
+    return {
+      w: Math.round(vv?.width ?? window.innerWidth),
+      h: Math.round(vv?.height ?? window.innerHeight),
+    };
+  }
+  const v0 = viewSize();
+  renderer.setSize(v0.w, v0.h);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxRatio));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
   if (SHADOWS) {
@@ -51,7 +61,7 @@ async function boot() {
   scene.fog = new THREE.Fog(skyColor, 180, 560);
 
   const camera = new THREE.PerspectiveCamera(
-    75, window.innerWidth / window.innerHeight, 0.1, 1000
+    IS_TOUCH ? 82 : 75, v0.w / v0.h, 0.1, 1000
   );
   scene.add(camera); // nécessaire pour l'arme en vue subjective
 
@@ -280,13 +290,39 @@ async function boot() {
       controls, weapon, spray, tagEditor, ui,
       interact: () => nearestInteractable?.action(),
     });
+
+    // Bloque le zoom pincé, le double-tap zoom et le geste Safari
+    document.addEventListener('gesturestart', (e) => e.preventDefault());
+    document.addEventListener('gesturechange', (e) => e.preventDefault());
+    document.addEventListener('touchmove', (e) => {
+      if (e.touches.length > 1) e.preventDefault(); // pincement
+    }, { passive: false });
+    let lastTap = 0;
+    document.addEventListener('touchend', (e) => {
+      const now = Date.now();
+      if (now - lastTap < 300) e.preventDefault(); // double-tap
+      lastTap = now;
+    }, { passive: false });
+
+    // Plein écran au premier appui (et sur le bouton dédié)
+    const goFullscreen = () => {
+      const el = document.documentElement;
+      const fn = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (fn && !document.fullscreenElement) fn.call(el).catch(() => {});
+      if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => {});
+    };
+    window.addEventListener('touchend', goFullscreen, { once: true });
   }
 
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
+  function onResize() {
+    const { w, h } = viewSize();
+    camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
+    renderer.setSize(w, h);
+  }
+  window.addEventListener('resize', onResize);
+  window.addEventListener('orientationchange', () => setTimeout(onResize, 250));
+  window.visualViewport?.addEventListener('resize', onResize);
 
   // --- Boucle principale ---
   const clock = new THREE.Clock();

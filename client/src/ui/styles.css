@@ -288,3 +288,23 @@ button.ghost {
 @media (pointer: coarse) {
   #tagmode-hint { display: none; }
 }
+
+/* Mobile : page figée, pas de zoom ni de scroll, gestion des encoches */
+html, body {
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#tb-fs {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top));
+  right: calc(14px + env(safe-area-inset-right));
+  pointer-events: auto;
+  z-index: 21;
+}
+@media (pointer: coarse) {
+  .touch-col { bottom: calc(16px + env(safe-area-inset-bottom)); right: calc(14px + env(safe-area-inset-right)); }
+  #hud-info { top: calc(12px + env(safe-area-inset-top)); left: calc(14px + env(safe-area-inset-left)); }
+}

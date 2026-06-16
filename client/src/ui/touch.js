@@ -7,6 +7,7 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, in
   root.id = 'touch-ui';
   root.innerHTML = `
     <div id="joy-base"><div id="joy-knob"></div></div>
+    <button class="tbtn tbtn-small" id="tb-fs">⛶</button>
     <div class="touch-col" id="touch-actions">
       <button class="tbtn tbtn-small" id="tb-tag">🎨</button>
       <button class="tbtn tbtn-small" id="tb-lb">🏆</button>
@@ -105,6 +106,15 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, in
   bind('#tb-gun', () => weapon.toggle());
   bind('#tb-tag', () => tagEditor.open());
   bind('#tb-lb', () => ui.toggleLeaderboards());
+  bind('#tb-fs', () => {
+    const el = document.documentElement;
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+    } else {
+      (el.requestFullscreen || el.webkitRequestFullscreen)?.call(el).catch(() => {});
+      if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => {});
+    }
+  });
   // En mode bombe, le bouton TIR devient le bouton PEINDRE
   bind('#tb-fire', () => {
     if (state.tagMode) {
