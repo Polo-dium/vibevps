@@ -120,6 +120,15 @@ export function setupWs(httpServer) {
         return;
       }
 
+      // Signalisation WebRTC (chat vocal) : relais point à point
+      if (msg.t === 'rtc') {
+        const target = players.get(String(msg.to ?? ''));
+        if (target && target.ws.readyState === target.ws.OPEN) {
+          target.ws.send(JSON.stringify({ t: 'rtc', from: id, data: msg.data }));
+        }
+        return;
+      }
+
       // Chat de proximité : message visible par les joueurs proches uniquement
       if (msg.t === 'chat') {
         const now = Date.now();

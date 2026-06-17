@@ -44,7 +44,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
   function showChat(id, text) {
     const r = remotes.get(id);
     if (!r) return;
-    setBubbleText(r.bubble, text);
+    setBubbleText(r.bubble, text, r.name);
     r.bubble.visible = true;
     r.bubbleUntil = performance.now() / 1000 + 6;
   }
@@ -137,24 +137,25 @@ export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
   }
 
   function count() { return remotes.size; }
+  function getPos(id) { return remotes.get(id)?.human.group.position ?? null; }
 
-  return { update, count, showChat };
+  return { update, count, showChat, getPos };
 }
 
 function makeChatBubble() {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
-  canvas.height = 160;
+  canvas.height = 200;
   const sprite = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false })
   );
-  sprite.scale.set(4, 1.25, 1);
-  sprite.position.y = 2.5;
+  sprite.scale.set(4, 1.56, 1);
+  sprite.position.y = 2.6;
   sprite.userData.canvas = canvas;
   return sprite;
 }
 
-function setBubbleText(sprite, text) {
+function setBubbleText(sprite, text, name) {
   const canvas = sprite.userData.canvas;
   const g = canvas.getContext('2d');
   g.clearRect(0, 0, canvas.width, canvas.height);
@@ -191,6 +192,15 @@ function setBubbleText(sprite, text) {
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   shown.forEach((l, i) => g.fillText(l, canvas.width / 2, boxY + 12 + lh / 2 + i * lh));
+  // Pseudo de l'émetteur au-dessus de la bulle
+  if (name) {
+    g.font = '700 26px "Segoe UI", sans-serif';
+    g.fillStyle = '#ffd56b';
+    g.strokeStyle = 'rgba(0,0,0,0.6)';
+    g.lineWidth = 4;
+    g.strokeText(name, canvas.width / 2, boxY - 14);
+    g.fillText(name, canvas.width / 2, boxY - 14);
+  }
   sprite.material.map.needsUpdate = true;
 }
 

@@ -12,6 +12,7 @@ export function createUi() {
     <div id="hud-ammo" class="hidden"></div>
     <div id="toasts"></div>
     <div id="hud-hp">❤ 100</div>
+    <div id="mic-indicator" class="hidden">🎤 EN DIRECT</div>
     <div id="chatfeed"></div>
     <div id="chatbox" class="hidden"><input type="text" id="chatinput" maxlength="120" placeholder="Message de proximité… (Entrée pour envoyer)"></div>
     <div id="killbanner" class="hidden"></div>
@@ -38,6 +39,12 @@ export function createUi() {
   let chatSend = null;
 
   function onChatSend(fn) { chatSend = fn; }
+
+  const micEl = hud.querySelector('#mic-indicator');
+  function setMicState(on) {
+    micEl.classList.toggle('hidden', !on);
+    document.getElementById('tb-mic')?.classList.toggle('on', on);
+  }
 
   function addChatLine(name, text, mine = false) {
     const line = document.createElement('div');
@@ -418,7 +425,7 @@ export function createUi() {
     ensureAuth, toast, setPrompt, setInfo, setRange, setAmmo,
     setHp, damageFlash, killBanner, setTagMode,
     toggleLeaderboards, openCreator, toggleAdmin, closeTopOverlay,
-    openChat, onChatSend, addChatLine,
+    openChat, onChatSend, addChatLine, setMicState,
   };
 }
 

@@ -393,3 +393,15 @@ html, body {
 @media (pointer: coarse) {
   #chatfeed { bottom: auto; top: 70px; max-width: 60vw; }
 }
+
+/* Indicateur micro en direct */
+#mic-indicator {
+  position: absolute; left: 50%; top: calc(10px + env(safe-area-inset-top));
+  transform: translateX(-50%);
+  background: rgba(200, 30, 40, 0.85);
+  color: #fff; font-weight: 800; font-size: 13px;
+  letter-spacing: 1px;
+  padding: 5px 12px; border-radius: 20px;
+  animation: blink 1.4s infinite;
+}
+.tbtn.on { background: rgba(255, 82, 82, 0.45); border-color: #ff5252; }

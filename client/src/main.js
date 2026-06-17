@@ -10,6 +10,7 @@ import { buildRange } from './world/range.js';
 import { createControls, IS_TOUCH } from './player/controls.js';
 import { createWeapon } from './player/weapon.js';
 import { createRemotePlayers } from './player/remotes.js';
+import { createVoice } from './player/voice.js';
 import { createTouchControls } from './ui/touch.js';
 import { SPAWN } from './world/layout.js';
 import { createNpcs } from './world/npcs.js';
@@ -247,6 +248,15 @@ async function boot() {
   ui.onChatSend((text) => net.send({ t: 'chat', text }));
   net.on('chat', (msg) => ui.addChatLine(msg.name, msg.text));
 
+  // --- Chat vocal de proximité (WebRTC) ---
+  const voice = createVoice({
+    getMyId: () => myNetId,
+    getMyPos: () => controls.position,
+    getRemotePos: (id) => remotes.getPos(id),
+    onToast: ui.toast,
+    onState: (on) => ui.setMicState?.(on),
+  });
+
   // --- Réseau ---
   net.connect(() => controls.netState());
   net.on('game', (msg) => {
@@ -283,6 +293,7 @@ async function boot() {
     if (e.code === 'KeyT') tagEditor.open();
     if (e.code === 'KeyL') ui.toggleLeaderboards();
     if (e.code === 'KeyP') ui.toggleAdmin();
+    if (e.code === 'KeyV') voice.toggleMic();
     if (e.code === 'KeyX' && state.isAdmin) {
       spray.deleteAimedTag().then((res) => {
         ui.toast(res.ok ? '🗑 Tag supprimé.' : res.error);
@@ -293,7 +304,7 @@ async function boot() {
   // --- Contrôles tactiles (mobile) ---
   if (IS_TOUCH) {
     createTouchControls({
-      controls, weapon, spray, tagEditor, ui,
+      controls, weapon, spray, tagEditor, ui, voice,
       interact: () => nearestInteractable?.action(),
     });
 
@@ -358,6 +369,7 @@ async function boot() {
     weapon.update(dt, controls.isMoving());
     spray.update(dt);
     remotes.update();
+    voice.update();
     range.update(dt);
     npcs.update(dt);
     for (const u of ctx.updatables) u(dt);

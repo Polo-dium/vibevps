@@ -2,7 +2,7 @@ import { state } from '../state.js';
 
 // Contrôles tactiles : joystick gauche (déplacement), glisser à droite (regard),
 // boutons d'action. Activé uniquement sur écran tactile.
-export function createTouchControls({ controls, weapon, spray, tagEditor, ui, interact }) {
+export function createTouchControls({ controls, weapon, spray, tagEditor, ui, voice, interact }) {
   const root = document.createElement('div');
   root.id = 'touch-ui';
   root.innerHTML = `
@@ -13,6 +13,7 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, in
       <button class="tbtn tbtn-small" id="tb-tag">🎨</button>
       <button class="tbtn tbtn-small" id="tb-color">🌈</button>
       <button class="tbtn tbtn-small" id="tb-chat">💬</button>
+      <button class="tbtn tbtn-small" id="tb-mic">🎤</button>
       <button class="tbtn tbtn-small" id="tb-lb">🏆</button>
     </div>
     <div class="touch-actions" id="touch-actions">
@@ -109,6 +110,7 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, in
   bind('#tb-gun', () => weapon.toggle());
   bind('#tb-tag', () => tagEditor.open());
   bind('#tb-chat', () => ui.openChat());
+  bind('#tb-mic', () => voice?.toggleMic());
   bind('#tb-lb', () => ui.toggleLeaderboards());
   bind('#tb-fs', () => {
     const el = document.documentElement;
