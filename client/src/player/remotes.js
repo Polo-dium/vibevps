@@ -27,13 +27,26 @@ export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
       shootables?.push(mesh);
     }
 
+    const bubble = makeChatBubble();
+    bubble.visible = false;
+    human.group.add(bubble);
+
     remotes.set(id, {
-      human, name, baseColor,
+      human, name, baseColor, bubble,
       buffer: [{ t: performance.now() / 1000, p, ry }],
       flashUntil: 0,
+      bubbleUntil: 0,
       animTime: Math.random() * 10,
       prevPos: new THREE.Vector3(p[0], p[1], p[2]),
     });
+  }
+
+  function showChat(id, text) {
+    const r = remotes.get(id);
+    if (!r) return;
+    setBubbleText(r.bubble, text);
+    r.bubble.visible = true;
+    r.bubbleUntil = performance.now() / 1000 + 6;
   }
 
   function remove(id) {
@@ -63,6 +76,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
   net.on('pleave', (msg) => remove(msg.id));
   net.on('hp', (msg) => flash(msg.id));
   net.on('death', (msg) => flash(msg.id));
+  net.on('chat', (msg) => showChat(msg.id, msg.text));
   net.on('states', (msg) => {
     const now = performance.now() / 1000;
     for (const [id, x, y, z, ry] of msg.s) {
@@ -85,6 +99,10 @@ export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
       if (r.flashUntil && nowSec > r.flashUntil) {
         r.human.shirtMat.color.copy(r.baseColor);
         r.flashUntil = 0;
+      }
+      if (r.bubbleUntil && nowSec > r.bubbleUntil) {
+        r.bubble.visible = false;
+        r.bubbleUntil = 0;
       }
       const buf = r.buffer;
       if (buf.length === 0) continue;
@@ -120,7 +138,60 @@ export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
 
   function count() { return remotes.size; }
 
-  return { update, count };
+  return { update, count, showChat };
+}
+
+function makeChatBubble() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 160;
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false })
+  );
+  sprite.scale.set(4, 1.25, 1);
+  sprite.position.y = 2.5;
+  sprite.userData.canvas = canvas;
+  return sprite;
+}
+
+function setBubbleText(sprite, text) {
+  const canvas = sprite.userData.canvas;
+  const g = canvas.getContext('2d');
+  g.clearRect(0, 0, canvas.width, canvas.height);
+  g.font = '600 34px "Segoe UI", sans-serif';
+  // Découpe en lignes (max ~22 caractères)
+  const words = String(text).split(' ');
+  const lines = [];
+  let line = '';
+  for (const w of words) {
+    if ((line + ' ' + w).trim().length > 22) { lines.push(line.trim()); line = w; }
+    else line += ' ' + w;
+  }
+  if (line.trim()) lines.push(line.trim());
+  const shown = lines.slice(0, 3);
+  const lh = 40;
+  const boxH = shown.length * lh + 24;
+  const boxY = canvas.height - boxH - 8;
+  let maxW = 0;
+  for (const l of shown) maxW = Math.max(maxW, g.measureText(l).width);
+  const boxW = Math.min(canvas.width - 12, maxW + 44);
+  const bx = (canvas.width - boxW) / 2;
+  g.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  g.beginPath();
+  g.roundRect(bx, boxY, boxW, boxH, 16);
+  g.fill();
+  // Pointe de la bulle
+  g.beginPath();
+  g.moveTo(canvas.width / 2 - 12, boxY + boxH);
+  g.lineTo(canvas.width / 2 + 12, boxY + boxH);
+  g.lineTo(canvas.width / 2, boxY + boxH + 18);
+  g.closePath();
+  g.fill();
+  g.fillStyle = '#16203a';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  shown.forEach((l, i) => g.fillText(l, canvas.width / 2, boxY + 12 + lh / 2 + i * lh));
+  sprite.material.map.needsUpdate = true;
 }
 
 function makeNameplate(name) {

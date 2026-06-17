@@ -12,6 +12,8 @@ export function createUi() {
     <div id="hud-ammo" class="hidden"></div>
     <div id="toasts"></div>
     <div id="hud-hp">❤ 100</div>
+    <div id="chatfeed"></div>
+    <div id="chatbox" class="hidden"><input type="text" id="chatinput" maxlength="120" placeholder="Message de proximité… (Entrée pour envoyer)"></div>
     <div id="killbanner" class="hidden"></div>
     <div id="tagmode-hint" class="hidden"></div>
     <div id="help">
@@ -28,8 +30,54 @@ export function createUi() {
   const crosshairEl = hud.querySelector('#crosshair');
   const killbannerEl = hud.querySelector('#killbanner');
   const tagHintEl = hud.querySelector('#tagmode-hint');
+  const chatfeedEl = hud.querySelector('#chatfeed');
+  const chatboxEl = hud.querySelector('#chatbox');
+  const chatinputEl = hud.querySelector('#chatinput');
   let vignetteTimer = null;
   let killbannerTimer = null;
+  let chatSend = null;
+
+  function onChatSend(fn) { chatSend = fn; }
+
+  function addChatLine(name, text, mine = false) {
+    const line = document.createElement('div');
+    line.className = 'chatline';
+    line.innerHTML = `<b style="color:${mine ? 'var(--neon)' : '#ffd56b'}">${escapeHtml(name)}</b> ${escapeHtml(text)}`;
+    chatfeedEl.appendChild(line);
+    while (chatfeedEl.children.length > 6) chatfeedEl.firstChild.remove();
+    setTimeout(() => {
+      line.style.opacity = '0';
+      setTimeout(() => line.remove(), 600);
+    }, 9000);
+  }
+
+  function openChat() {
+    if (state.overlayOpen) return;
+    chatboxEl.classList.remove('hidden');
+    state.chatOpen = true;
+    state.overlayOpen = true; // bloque déplacements/tir pendant la saisie
+    document.exitPointerLock?.();
+    setTimeout(() => chatinputEl.focus(), 30);
+  }
+  function closeChat() {
+    chatboxEl.classList.add('hidden');
+    chatinputEl.value = '';
+    state.chatOpen = false;
+    state.overlayOpen = false;
+  }
+  chatinputEl.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      const text = chatinputEl.value.trim();
+      if (text && chatSend) {
+        chatSend(text);
+        addChatLine(state.auth?.name ?? 'moi', text, true);
+      }
+      closeChat();
+    } else if (e.key === 'Escape') {
+      closeChat();
+    }
+  });
 
   function killBanner(text) {
     killbannerEl.textContent = text;
@@ -370,6 +418,7 @@ export function createUi() {
     ensureAuth, toast, setPrompt, setInfo, setRange, setAmmo,
     setHp, damageFlash, killBanner, setTagMode,
     toggleLeaderboards, openCreator, toggleAdmin, closeTopOverlay,
+    openChat, onChatSend, addChatLine,
   };
 }
 

@@ -6,6 +6,8 @@ const TICK_MS = 66; // ~15 Hz
 const HIT_DAMAGE = 25;
 const HIT_MIN_INTERVAL_MS = 75; // cadence max de l'AK côté serveur
 const SHOT_MIN_INTERVAL_MS = 60;
+const CHAT_RANGE = 32; // portée du chat de proximité (mètres)
+const CHAT_MIN_INTERVAL_MS = 500; // anti-spam
 
 /** @type {Map<string, object>} */
 const players = new Map();
@@ -45,6 +47,7 @@ export function setupWs(httpServer) {
           kills: 0,
           lastHitAt: 0,
           lastShotAt: 0,
+          lastChatAt: 0,
         };
         const others = [...players.entries()].map(([oid, o]) => ({
           id: oid, name: o.name, p: o.p, ry: o.ry,
@@ -113,6 +116,26 @@ export function setupWs(httpServer) {
             victimName: target.name,
             kills: me.kills,
           });
+        }
+        return;
+      }
+
+      // Chat de proximité : message visible par les joueurs proches uniquement
+      if (msg.t === 'chat') {
+        const now = Date.now();
+        if (now - me.lastChatAt < CHAT_MIN_INTERVAL_MS) return;
+        let text = String(msg.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        if (!text) return;
+        me.lastChatAt = now;
+        const payload = JSON.stringify({ t: 'chat', id, name: me.name, text });
+        for (const [pid, other] of players) {
+          if (pid === id) continue;
+          const dx = other.p[0] - me.p[0];
+          const dz = other.p[2] - me.p[2];
+          if (dx * dx + dz * dz <= CHAT_RANGE * CHAT_RANGE &&
+              other.ws.readyState === other.ws.OPEN) {
+            other.ws.send(payload);
+          }
         }
         return;
       }

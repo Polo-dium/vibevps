@@ -362,3 +362,34 @@ html, body {
   width: 90px; height: 40px;
   font-size: 14px; letter-spacing: 1px;
 }
+
+/* Chat de proximité */
+#chatfeed {
+  position: absolute; left: 14px; bottom: 78px;
+  display: flex; flex-direction: column; gap: 4px;
+  max-width: 46vw; pointer-events: none;
+}
+.chatline {
+  background: rgba(8, 10, 20, 0.7);
+  border-left: 3px solid #ffd56b;
+  padding: 4px 9px; border-radius: 4px;
+  font-size: 14px; line-height: 1.35;
+  transition: opacity 0.6s;
+  word-break: break-word;
+}
+#chatbox {
+  position: absolute; left: 50%; bottom: 32%;
+  transform: translateX(-50%);
+  pointer-events: auto; z-index: 41;
+}
+#chatinput {
+  width: 70vw; max-width: 520px;
+  background: rgba(8, 10, 20, 0.95);
+  border: 2px solid var(--neon);
+  border-radius: 8px;
+  color: #e8f6ff; padding: 12px 14px;
+  font-size: 16px; outline: none;
+}
+@media (pointer: coarse) {
+  #chatfeed { bottom: auto; top: 70px; max-width: 60vw; }
+}

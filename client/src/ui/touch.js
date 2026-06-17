@@ -12,6 +12,7 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, in
       <button class="tbtn tbtn-small" id="tb-gun">🔫</button>
       <button class="tbtn tbtn-small" id="tb-tag">🎨</button>
       <button class="tbtn tbtn-small" id="tb-color">🌈</button>
+      <button class="tbtn tbtn-small" id="tb-chat">💬</button>
       <button class="tbtn tbtn-small" id="tb-lb">🏆</button>
     </div>
     <div class="touch-actions" id="touch-actions">
@@ -107,6 +108,7 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, in
   bind('#tb-color', () => spray.cycleColor(1));
   bind('#tb-gun', () => weapon.toggle());
   bind('#tb-tag', () => tagEditor.open());
+  bind('#tb-chat', () => ui.openChat());
   bind('#tb-lb', () => ui.toggleLeaderboards());
   bind('#tb-fs', () => {
     const el = document.documentElement;

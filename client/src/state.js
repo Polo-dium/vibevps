@@ -7,6 +7,7 @@ export const state = {
   tags: [], // tags déjà posés dans le monde
   activeTagImage: null, // dataURL du tag sélectionné pour le spray
   overlayOpen: false, // un overlay UI est ouvert (jeu, éditeur, etc.)
+  chatOpen: false, // saisie du chat de proximité en cours
   pointerLocked: false,
   weaponEquipped: false,
   tagMode: false, // bombe de peinture en main

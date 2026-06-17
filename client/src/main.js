@@ -243,6 +243,10 @@ async function boot() {
     }
   });
 
+  // --- Chat de proximité ---
+  ui.onChatSend((text) => net.send({ t: 'chat', text }));
+  net.on('chat', (msg) => ui.addChatLine(msg.name, msg.text));
+
   // --- Réseau ---
   net.connect(() => controls.netState());
   net.on('game', (msg) => {
@@ -271,6 +275,8 @@ async function boot() {
     }
     if (state.overlayOpen) return;
 
+    // Entrée : ouvrir le chat de proximité
+    if (e.code === 'Enter') { ui.openChat(); return; }
     if (e.code === 'KeyE' && nearestInteractable) nearestInteractable.action();
     if (e.code === 'KeyF') spray.toggleMode();
     if (e.code === 'KeyG') spray.stampTag();
