@@ -326,7 +326,7 @@ html, body {
 #game-frame-slot { position: relative; }
 #game-pad {
   position: absolute; left: 0; right: 0; bottom: 0;
-  display: flex; justify-content: space-between; align-items: flex-end;
+  display: flex; justify-content: flex-end; align-items: flex-end; gap: 12px;
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   pointer-events: none;
 }
