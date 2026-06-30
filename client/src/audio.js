@@ -147,6 +147,17 @@ export const audio = {
     });
   },
 
+  // Manette tactile des bornes d'arcade
+  arcadeTick() {
+    if (!ctx) return;
+    tone(520, 0.035, { type: 'square', gain: 0.05 });
+  },
+  arcadeClick(kind = 'a') {
+    if (!ctx) return;
+    if (kind === 'a') tone(880, 0.05, { type: 'square', gain: 0.09, slideTo: 1200 });
+    else tone(660, 0.05, { type: 'square', gain: 0.09, slideTo: 420 });
+  },
+
   speak(text, { pitch = 1, rate = 1, volume = 1 } = {}) {
     if (!('speechSynthesis' in window)) return;
     const u = new SpeechSynthesisUtterance(text);

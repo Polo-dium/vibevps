@@ -1,4 +1,5 @@
 import { state, apiFetch } from '../state.js';
+import { IS_TOUCH } from '../player/controls.js';
 
 export function createUi() {
   // --- HUD permanent ---
@@ -133,10 +134,18 @@ export function createUi() {
   function setPrompt(text) {
     if (!text) {
       promptEl.classList.add('hidden');
+    } else if (IS_TOUCH) {
+      // Sur tactile : pas de touche E, on invite à toucher directement.
+      promptEl.innerHTML = '<b>▶ JOUER</b> ' + text.replace(/^[A-Z1-9]+ — /, '');
+      promptEl.classList.remove('hidden');
     } else {
       promptEl.innerHTML = text.replace(/^([A-Z1-9]+) — /, '<b>[$1]</b> ');
       promptEl.classList.remove('hidden');
     }
+  }
+  function onPromptTap(handler) {
+    promptEl.addEventListener('touchstart', (e) => { e.preventDefault(); handler(); }, { passive: false });
+    promptEl.addEventListener('click', () => handler());
   }
 
   function setInfo({ fps, players, pos }) {
@@ -422,7 +431,7 @@ export function createUi() {
   }
 
   return {
-    ensureAuth, toast, setPrompt, setInfo, setRange, setAmmo,
+    ensureAuth, toast, setPrompt, onPromptTap, setInfo, setRange, setAmmo,
     setHp, damageFlash, killBanner, setTagMode,
     toggleLeaderboards, openCreator, toggleAdmin, closeTopOverlay,
     openChat, onChatSend, addChatLine, setMicState,

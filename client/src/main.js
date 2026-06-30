@@ -307,6 +307,8 @@ async function boot() {
       controls, weapon, spray, tagEditor, ui, voice,
       interact: () => nearestInteractable?.action(),
     });
+    // Le prompt « ▶ JOUER » est lui-même tactile : plus besoin de viser le bouton E.
+    ui.onPromptTap(() => nearestInteractable?.action());
 
     // Bloque le zoom pincé, le double-tap zoom et le geste Safari
     document.addEventListener('gesturestart', (e) => e.preventDefault());

@@ -1,6 +1,7 @@
 import { state, apiFetch } from '../state.js';
 import * as net from '../net.js';
 import { IS_TOUCH } from '../player/controls.js';
+import { audio } from '../audio.js';
 import tetrisHtml from './builtin/tetris.js';
 import pacmanHtml from './builtin/pacman.js';
 import snakeHtml from './builtin/snake.js';
@@ -27,15 +28,12 @@ export function createGameShell({ onToast, onOpenChange }) {
           <h3 style="margin-top:8px;">TOP 10</h3>
           <div class="lb-rows" id="game-lb">—</div>
           <div id="game-pad" class="hidden">
-            <div id="pad-dir">
-              <button class="padbtn" data-code="ArrowUp" data-nr>▲</button>
-              <button class="padbtn" data-code="ArrowLeft">◀</button>
-              <button class="padbtn" data-code="ArrowDown">▼</button>
-              <button class="padbtn" data-code="ArrowRight">▶</button>
+            <div id="pad-joy-base">
+              <div id="pad-joy-knob"></div>
             </div>
             <div id="pad-act">
+              <button class="padbtn pad-b" data-code="Enter" data-nr>B</button>
               <button class="padbtn pad-a" data-code="Space" data-nr>A</button>
-              <button class="padbtn pad-start" data-code="Enter" data-nr>START</button>
             </div>
           </div>
           <div style="flex:1"></div>
@@ -66,6 +64,7 @@ export function createGameShell({ onToast, onOpenChange }) {
   function pressStart(btn) {
     const code = btn.dataset.code;
     sendKey(code, true);
+    audio.arcadeClick(btn.classList.contains('pad-a') ? 'a' : 'b');
     // Auto-répétition pour les directions de déplacement (pas pour rotation/A/START)
     if (btn.dataset.nr === undefined && !repeatTimers.has(code)) {
       const id = setInterval(() => sendKey(code, true), 110);
@@ -84,12 +83,76 @@ export function createGameShell({ onToast, onOpenChange }) {
   }
 
   if (IS_TOUCH) {
-    for (const btn of pad.querySelectorAll('.padbtn')) {
+    for (const btn of pad.querySelectorAll('#pad-act .padbtn')) {
       btn.addEventListener('touchstart', (e) => { e.preventDefault(); btn.classList.add('on'); pressStart(btn); }, { passive: false });
       const up = (e) => { e.preventDefault(); btn.classList.remove('on'); pressEnd(btn); };
       btn.addEventListener('touchend', up, { passive: false });
       btn.addEventListener('touchcancel', up, { passive: false });
     }
+  }
+
+  // --- Joystick analogique (mobile) : un glisser du doigt devient une
+  // direction discrète (haut/bas/gauche/droite) envoyée au jeu. ---
+  const joyBase = root.querySelector('#pad-joy-base');
+  const joyKnob = root.querySelector('#pad-joy-knob');
+  let joyTouchId = null;
+  let joyOrigin = null;
+  let joyDir = null;
+  let joyRadius = 46;
+
+  function setJoyDir(code) {
+    if (joyDir === code) return;
+    if (joyDir) sendKey(joyDir, false);
+    joyDir = code;
+    if (joyDir) { sendKey(joyDir, true); audio.arcadeTick(); }
+  }
+
+  function dirFromDelta(dx, dy) {
+    if (Math.hypot(dx, dy) < joyRadius * 0.35) return null;
+    const deg = Math.atan2(dy, dx) * 180 / Math.PI;
+    if (deg >= -45 && deg < 45) return 'ArrowRight';
+    if (deg >= 45 && deg < 135) return 'ArrowDown';
+    if (deg >= -135 && deg < -45) return 'ArrowUp';
+    return 'ArrowLeft';
+  }
+
+  if (IS_TOUCH && joyBase) {
+    joyBase.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      const t = e.changedTouches[0];
+      joyTouchId = t.identifier;
+      const rect = joyBase.getBoundingClientRect();
+      joyOrigin = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      joyRadius = rect.width / 2;
+      joyKnob.classList.add('active');
+      joyKnob.style.transition = 'none';
+    }, { passive: false });
+
+    joyBase.addEventListener('touchmove', (e) => {
+      for (const t of e.changedTouches) {
+        if (t.identifier !== joyTouchId) continue;
+        e.preventDefault();
+        let dx = t.clientX - joyOrigin.x;
+        let dy = t.clientY - joyOrigin.y;
+        const len = Math.hypot(dx, dy);
+        if (len > joyRadius) { dx = (dx / len) * joyRadius; dy = (dy / len) * joyRadius; }
+        joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+        setJoyDir(dirFromDelta(dx, dy));
+      }
+    }, { passive: false });
+
+    const joyEnd = (e) => {
+      for (const t of e.changedTouches) {
+        if (t.identifier !== joyTouchId) continue;
+        joyTouchId = null;
+        joyKnob.classList.remove('active');
+        joyKnob.style.transition = '';
+        joyKnob.style.transform = 'translate(0px, 0px)';
+        setJoyDir(null);
+      }
+    };
+    joyBase.addEventListener('touchend', joyEnd, { passive: true });
+    joyBase.addEventListener('touchcancel', joyEnd, { passive: true });
   }
 
   // Injecte un pont dans le jeu : un message {type:'arcade:key'} devient un
@@ -197,6 +260,9 @@ export function createGameShell({ onToast, onOpenChange }) {
   function close() {
     root.classList.add('hidden');
     clearRepeats();
+    joyTouchId = null;
+    joyDir = null;
+    if (joyKnob) joyKnob.style.transform = 'translate(0px, 0px)';
     iframe?.remove();
     iframe = null;
     pad.classList.add('hidden');
