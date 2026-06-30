@@ -17,7 +17,7 @@ export function createGameShell({ onToast, onOpenChange }) {
   const root = document.createElement('div');
   root.className = 'overlay hidden';
   root.innerHTML = `
-    <div class="panel">
+    <div class="panel" id="game-panel">
       <div id="game-frame-wrap">
         <div id="game-frame-slot"></div>
         <div id="game-side">

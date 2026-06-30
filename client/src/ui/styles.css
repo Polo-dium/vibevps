@@ -136,24 +136,56 @@ button.ghost {
 }
 
 /* Salle de jeu (iframe) */
+#game-panel {
+  display: flex; flex-direction: column;
+  max-height: 92vh;
+}
 #game-frame-wrap {
   display: flex; gap: 18px; align-items: stretch;
+  flex: 1; min-height: 0;
+}
+#game-frame-slot {
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+  display: flex; align-items: center; justify-content: center;
 }
 #game-frame {
   width: min(62vh, 480px);
   height: min(82vh, 640px);
+  max-width: 100%; max-height: 100%;
   border: 2px solid var(--neon);
   border-radius: 8px;
   background: #000;
   box-shadow: 0 0 50px rgba(0, 255, 213, 0.25);
 }
 #game-side {
-  width: 240px; display: flex; flex-direction: column; gap: 10px;
+  width: 240px; flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 10px;
   font-family: monospace;
+  min-height: 0;
 }
-#game-side h3 { color: var(--neon2); letter-spacing: 1px; }
-.lb-rows { font-size: 13px; line-height: 1.9; color: #cfe8f5; }
+#game-side h3 { color: var(--neon2); letter-spacing: 1px; flex-shrink: 0; }
+#game-title, #game-best, #game-close { flex-shrink: 0; }
+.lb-rows {
+  font-size: 13px; line-height: 1.9; color: #cfe8f5;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+}
 .lb-rows .me { color: var(--neon); }
+
+/* Plein écran sur mobile : le jeu remplit tout l'espace disponible,
+   dans les deux sens (portrait/paysage). */
+@media (pointer: coarse) {
+  #game-panel {
+    width: 96vw; height: 96vh; height: 96dvh;
+    max-width: 96vw; max-height: 96vh; max-height: 96dvh;
+    padding: 12px;
+  }
+  #game-frame { width: 100%; height: 100%; }
+}
+@media (pointer: coarse) and (orientation: portrait) {
+  #game-frame-wrap { flex-direction: column; }
+  #game-frame-slot { flex: 3 1 0; }
+  #game-side { width: 100%; flex: 2 1 0; }
+}
 
 /* Éditeur de tag */
 #tag-editor-canvas {
@@ -324,8 +356,6 @@ html, body {
 
 /* Manette tactile des bornes d'arcade (mobile) : posée à côté de l'écran,
    jamais par-dessus le jeu. */
-#game-frame-slot { flex-shrink: 1; min-width: 0; }
-#game-frame-slot #game-frame { max-width: 100%; }
 #game-pad {
   display: flex; flex-direction: column; justify-content: center;
   align-items: center; gap: 22px;
@@ -333,44 +363,50 @@ html, body {
   padding: 4px 0;
 }
 #pad-dir {
-  position: relative; width: 132px; height: 132px;
+  position: relative; width: 168px; height: 168px;
 }
 #pad-dir .padbtn {
   position: absolute;
-  width: 44px; height: 44px;
+  width: 56px; height: 56px;
+  font-size: 24px;
 }
-#pad-dir [data-code="ArrowUp"]    { left: 44px; top: 0; }
-#pad-dir [data-code="ArrowLeft"]  { left: 0; top: 44px; }
-#pad-dir [data-code="ArrowDown"]  { left: 44px; top: 88px; }
-#pad-dir [data-code="ArrowRight"] { left: 88px; top: 44px; }
+#pad-dir [data-code="ArrowUp"]    { left: 56px; top: 0; }
+#pad-dir [data-code="ArrowLeft"]  { left: 0; top: 56px; }
+#pad-dir [data-code="ArrowDown"]  { left: 56px; top: 112px; }
+#pad-dir [data-code="ArrowRight"] { left: 112px; top: 56px; }
 #pad-act { display: flex; flex-direction: column; gap: 10px; align-items: center; }
 @media (pointer: coarse) and (max-height: 480px) {
   #game-pad { gap: 12px; }
-  #pad-dir { width: 104px; height: 104px; }
-  #pad-dir .padbtn { width: 36px; height: 36px; }
-  #pad-dir [data-code="ArrowUp"]    { left: 34px; top: 0; }
-  #pad-dir [data-code="ArrowLeft"]  { left: 0; top: 34px; }
-  #pad-dir [data-code="ArrowDown"]  { left: 34px; top: 68px; }
-  #pad-dir [data-code="ArrowRight"] { left: 68px; top: 34px; }
+  #pad-dir { width: 130px; height: 130px; }
+  #pad-dir .padbtn { width: 44px; height: 44px; font-size: 19px; }
+  #pad-dir [data-code="ArrowUp"]    { left: 43px; top: 0; }
+  #pad-dir [data-code="ArrowLeft"]  { left: 0; top: 43px; }
+  #pad-dir [data-code="ArrowDown"]  { left: 43px; top: 86px; }
+  #pad-dir [data-code="ArrowRight"] { left: 86px; top: 43px; }
 }
 .padbtn {
+  display: flex; align-items: center; justify-content: center;
   border-radius: 12px;
   background: rgba(10, 14, 28, 0.6);
   border: 2px solid var(--border);
   color: var(--neon);
-  font-weight: 800; font-size: 18px;
+  font-weight: 800; font-size: 18px; line-height: 1;
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
 }
 .padbtn.on { background: rgba(0, 255, 213, 0.35); }
 .pad-a {
-  width: 70px; height: 70px; border-radius: 50%;
-  border-color: #ff5252; color: #ff5252; font-size: 26px;
+  width: 84px; height: 84px; border-radius: 50%;
+  border-color: #ff5252; color: #ff5252; font-size: 30px;
 }
 .pad-a.on { background: rgba(255, 82, 82, 0.4); }
 .pad-start {
-  width: 90px; height: 40px;
-  font-size: 14px; letter-spacing: 1px;
+  width: 100px; height: 46px;
+  font-size: 15px; letter-spacing: 1px;
+}
+@media (pointer: coarse) and (max-height: 480px) {
+  .pad-a { width: 66px; height: 66px; font-size: 24px; }
+  .pad-start { width: 84px; height: 38px; font-size: 13px; }
 }
 
 /* Chat de proximité */
