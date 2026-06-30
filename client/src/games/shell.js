@@ -19,18 +19,17 @@ export function createGameShell({ onToast, onOpenChange }) {
   root.innerHTML = `
     <div class="panel">
       <div id="game-frame-wrap">
-        <div id="game-frame-slot">
-          <div id="game-pad" class="hidden">
-            <div id="pad-dir">
-              <button class="padbtn" data-code="ArrowUp" data-nr>▲</button>
-              <button class="padbtn" data-code="ArrowLeft">◀</button>
-              <button class="padbtn" data-code="ArrowDown">▼</button>
-              <button class="padbtn" data-code="ArrowRight">▶</button>
-            </div>
-            <div id="pad-act">
-              <button class="padbtn pad-a" data-code="Space" data-nr>A</button>
-              <button class="padbtn pad-start" data-code="Enter" data-nr>START</button>
-            </div>
+        <div id="game-frame-slot"></div>
+        <div id="game-pad" class="hidden">
+          <div id="pad-dir">
+            <button class="padbtn" data-code="ArrowUp" data-nr>▲</button>
+            <button class="padbtn" data-code="ArrowLeft">◀</button>
+            <button class="padbtn" data-code="ArrowDown">▼</button>
+            <button class="padbtn" data-code="ArrowRight">▶</button>
+          </div>
+          <div id="pad-act">
+            <button class="padbtn pad-a" data-code="Space" data-nr>A</button>
+            <button class="padbtn pad-start" data-code="Enter" data-nr>START</button>
           </div>
         </div>
         <div id="game-side">
@@ -185,8 +184,7 @@ export function createGameShell({ onToast, onOpenChange }) {
     iframe.id = 'game-frame';
     iframe.setAttribute('sandbox', 'allow-scripts');
     iframe.srcdoc = withKeyBridge(html);
-    // On garde la manette dans le slot, on insère l'iframe avant elle
-    frameSlot.insertBefore(iframe, pad);
+    frameSlot.appendChild(iframe);
     pad.classList.toggle('hidden', !IS_TOUCH);
 
     root.classList.remove('hidden');

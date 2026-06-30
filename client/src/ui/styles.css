@@ -322,15 +322,16 @@ html, body {
   #hud-info { top: calc(10px + env(safe-area-inset-top)); left: calc(14px + env(safe-area-inset-left)); }
 }
 
-/* Manette tactile des bornes d'arcade (mobile) */
-#game-frame-slot { position: relative; }
+/* Manette tactile des bornes d'arcade (mobile) : posée à côté de l'écran,
+   jamais par-dessus le jeu. */
+#game-frame-slot { flex-shrink: 1; min-width: 0; }
+#game-frame-slot #game-frame { max-width: 100%; }
 #game-pad {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  display: flex; justify-content: flex-end; align-items: flex-end; gap: 12px;
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
-  pointer-events: none;
+  display: flex; flex-direction: column; justify-content: center;
+  align-items: center; gap: 22px;
+  flex-shrink: 0;
+  padding: 4px 0;
 }
-#game-pad .padbtn { pointer-events: auto; }
 #pad-dir {
   position: relative; width: 132px; height: 132px;
 }
@@ -342,7 +343,16 @@ html, body {
 #pad-dir [data-code="ArrowLeft"]  { left: 0; top: 44px; }
 #pad-dir [data-code="ArrowDown"]  { left: 44px; top: 88px; }
 #pad-dir [data-code="ArrowRight"] { left: 88px; top: 44px; }
-#pad-act { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
+#pad-act { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+@media (pointer: coarse) and (max-height: 480px) {
+  #game-pad { gap: 12px; }
+  #pad-dir { width: 104px; height: 104px; }
+  #pad-dir .padbtn { width: 36px; height: 36px; }
+  #pad-dir [data-code="ArrowUp"]    { left: 34px; top: 0; }
+  #pad-dir [data-code="ArrowLeft"]  { left: 0; top: 34px; }
+  #pad-dir [data-code="ArrowDown"]  { left: 34px; top: 68px; }
+  #pad-dir [data-code="ArrowRight"] { left: 68px; top: 34px; }
+}
 .padbtn {
   border-radius: 12px;
   background: rgba(10, 14, 28, 0.6);
