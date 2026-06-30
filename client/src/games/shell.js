@@ -20,24 +20,24 @@ export function createGameShell({ onToast, onOpenChange }) {
     <div class="panel">
       <div id="game-frame-wrap">
         <div id="game-frame-slot"></div>
-        <div id="game-pad" class="hidden">
-          <div id="pad-dir">
-            <button class="padbtn" data-code="ArrowUp" data-nr>▲</button>
-            <button class="padbtn" data-code="ArrowLeft">◀</button>
-            <button class="padbtn" data-code="ArrowDown">▼</button>
-            <button class="padbtn" data-code="ArrowRight">▶</button>
-          </div>
-          <div id="pad-act">
-            <button class="padbtn pad-a" data-code="Space" data-nr>A</button>
-            <button class="padbtn pad-start" data-code="Enter" data-nr>START</button>
-          </div>
-        </div>
         <div id="game-side">
           <h3 id="game-title"></h3>
           <div style="font-size:26px;">SCORE <span id="game-score" style="color:var(--neon);">0</span></div>
           <div id="game-best" style="color:#9fb6c9; font-size:13px;"></div>
           <h3 style="margin-top:8px;">TOP 10</h3>
           <div class="lb-rows" id="game-lb">—</div>
+          <div id="game-pad" class="hidden">
+            <div id="pad-dir">
+              <button class="padbtn" data-code="ArrowUp" data-nr>▲</button>
+              <button class="padbtn" data-code="ArrowLeft">◀</button>
+              <button class="padbtn" data-code="ArrowDown">▼</button>
+              <button class="padbtn" data-code="ArrowRight">▶</button>
+            </div>
+            <div id="pad-act">
+              <button class="padbtn pad-a" data-code="Space" data-nr>A</button>
+              <button class="padbtn pad-start" data-code="Enter" data-nr>START</button>
+            </div>
+          </div>
           <div style="flex:1"></div>
           <button class="ghost" id="game-close">Quitter (Échap)</button>
         </div>
