@@ -103,6 +103,10 @@ export function createVoice({ getMyId, getMyPos, getRemotePos, onToast, onState 
 
   async function enableMic() {
     if (micOn) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      onToast?.('Micro indisponible : le site doit être servi en HTTPS (le navigateur bloque le micro en HTTP simple).');
+      return;
+    }
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
