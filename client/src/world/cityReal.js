@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { addInvisibleWall } from './utils.js';
 import { ARCADE, RANGE, MUR_PEINT, BELLECOUR, makeRand } from './layout.js';
 import {
-  makeWaterTexture, buildBellecour, buildGrandeRoue, buildFountain,
-  buildStreetFurniture, buildMurPeint, buildPeniches,
+  makeWaterTexture, makeForestTexture, buildBellecour, buildGrandeRoue,
+  buildFountain, buildStreetFurniture, buildMurPeint, buildPeniches,
 } from './city.js';
 
 // Construit le vrai centre de Lyon à partir des empreintes OpenStreetMap
@@ -260,7 +260,7 @@ function buildFarLandmarks(ctx, bound) {
   const FZ = -244 * sc;
 
   // Grande colline boisée (deux dômes pour une silhouette organique)
-  const hillMat = new THREE.MeshLambertMaterial({ color: 0x55733f, fog: false });
+  const hillMat = new THREE.MeshLambertMaterial({ map: makeForestTexture(), fog: false });
   const hill = new THREE.Mesh(new THREE.SphereGeometry(150, 28, 18), hillMat);
   hill.scale.set(1.5, 0.55, 1.6);
   hill.position.set(FX - 10, -40, FZ);

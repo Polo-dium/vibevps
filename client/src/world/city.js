@@ -4,7 +4,11 @@ import {
   WORLD_BOUND, BELLECOUR, ARCADE, RANGE, SAONE, RHONE, BRIDGE, MUR_PEINT, makeRand,
 } from './layout.js';
 
-const PALETTE = ['#cbb697', '#d8c3a5', '#c49a7a', '#b98d6f', '#d6a77a', '#bfae9b', '#c9b29b', '#e0cdb2'];
+// Teintes réalistes des façades lyonnaises : ocres, crèmes, roses, saumons
+const PALETTE = [
+  '#d9c49a', '#e3d0ae', '#d8b183', '#cba57e', '#e0b894',
+  '#d6c3a4', '#e6d7bb', '#c9a186', '#e2c1a0', '#d3b691',
+];
 
 export function buildCity(ctx) {
   const rand = makeRand(1337);
@@ -46,20 +50,38 @@ function buildGroundAndRivers(ctx) {
   ground.userData.taggable = false;
   ctx.scene.add(ground);
 
-  // Eau animée des deux fleuves (texture qui défile lentement)
+  // Eau animée des deux fleuves : deux couches de texture qui défilent à des
+  // vitesses différentes + reflet spéculaire du soleil (Phong)
   const waterTex = makeWaterTexture();
   waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping;
   waterTex.repeat.set(3, 60);
-  const waterMat = new THREE.MeshLambertMaterial({
+  const waterTex2 = makeWaterTexture();
+  waterTex2.wrapS = waterTex2.wrapT = THREE.RepeatWrapping;
+  waterTex2.repeat.set(5, 80);
+  const waterMat = new THREE.MeshPhongMaterial({
     map: waterTex, transparent: true, opacity: 0.94,
+    specular: 0xbdd9e2, shininess: 90,
   });
-  ctx.updatables.push((dt) => { waterTex.offset.y -= dt * 0.018; });
+  const waterMat2 = new THREE.MeshPhongMaterial({
+    map: waterTex2, transparent: true, opacity: 0.28,
+    specular: 0x9fc4d0, shininess: 60, depthWrite: false,
+  });
+  ctx.updatables.push((dt) => {
+    waterTex.offset.y -= dt * 0.018;
+    waterTex2.offset.y += dt * 0.011;
+    waterTex2.offset.x += dt * 0.004;
+  });
   for (const river of [SAONE, RHONE]) {
     const w = river.maxX - river.minX;
     const water = new THREE.Mesh(new THREE.PlaneGeometry(w, 560), waterMat);
     water.rotation.x = -Math.PI / 2;
     water.position.set((river.minX + river.maxX) / 2, 0.05, 0);
     ctx.scene.add(water);
+    const shimmer = new THREE.Mesh(new THREE.PlaneGeometry(w, 560), waterMat2);
+    shimmer.rotation.x = -Math.PI / 2;
+    shimmer.position.set((river.minX + river.maxX) / 2, 0.08, 0);
+    shimmer.userData.noShadow = true;
+    ctx.scene.add(shimmer);
 
     // Bandes de quai en pierre claire le long des berges
     for (const x of [river.minX - 2.2, river.maxX + 2.2]) {
@@ -126,14 +148,160 @@ function makeAsphaltTexture() {
   canvas.width = 128;
   canvas.height = 128;
   const g = canvas.getContext('2d');
-  g.fillStyle = '#414755';
+  g.fillStyle = '#70757f';
   g.fillRect(0, 0, 128, 128);
+  // Taches larges très subtiles (usure) puis grain fin
+  for (let i = 0; i < 18; i++) {
+    const v = 88 + Math.random() * 26;
+    g.fillStyle = `rgba(${v}, ${v + 4}, ${v + 10}, ${0.05 + Math.random() * 0.05})`;
+    const r = 10 + Math.random() * 26;
+    g.beginPath();
+    g.arc(Math.random() * 128, Math.random() * 128, r, 0, Math.PI * 2);
+    g.fill();
+  }
   for (let i = 0; i < 900; i++) {
-    const v = 50 + Math.random() * 40;
-    g.fillStyle = `rgba(${v + 10}, ${v + 14}, ${v + 24}, 0.5)`;
+    const v = 85 + Math.random() * 50;
+    g.fillStyle = `rgba(${v + 8}, ${v + 12}, ${v + 20}, 0.4)`;
     g.fillRect(Math.random() * 128, Math.random() * 128, 1.6, 1.6);
   }
-  return new THREE.CanvasTexture(canvas);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Toits : tuiles rondes lyonnaises (terre cuite) et zinc, partagés entre bâtiments
+let tileRoofMat = null;
+function getTileRoofMat() {
+  if (tileRoofMat) return tileRoofMat;
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#a8543c';
+  g.fillRect(0, 0, 128, 128);
+  for (let y = 0; y < 128; y += 10) {
+    // Rangée de tuiles : ombre du recouvrement + arrondis
+    g.fillStyle = 'rgba(60, 26, 18, 0.4)';
+    g.fillRect(0, y + 8, 128, 2);
+    for (let x = 0; x < 128; x += 12) {
+      const v = Math.random();
+      g.fillStyle = `rgba(${180 + v * 40}, ${95 + v * 25}, ${70 + v * 18}, 0.5)`;
+      g.fillRect(x + (y % 20 === 0 ? 0 : 6), y, 10, 8);
+      g.fillStyle = 'rgba(70, 30, 20, 0.25)';
+      g.fillRect(x + (y % 20 === 0 ? 10 : 4), y, 2, 8);
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3, 2);
+  tileRoofMat = new THREE.MeshLambertMaterial({ map: tex });
+  return tileRoofMat;
+}
+
+let zincRoofMat = null;
+function getZincRoofMat() {
+  if (zincRoofMat) return zincRoofMat;
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#5b626f';
+  g.fillRect(0, 0, 128, 128);
+  // Joints debout verticaux du zinc
+  for (let x = 0; x < 128; x += 16) {
+    g.fillStyle = 'rgba(30, 34, 42, 0.5)';
+    g.fillRect(x, 0, 2, 128);
+    g.fillStyle = 'rgba(200, 210, 224, 0.18)';
+    g.fillRect(x + 2, 0, 1.5, 128);
+  }
+  for (let i = 0; i < 300; i++) {
+    const v = 90 + Math.random() * 40;
+    g.fillStyle = `rgba(${v}, ${v + 6}, ${v + 14}, 0.2)`;
+    g.fillRect(Math.random() * 128, Math.random() * 128, 2.5, 2.5);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(2, 2);
+  zincRoofMat = new THREE.MeshLambertMaterial({ map: tex });
+  return zincRoofMat;
+}
+
+// Gravier stabilisé rose de la place Bellecour
+function makeGravelTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#c98f60';
+  g.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 30; i++) {
+    const v = Math.random();
+    g.fillStyle = `rgba(${170 + v * 40}, ${115 + v * 30}, ${75 + v * 25}, 0.12)`;
+    g.beginPath();
+    g.arc(Math.random() * 128, Math.random() * 128, 10 + Math.random() * 24, 0, Math.PI * 2);
+    g.fill();
+  }
+  for (let i = 0; i < 1400; i++) {
+    const v = Math.random();
+    g.fillStyle = `rgba(${150 + v * 90}, ${100 + v * 70}, ${65 + v * 50}, 0.5)`;
+    g.fillRect(Math.random() * 128, Math.random() * 128, 1.4, 1.4);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+// Canopée : taches de verts variés, pour donner un aspect boisé aux collines
+export function makeForestTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#33512a';
+  g.fillRect(0, 0, 256, 256);
+  // Gros bouquets d'arbres bien contrastés (lisibles même de loin)
+  for (let i = 0; i < 240; i++) {
+    const v = Math.random();
+    g.fillStyle = `rgba(${40 + v * 75}, ${80 + v * 75}, ${35 + v * 45}, ${0.6 + v * 0.4})`;
+    const r = 7 + Math.random() * 16;
+    g.beginPath();
+    g.arc(Math.random() * 256, Math.random() * 256, r, 0, Math.PI * 2);
+    g.fill();
+  }
+  // Ombres entre les frondaisons
+  for (let i = 0; i < 160; i++) {
+    g.fillStyle = `rgba(14, 26, 12, ${0.25 + Math.random() * 0.3})`;
+    g.beginPath();
+    g.arc(Math.random() * 256, Math.random() * 256, 3 + Math.random() * 8, 0, Math.PI * 2);
+    g.fill();
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3, 2);
+  return tex;
+}
+
+// Dalles de trottoir claires avec grain
+function makeSidewalkTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#7e838c';
+  g.fillRect(0, 0, 64, 64);
+  for (let i = 0; i < 400; i++) {
+    const v = 110 + Math.random() * 50;
+    g.fillStyle = `rgba(${v}, ${v + 3}, ${v + 8}, 0.4)`;
+    g.fillRect(Math.random() * 64, Math.random() * 64, 1.3, 1.3);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
 }
 
 export function makeWaterTexture() {
@@ -141,8 +309,15 @@ export function makeWaterTexture() {
   canvas.width = 64;
   canvas.height = 64;
   const g = canvas.getContext('2d');
-  g.fillStyle = '#1d5b66';
+  // Vert-bleu profond du Rhône, avec de larges zones plus sombres
+  g.fillStyle = '#1a4f5c';
   g.fillRect(0, 0, 64, 64);
+  for (let i = 0; i < 8; i++) {
+    g.fillStyle = `rgba(10, 40, 52, ${0.1 + Math.random() * 0.12})`;
+    g.beginPath();
+    g.arc(Math.random() * 64, Math.random() * 64, 8 + Math.random() * 16, 0, Math.PI * 2);
+    g.fill();
+  }
   for (let i = 0; i < 36; i++) {
     g.strokeStyle = `rgba(${120 + Math.random() * 60}, ${190 + Math.random() * 40}, ${200}, ${0.06 + Math.random() * 0.1})`;
     g.lineWidth = 1 + Math.random() * 1.5;
@@ -152,7 +327,9 @@ export function makeWaterTexture() {
     g.bezierCurveTo(20, y + 4, 44, y - 4, 64, y);
     g.stroke();
   }
-  return new THREE.CanvasTexture(canvas);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 // Péniches qui remontent lentement les fleuves
@@ -251,26 +428,31 @@ export function buildFountain(ctx) {
   const x = -22, z = 12;
   const basin = new THREE.Mesh(
     new THREE.CylinderGeometry(2.6, 2.8, 0.7, 14),
-    new THREE.MeshLambertMaterial({ color: 0x9aa49e })
+    new THREE.MeshLambertMaterial({ color: 0xbab2a2 })
   );
   basin.position.set(x, 0.35, z);
   ctx.scene.add(basin);
   const water = new THREE.Mesh(
     new THREE.CircleGeometry(2.35, 14),
-    new THREE.MeshLambertMaterial({ color: 0x3d8a96, emissive: 0x123238 })
+    new THREE.MeshPhongMaterial({
+      color: 0x2e7d8c, emissive: 0x14464f,
+      specular: 0xbdd9e2, shininess: 90,
+    })
   );
   water.rotation.x = -Math.PI / 2;
   water.position.set(x, 0.66, z);
   ctx.scene.add(water);
   const column = new THREE.Mesh(
     new THREE.CylinderGeometry(0.4, 0.55, 1.6, 10),
-    new THREE.MeshLambertMaterial({ color: 0x8a948e })
+    new THREE.MeshLambertMaterial({ color: 0xaaa294 })
   );
   column.position.set(x, 1.4, z);
   ctx.scene.add(column);
   const jet = new THREE.Mesh(
     new THREE.ConeGeometry(0.5, 1.6, 10),
-    new THREE.MeshLambertMaterial({ color: 0xcfe8ee, transparent: true, opacity: 0.55 })
+    new THREE.MeshLambertMaterial({
+      color: 0xe6f3f7, emissive: 0x5a747c, transparent: true, opacity: 0.6,
+    })
   );
   jet.position.set(x, 2.8, z);
   ctx.scene.add(jet);
@@ -416,7 +598,10 @@ function buildSkyline(ctx, rand) {
   }
   const geo = new THREE.BoxGeometry(1, 1, 1);
   geo.translate(0, 0.5, 0);
-  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  // Texture de fenêtres quasi blanche, teintée par instance : les tours
+  // lointaines lisent comme des immeubles et non comme des blocs nus
+  const skyTex = makeSkylineTexture();
+  const mat = new THREE.MeshLambertMaterial({ map: skyTex });
   const inst = new THREE.InstancedMesh(geo, mat, positions.length);
   const m = new THREE.Matrix4();
   const c = new THREE.Color();
@@ -424,17 +609,41 @@ function buildSkyline(ctx, rand) {
     m.makeScale(w, h, w);
     m.setPosition(x, 0, z);
     inst.setMatrixAt(i, m);
-    c.setHSL(0.6, 0.12, 0.32 + rand() * 0.12);
+    // Teintes délavées vers le bleu : perspective atmosphérique
+    c.setHSL(0.58, 0.09, 0.38 + rand() * 0.12);
     inst.setColorAt(i, c);
   });
   inst.instanceMatrix.needsUpdate = true;
   ctx.scene.add(inst);
 }
 
+// Grille de fenêtres sombres sur fond clair (multiplié par la teinte d'instance)
+function makeSkylineTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 128;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, 64, 128);
+  for (let y = 6; y < 122; y += 10) {
+    for (let x = 5; x < 58; x += 9) {
+      const lit = Math.random() < 0.08;
+      g.fillStyle = lit ? 'rgba(255, 214, 140, 0.9)' : 'rgba(30, 40, 55, 0.5)';
+      g.fillRect(x, y, 5, 6);
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 export function buildBellecour(ctx) {
+  // Gravier stabilisé rose caractéristique de la place
+  const gravelTex = makeGravelTexture();
+  gravelTex.repeat.set(10, 7);
   const plaza = new THREE.Mesh(
     new THREE.PlaneGeometry(BELLECOUR.maxX - BELLECOUR.minX, BELLECOUR.maxZ - BELLECOUR.minZ),
-    new THREE.MeshLambertMaterial({ color: 0xc08552 })
+    new THREE.MeshLambertMaterial({ map: gravelTex })
   );
   plaza.rotation.x = -Math.PI / 2;
   plaza.position.set(
@@ -599,11 +808,11 @@ function buildBuildings(ctx, rand) {
           w: tw + 0.6, h: 0.35, d: td + 0.6, color: 0x7d6a58, collider: false,
         });
       } else if (style < 0.62) {
-        // Toiture en pente (tuiles lyonnaises ou ardoise)
+        // Toiture en pente (tuiles lyonnaises ou zinc parisien)
         const roofH = 2.2 + rand() * 2.2;
         const roof = new THREE.Mesh(
           new THREE.ConeGeometry((w + 0.8) / Math.SQRT2, roofH, 4),
-          new THREE.MeshLambertMaterial({ color: rand() < 0.6 ? 0xa85b42 : 0x4a4f5c })
+          rand() < 0.65 ? getTileRoofMat() : getZincRoofMat()
         );
         roof.rotation.y = Math.PI / 4;
         roof.scale.z = (d + 0.8) / (w + 0.8);
@@ -635,9 +844,11 @@ function buildBuildings(ctx, rand) {
   // Trottoirs : un seul InstancedMesh pour tous les îlots
   const walkGeo = new THREE.PlaneGeometry(1, 1);
   walkGeo.rotateX(-Math.PI / 2);
+  const walkTex = makeSidewalkTexture();
+  walkTex.repeat.set(8, 8);
   const walk = new THREE.InstancedMesh(
     walkGeo,
-    new THREE.MeshLambertMaterial({ color: 0x596170 }),
+    new THREE.MeshLambertMaterial({ map: walkTex }),
     lots.length
   );
   const m = new THREE.Matrix4();
@@ -650,67 +861,201 @@ function buildBuildings(ctx, rand) {
   ctx.scene.add(walk);
 }
 
-// Façade : texture canvas par immeuble — fenêtres encadrées avec appuis,
-// rez-de-chaussée commerçant, corniche claire et ombrage au pied du mur.
+// Façade : texture canvas par immeuble, style haussmannien lyonnais —
+// bandeaux d'étage, fenêtres hautes encadrées de pierre avec garde-corps
+// fer forgé, balcon filant, rez-de-chaussée commerçant avec auvent coloré.
+const AWNING_COLORS = ['#8c2f39', '#2f5d47', '#31466b', '#6d4a2f', '#484f5c'];
 function paintFacade(mesh, rand, buildingH) {
   const { width, height, depth } = mesh.geometry.parameters;
+  const W = 192, H = 384;
   const canvas = document.createElement('canvas');
-  canvas.width = 96;
-  canvas.height = 192;
+  canvas.width = W;
+  canvas.height = H;
   const g = canvas.getContext('2d');
   const baseColor = mesh.material.color;
   g.fillStyle = '#' + baseColor.getHexString();
-  g.fillRect(0, 0, 96, 192);
+  g.fillRect(0, 0, W, H);
 
-  const storeH = Math.min(40, Math.round(192 * (3.2 / buildingH))); // rez-de-chaussée
+  // Grain de pierre (léger bruit clair/foncé)
+  for (let i = 0; i < 700; i++) {
+    const a = 0.04 + rand() * 0.06;
+    g.fillStyle = rand() < 0.5 ? `rgba(255,250,240,${a})` : `rgba(70,60,45,${a})`;
+    g.fillRect(rand() * W, rand() * H, 2 + rand() * 3, 2 + rand() * 3);
+  }
+
+  const storeH = Math.min(80, Math.round(H * (3.4 / buildingH))); // rez-de-chaussée
   const rows = Math.max(2, Math.floor(height / 3));
-  const cols = Math.max(2, Math.floor(Math.max(width, depth) / 2.6));
-  const usableH = 192 - storeH - 8;
-  const ch = usableH / rows, cw = 96 / cols;
+  const cols = Math.max(2, Math.floor(Math.max(width, depth) / 2.8));
+  const usableH = H - storeH - 14;
+  const ch = usableH / rows, cw = W / cols;
+  const balconyRow = rows >= 4 ? rows - 2 : -1; // balcon filant au « 2e étage »
 
   for (let r = 0; r < rows; r++) {
+    const rowY = 14 + r * ch;
+    // Bandeau de refend entre étages (joint + rehaut de lumière)
+    g.fillStyle = 'rgba(90, 78, 60, 0.35)';
+    g.fillRect(0, rowY - 2, W, 2);
+    g.fillStyle = 'rgba(255, 252, 244, 0.30)';
+    g.fillRect(0, rowY, W, 1.5);
+
     for (let c = 0; c < cols; c++) {
-      const wx = c * cw + cw * 0.22;
-      const wy = 8 + r * ch + ch * 0.18;
-      const ww = cw * 0.56, wh = ch * 0.6;
-      // Encadrement clair
-      g.fillStyle = 'rgba(255, 255, 255, 0.35)';
-      g.fillRect(wx - 1.5, wy - 1.5, ww + 3, wh + 3);
-      // Vitre (allumée ou pas) avec léger dégradé
-      const lit = rand() < 0.22;
-      g.fillStyle = lit ? '#ffd98a' : '#26303f';
+      const wx = c * cw + cw * 0.24;
+      const wy = rowY + ch * 0.16;
+      const ww = cw * 0.52, wh = ch * 0.62;
+
+      // Encadrement en pierre saillante (clair, ombré à droite/dessous)
+      g.fillStyle = 'rgba(250, 246, 236, 0.85)';
+      g.fillRect(wx - 3, wy - 3, ww + 6, wh + 6);
+      g.fillStyle = 'rgba(80, 70, 55, 0.4)';
+      g.fillRect(wx + ww + 1, wy - 3, 2, wh + 6);
+      g.fillRect(wx - 3, wy + wh + 1, ww + 6, 2);
+
+      // Vitre : dégradé de reflet de ciel, parfois fenêtre allumée
+      const lit = rand() < 0.14;
+      if (lit) {
+        const gl = g.createLinearGradient(0, wy, 0, wy + wh);
+        gl.addColorStop(0, '#ffe3a6');
+        gl.addColorStop(1, '#e8ab5e');
+        g.fillStyle = gl;
+      } else {
+        const gl = g.createLinearGradient(0, wy, 0, wy + wh);
+        gl.addColorStop(0, '#7e8fa3');
+        gl.addColorStop(0.45, '#48586b');
+        gl.addColorStop(1, '#2e3947');
+        g.fillStyle = gl;
+      }
       g.fillRect(wx, wy, ww, wh);
       if (!lit) {
-        g.fillStyle = 'rgba(140, 175, 210, 0.35)'; // reflet de ciel
-        g.fillRect(wx, wy, ww, wh * 0.35);
+        // Reflet diagonal
+        g.fillStyle = 'rgba(190, 212, 232, 0.20)';
+        g.beginPath();
+        g.moveTo(wx, wy);
+        g.lineTo(wx + ww * 0.65, wy);
+        g.lineTo(wx, wy + wh * 0.65);
+        g.closePath();
+        g.fill();
       }
-      // Appui de fenêtre
-      g.fillStyle = 'rgba(0, 0, 0, 0.25)';
-      g.fillRect(wx - 2, wy + wh, ww + 4, 2);
+      // Croisée à la française (meneau + 2 traverses)
+      g.fillStyle = 'rgba(246, 242, 232, 0.95)';
+      g.fillRect(wx + ww / 2 - 1.2, wy, 2.4, wh);
+      g.fillRect(wx, wy + wh * 0.36 - 1, ww, 2);
+      g.fillRect(wx, wy + wh * 0.72 - 1, ww, 2);
+
+      // Garde-corps fer forgé (balconnet) sauf sur le balcon filant
+      if (r !== balconyRow) {
+        g.strokeStyle = 'rgba(28, 30, 34, 0.75)';
+        g.lineWidth = 1.2;
+        const ry0 = wy + wh - ch * 0.14;
+        g.beginPath();
+        g.moveTo(wx - 2, ry0);
+        g.lineTo(wx + ww + 2, ry0);
+        g.stroke();
+        g.lineWidth = 0.8;
+        for (let bx = wx; bx <= wx + ww; bx += 4) {
+          g.beginPath();
+          g.moveTo(bx, ry0);
+          g.lineTo(bx, wy + wh);
+          g.stroke();
+        }
+      }
+      // Appui de fenêtre (ombre portée)
+      g.fillStyle = 'rgba(0, 0, 0, 0.22)';
+      g.fillRect(wx - 4, wy + wh + 3, ww + 8, 2.5);
+    }
+
+    // Balcon filant : dalle claire + longue grille sur toute la largeur
+    if (r === balconyRow) {
+      const by = rowY + ch * 0.78;
+      g.fillStyle = 'rgba(245, 240, 228, 0.9)';
+      g.fillRect(0, by + ch * 0.14, W, 4);
+      g.strokeStyle = 'rgba(26, 28, 32, 0.8)';
+      g.lineWidth = 1.4;
+      g.beginPath();
+      g.moveTo(0, by - ch * 0.1);
+      g.lineTo(W, by - ch * 0.1);
+      g.stroke();
+      g.lineWidth = 0.8;
+      for (let bx = 2; bx < W; bx += 4) {
+        g.beginPath();
+        g.moveTo(bx, by - ch * 0.1);
+        g.lineTo(bx, by + ch * 0.14);
+        g.stroke();
+      }
     }
   }
 
-  // Bande de corniche claire en haut
-  g.fillStyle = 'rgba(255, 255, 255, 0.25)';
-  g.fillRect(0, 0, 96, 5);
+  // Corniche moulurée en haut (double bande claire + ombre)
+  g.fillStyle = 'rgba(255, 252, 244, 0.5)';
+  g.fillRect(0, 0, W, 7);
+  g.fillStyle = 'rgba(70, 60, 46, 0.35)';
+  g.fillRect(0, 7, W, 3);
 
-  // Rez-de-chaussée : devanture sombre + porte
-  g.fillStyle = 'rgba(20, 24, 34, 0.85)';
-  g.fillRect(0, 192 - storeH, 96, storeH);
-  g.fillStyle = 'rgba(255, 220, 150, 0.5)'; // vitrine éclairée
-  g.fillRect(8, 192 - storeH + 6, 50, storeH - 12);
-  g.fillStyle = '#3a2c1e';
-  g.fillRect(68, 192 - storeH + 4, 18, storeH - 4); // porte
+  // Rez-de-chaussée : soubassement pierre + devantures
+  const gy = H - storeH;
+  g.fillStyle = 'rgba(158, 146, 122, 0.9)'; // pierre de soubassement
+  g.fillRect(0, gy, W, storeH);
+  for (let i = 0; i < 120; i++) {
+    const a = 0.05 + rand() * 0.07;
+    g.fillStyle = rand() < 0.5 ? `rgba(255,250,240,${a})` : `rgba(60,52,40,${a})`;
+    g.fillRect(rand() * W, gy + rand() * storeH, 3, 3);
+  }
+  // Deux vitrines + une porte
+  const awning = AWNING_COLORS[Math.floor(rand() * AWNING_COLORS.length)];
+  for (const [sx, sw] of [[10, 62], [86, 56]]) {
+    // Enseigne au-dessus de la vitrine
+    g.fillStyle = awning;
+    g.fillRect(sx - 4, gy + 4, sw + 8, 13);
+    g.fillStyle = 'rgba(255, 244, 214, 0.85)';
+    for (let tx = sx + 4; tx < sx + sw - 6; tx += 9) {
+      g.fillRect(tx, gy + 8, 6, 5); // lettres stylisées
+    }
+    // Vitrine sombre reflétante
+    const gl = g.createLinearGradient(0, gy + 19, 0, H - 6);
+    gl.addColorStop(0, '#3d4756');
+    gl.addColorStop(1, '#191f28');
+    g.fillStyle = gl;
+    g.fillRect(sx, gy + 19, sw, storeH - 25);
+    g.fillStyle = 'rgba(190, 212, 232, 0.14)';
+    g.beginPath();
+    g.moveTo(sx, gy + 19);
+    g.lineTo(sx + sw * 0.5, gy + 19);
+    g.lineTo(sx, H - 6 - (storeH - 25) * 0.4);
+    g.closePath();
+    g.fill();
+    // Auvent en toile au-dessus (bande + festons)
+    g.fillStyle = awning;
+    g.fillRect(sx - 3, gy + 17, sw + 6, 5);
+    for (let fx = sx - 3; fx < sx + sw + 3; fx += 8) {
+      g.beginPath();
+      g.arc(fx + 4, gy + 22, 4, 0, Math.PI);
+      g.fill();
+    }
+  }
+  // Porte cochère en bois
+  g.fillStyle = '#4a3624';
+  g.fillRect(150, gy + 19, 26, storeH - 19);
+  g.fillStyle = 'rgba(255, 240, 210, 0.25)';
+  g.fillRect(152, gy + 22, 10, storeH - 26);
+  g.fillRect(164, gy + 22, 10, storeH - 26);
 
   // Ombre au pied du mur (faux ambient occlusion)
-  const grad = g.createLinearGradient(0, 192 - storeH - 18, 0, 192);
+  const grad = g.createLinearGradient(0, gy - 26, 0, H);
   grad.addColorStop(0, 'rgba(0,0,0,0)');
-  grad.addColorStop(1, 'rgba(0,0,0,0.28)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.3)');
   g.fillStyle = grad;
-  g.fillRect(0, 192 - storeH - 18, 96, storeH + 18);
+  g.fillRect(0, gy - 26, W, storeH + 26);
+  // AO vertical léger sur les angles du bâtiment
+  for (const [ex, dir] of [[0, 1], [W, -1]]) {
+    const ecg = g.createLinearGradient(ex, 0, ex + dir * 14, 0);
+    ecg.addColorStop(0, 'rgba(0,0,0,0.18)');
+    ecg.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = ecg;
+    g.fillRect(Math.min(ex, ex + dir * 14), 0, 14, H);
+  }
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
   mesh.material = new THREE.MeshLambertMaterial({ map: tex });
 }
 
@@ -728,10 +1073,10 @@ export function buildMurPeint(ctx) {
 }
 
 function buildLandmarks(ctx, rand) {
-  // Colline de Fourvière (décor, hors zone jouable)
+  // Colline de Fourvière (décor, hors zone jouable), boisée
   const hill = new THREE.Mesh(
     new THREE.SphereGeometry(70, 24, 16),
-    new THREE.MeshLambertMaterial({ color: 0x4a6741 })
+    new THREE.MeshLambertMaterial({ map: makeForestTexture() })
   );
   hill.scale.set(1.6, 0.55, 1.8);
   hill.position.set(-195, -4, -20);
@@ -780,36 +1125,36 @@ function buildLandmarks(ctx, rand) {
 }
 
 function buildDecor(ctx, rand) {
-  // Arbres
-  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5d4632 });
-  const leavesMat = new THREE.MeshLambertMaterial({ color: 0x3f6b35 });
+  // Arbres : alignements réguliers autour de Bellecour (comme les vraies
+  // allées de platanes) et le long des quais. Le spawn (x≈0, côté sud)
+  // reste dégagé pour laisser voir la place et la statue en arrivant.
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x6b5138 });
+  const leavesMat = new THREE.MeshLambertMaterial({ color: 0x4a7038 });
   const treeSpots = [];
-  for (let i = 0; i < 26; i++) {
-    treeSpots.push([
-      BELLECOUR.minX - 3 + rand() * (BELLECOUR.maxX - BELLECOUR.minX + 6),
-      rand() < 0.5 ? BELLECOUR.minZ - 3 : BELLECOUR.maxZ + 3,
-    ]);
+  for (let x = BELLECOUR.minX + 2; x <= BELLECOUR.maxX - 2; x += 7) {
+    treeSpots.push([x, BELLECOUR.minZ - 3]);
+    if (Math.abs(x) > 6) treeSpots.push([x, BELLECOUR.maxZ + 3]); // trouée au spawn
   }
   for (let i = 0; i < 14; i++) {
     treeSpots.push([SAONE.maxX + 4, -120 + i * 18]);
     treeSpots.push([RHONE.minX - 4, -120 + i * 18]);
   }
   // Feuillages : amas de sphères, plus organique qu'un cône
-  const leavesMat2 = new THREE.MeshLambertMaterial({ color: 0x55833f });
-  const leavesMat3 = new THREE.MeshLambertMaterial({ color: 0x6d9447 });
+  const leavesMat2 = new THREE.MeshLambertMaterial({ color: 0x567c3c });
+  const leavesMat3 = new THREE.MeshLambertMaterial({ color: 0x63884a });
   let ti = 0;
   for (const [x, z] of treeSpots) {
     if (Math.abs(z) < 7) continue; // pas sur l'axe des ponts
     ti += 1;
-    const s = 0.85 + ((ti * 37) % 10) / 22; // variation déterministe simple
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.32, 2.2 * s, 6), trunkMat);
-    trunk.position.set(x, 1.1 * s, z);
-    const blob1 = new THREE.Mesh(new THREE.SphereGeometry(1.5 * s, 8, 6), leavesMat);
-    blob1.position.set(x, 3.1 * s, z);
-    const blob2 = new THREE.Mesh(new THREE.SphereGeometry(1.1 * s, 7, 5), [leavesMat2, leavesMat3][ti % 2]);
-    blob2.position.set(x + 0.7 * s, 3.7 * s, z + 0.3 * s);
-    const blob3 = new THREE.Mesh(new THREE.SphereGeometry(0.9 * s, 7, 5), leavesMat2);
-    blob3.position.set(x - 0.6 * s, 3.9 * s, z - 0.3 * s);
+    const s = 0.85 + ((ti * 37) % 10) / 26; // variation déterministe simple
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.28, 2.6 * s, 6), trunkMat);
+    trunk.position.set(x, 1.3 * s, z);
+    const blob1 = new THREE.Mesh(new THREE.SphereGeometry(1.4 * s, 8, 6), leavesMat);
+    blob1.position.set(x, 3.3 * s, z);
+    const blob2 = new THREE.Mesh(new THREE.SphereGeometry(1.0 * s, 7, 5), [leavesMat2, leavesMat3][ti % 2]);
+    blob2.position.set(x + 0.7 * s, 3.9 * s, z + 0.3 * s);
+    const blob3 = new THREE.Mesh(new THREE.SphereGeometry(0.85 * s, 7, 5), leavesMat2);
+    blob3.position.set(x - 0.6 * s, 4.1 * s, z - 0.3 * s);
     ctx.scene.add(trunk, blob1, blob2, blob3);
   }
 

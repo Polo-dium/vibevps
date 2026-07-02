@@ -49,7 +49,7 @@ async function boot() {
   renderer.setSize(v0.w, v0.h);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxRatio));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 1.12;
   if (SHADOWS) {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -57,18 +57,20 @@ async function boot() {
   document.querySelector('#app').appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  const skyColor = 0xbcd2ea; // couleur de l'horizon (raccord avec le dôme)
+  const skyColor = 0xdce6ee; // couleur de l'horizon (raccord avec le dôme)
   scene.background = new THREE.Color(skyColor);
-  scene.fog = new THREE.Fog(skyColor, 180, 560);
+  // Brume de distance : commence plus près pour la perspective atmosphérique
+  scene.fog = new THREE.Fog(skyColor, 130, 540);
 
   const camera = new THREE.PerspectiveCamera(
     IS_TOUCH ? 82 : 75, v0.w / v0.h, 0.1, 1000
   );
   scene.add(camera); // nécessaire pour l'arme en vue subjective
 
-  // Lumières : grand soleil sur Lyon (plus de contraste quand il y a des ombres)
-  scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x5a4c3c, SHADOWS ? 0.8 : 1.1));
-  const sun = new THREE.DirectionalLight(0xfff3d6, SHADOWS ? 1.85 : 1.6);
+  // Lumières : fin d'après-midi dorée sur Lyon — ciel bleuté en rebond,
+  // sol chaud, soleil ambré (plus de contraste quand il y a des ombres)
+  scene.add(new THREE.HemisphereLight(0xaac8f0, 0x6e604c, SHADOWS ? 0.75 : 1.05));
+  const sun = new THREE.DirectionalLight(0xffe7bd, SHADOWS ? 2.0 : 1.7);
   const SUN_OFFSET = new THREE.Vector3(-90, 130, 50);
   sun.position.copy(SUN_OFFSET);
   scene.add(sun);
