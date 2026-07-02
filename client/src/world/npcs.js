@@ -27,7 +27,7 @@ const CIVIL_COLORS = [0x6b7a8f, 0x8f6b6b, 0x6b8f74, 0x8f836b, 0x726b8f, 0x4f6272
 
 let lastSpeechAt = 0; // anti-cacophonie global
 
-export function createNpcs(ctx, { getPlayerPos }) {
+export function createNpcs(ctx, { getPlayerPos, onNpcHit }) {
   const npcs = [];
 
   function blocked(x, z) {
@@ -119,6 +119,7 @@ export function createNpcs(ctx, { getPlayerPos }) {
     npc.hp -= 25;
     npc.human.shirtMat.color.set(0xff3333);
     npc.flashUntil = performance.now() + 220;
+    onNpcHit?.();
     if (npc.hp <= 0) {
       npc.mode = 'dying';
       npc.timer = 0;

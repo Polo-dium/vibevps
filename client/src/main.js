@@ -261,6 +261,8 @@ async function boot() {
   const remotes = createRemotePlayers(scene, ctx.shootables, {
     onHitRemote: (id) => {
       audio.hitmarker();
+      ui.hitmarker();
+      navigator.vibrate?.(18);
       net.send({ t: 'hit', target: id });
     },
   });
@@ -273,7 +275,14 @@ async function boot() {
   });
   spray.loadExisting(state.tags);
   const tagEditor = createTagEditor({ onToast: ui.toast });
-  const npcs = createNpcs(ctx, { getPlayerPos: () => controls.position });
+  const npcs = createNpcs(ctx, {
+    getPlayerPos: () => controls.position,
+    onNpcHit: () => {
+      audio.hitmarker();
+      ui.hitmarker();
+      navigator.vibrate?.(14);
+    },
+  });
 
   // Active les ombres sur tout le monde statique déjà construit
   if (SHADOWS) {
@@ -308,7 +317,10 @@ async function boot() {
   net.on('hp', (msg) => {
     if (msg.id === myNetId) {
       ui.setHp(msg.hp);
-      ui.damageFlash();
+      if (!msg.regen) {
+        ui.damageFlash();
+        navigator.vibrate?.(45);
+      }
     }
   });
   // Série de kills → annonce vocale + bannière
@@ -321,7 +333,8 @@ async function boot() {
       controls.teleport(SPAWN.x, SPAWN.y, SPAWN.z);
       ui.setHp(100);
       ui.damageFlash(true);
-      ui.toast(`💀 Tu as été abattu par ${msg.byName} ! Retour à Bellecour.`);
+      ui.deathScreen(msg.byName);
+      navigator.vibrate?.([80, 40, 120]);
     } else if (msg.by === myNetId) {
       const now = Date.now();
       killTimes = killTimes.filter((t) => now - t < 9000);

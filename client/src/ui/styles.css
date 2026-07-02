@@ -318,6 +318,37 @@ button.ghost {
   opacity: 0; transition: opacity 0.35s;
 }
 
+/* Hitmarker : croix furtive au centre */
+#hitmarker {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 26px; font-weight: 900;
+  color: #fff;
+  text-shadow: 0 0 8px rgba(255, 80, 80, 0.9), 0 1px 2px #000;
+  pointer-events: none;
+}
+
+/* Écran de mort */
+#deathscreen {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(70, 0, 6, 0.55), rgba(20, 0, 2, 0.82));
+  pointer-events: none;
+  transition: opacity 0.45s;
+}
+#deathscreen.hidden { display: none; }
+#death-title {
+  font-family: 'Courier New', monospace;
+  font-size: 44px; font-weight: 900; letter-spacing: 3px;
+  color: #ff6b6b;
+  text-shadow: 0 0 26px rgba(255, 40, 40, 0.8), 0 2px 4px #000;
+  text-align: center;
+}
+#death-sub {
+  margin-top: 10px; font-size: 16px; color: #d8b0b0;
+}
+
 /* Bannière de série de kills */
 #killbanner {
   position: absolute; left: 50%; top: 24%;

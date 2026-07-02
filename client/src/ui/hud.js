@@ -17,6 +17,11 @@ export function createUi() {
     <div id="chatfeed"></div>
     <div id="chatbox" class="hidden"><input type="text" id="chatinput" maxlength="120" placeholder="Message de proximité… (Entrée pour envoyer)"></div>
     <div id="killbanner" class="hidden"></div>
+    <div id="hitmarker" class="hidden">✕</div>
+    <div id="deathscreen" class="hidden">
+      <div id="death-title"></div>
+      <div id="death-sub">Retour à Bellecour…</div>
+    </div>
     <div id="tagmode-hint" class="hidden"></div>
     <div id="help">
       ZQSD bouger (sprint auto) · Espace saut · E interagir · clic tirer<br>
@@ -86,6 +91,29 @@ export function createUi() {
       closeChat();
     }
   });
+
+  // Hitmarker : croix furtive au centre quand un tir touche
+  const hitmarkerEl = hud.querySelector('#hitmarker');
+  let hitmarkerTimer = null;
+  function hitmarker() {
+    hitmarkerEl.classList.remove('hidden');
+    clearTimeout(hitmarkerTimer);
+    hitmarkerTimer = setTimeout(() => hitmarkerEl.classList.add('hidden'), 110);
+  }
+
+  // Écran de mort : voile rouge sombre + nom du tueur, disparaît tout seul
+  const deathEl = hud.querySelector('#deathscreen');
+  let deathTimer = null;
+  function deathScreen(byName) {
+    deathEl.querySelector('#death-title').textContent = `💀 Abattu par ${byName}`;
+    deathEl.classList.remove('hidden');
+    deathEl.style.opacity = '1';
+    clearTimeout(deathTimer);
+    deathTimer = setTimeout(() => {
+      deathEl.style.opacity = '0';
+      setTimeout(() => deathEl.classList.add('hidden'), 450);
+    }, 1600);
+  }
 
   function killBanner(text) {
     killbannerEl.textContent = text;
@@ -432,7 +460,7 @@ export function createUi() {
 
   return {
     ensureAuth, toast, setPrompt, onPromptTap, setInfo, setRange, setAmmo,
-    setHp, damageFlash, killBanner, setTagMode,
+    setHp, damageFlash, killBanner, setTagMode, hitmarker, deathScreen,
     toggleLeaderboards, openCreator, toggleAdmin, closeTopOverlay,
     openChat, onChatSend, addChatLine, setMicState,
   };

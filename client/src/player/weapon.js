@@ -43,8 +43,17 @@ export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot, 
     color: 0xffe9a0, blending: THREE.AdditiveBlending, depthWrite: false,
   });
 
-  const particles = []; // { mesh, vel, life, maxLife }
+  const particles = []; // { mesh, vel, life, maxLife, baseScale }
   const particleGeo = new THREE.SphereGeometry(0.03, 5, 5);
+  // Matériaux partagés (pas d'allocation ni de dispose par impact : le fondu
+  // se fait par réduction d'échelle, l'additif rend ça invisible)
+  const coreMat = new THREE.MeshBasicMaterial({
+    color: 0xfff3c0, blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const sparkMats = [
+    new THREE.MeshBasicMaterial({ color: 0xffc964, blending: THREE.AdditiveBlending, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ color: 0xff8a3d, blending: THREE.AdditiveBlending, depthWrite: false }),
+  ];
 
   // Douilles éjectées
   const shells = []; // { mesh, vel, spin, life, bounces }
@@ -94,26 +103,14 @@ export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot, 
   function spawnImpact(point) {
     const p = Array.isArray(point) ? new THREE.Vector3(...point) : point;
     // Éclair central
-    const core = new THREE.Mesh(
-      particleGeo,
-      new THREE.MeshBasicMaterial({
-        color: 0xfff3c0, transparent: true, opacity: 1,
-        blending: THREE.AdditiveBlending, depthWrite: false,
-      })
-    );
+    const core = new THREE.Mesh(particleGeo, coreMat);
     core.position.copy(p);
     core.scale.setScalar(2.5);
     scene.add(core);
-    particles.push({ mesh: core, vel: new THREE.Vector3(), life: 0.12, maxLife: 0.12 });
+    particles.push({ mesh: core, vel: new THREE.Vector3(), life: 0.12, maxLife: 0.12, baseScale: 2.5 });
     // Gerbe d'étincelles
     for (let i = 0; i < 7; i++) {
-      const m = new THREE.Mesh(
-        particleGeo,
-        new THREE.MeshBasicMaterial({
-          color: i % 2 ? 0xffc964 : 0xff8a3d, transparent: true, opacity: 1,
-          blending: THREE.AdditiveBlending, depthWrite: false,
-        })
-      );
+      const m = new THREE.Mesh(particleGeo, sparkMats[i % 2]);
       m.position.copy(p);
       scene.add(m);
       const vel = new THREE.Vector3(
@@ -122,7 +119,7 @@ export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot, 
         (Math.random() - 0.5) * 5
       );
       const life = 0.25 + Math.random() * 0.2;
-      particles.push({ mesh: m, vel, life, maxLife: life });
+      particles.push({ mesh: m, vel, life, maxLife: life, baseScale: 1 });
     }
   }
 
@@ -160,6 +157,7 @@ export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot, 
     flash.material.opacity = 1;
     flash.rotation.z = Math.random() * Math.PI;
     audio.gunshot();
+    navigator.vibrate?.(8); // retour haptique sur mobile
     spawnShell();
     onAmmoChange(ammo, false);
 
@@ -230,16 +228,15 @@ export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot, 
       }
     }
 
-    // Étincelles d'impact
+    // Étincelles d'impact (fondu par échelle : matériaux partagés)
     for (let i = particles.length - 1; i >= 0; i--) {
       const s = particles[i];
       s.life -= dt;
       s.vel.y -= 12 * dt;
       s.mesh.position.addScaledVector(s.vel, dt);
-      s.mesh.material.opacity = Math.max(0, s.life / s.maxLife);
+      s.mesh.scale.setScalar(Math.max(0.001, s.baseScale * (s.life / s.maxLife)));
       if (s.life <= 0) {
         scene.remove(s.mesh);
-        s.mesh.material.dispose();
         particles.splice(i, 1);
       }
     }

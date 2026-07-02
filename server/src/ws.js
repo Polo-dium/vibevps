@@ -48,6 +48,7 @@ export function setupWs(httpServer) {
           lastHitAt: 0,
           lastShotAt: 0,
           lastChatAt: 0,
+          lastDamagedAt: 0,
         };
         const others = [...players.entries()].map(([oid, o]) => ({
           id: oid, name: o.name, p: o.p, ry: o.ry,
@@ -97,6 +98,7 @@ export function setupWs(httpServer) {
         if (!target || target === me) return;
 
         target.hp -= HIT_DAMAGE;
+        target.lastDamagedAt = now;
         if (target.hp > 0) {
           broadcast({ t: 'hp', id: msg.target, hp: target.hp, by: id });
         } else {
@@ -167,6 +169,20 @@ export function setupWs(httpServer) {
     }
     if (states.length > 0) broadcast({ t: 'states', s: states });
   }, TICK_MS);
+
+  // Régénération de vie hors combat : +8 pv/s après 6 s sans dégâts.
+  // Envoyé uniquement au joueur concerné (pas de flash chez les autres).
+  setInterval(() => {
+    const now = Date.now();
+    for (const [pid, entry] of players) {
+      if (entry.hp >= 100 || entry.hp <= 0) continue;
+      if (now - entry.lastDamagedAt < 6000) continue;
+      entry.hp = Math.min(100, entry.hp + 8);
+      if (entry.ws.readyState === entry.ws.OPEN) {
+        entry.ws.send(JSON.stringify({ t: 'hp', id: pid, hp: entry.hp, regen: true }));
+      }
+    }
+  }, 1000);
 }
 
 export function broadcast(obj, exceptId = null) {
