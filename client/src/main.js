@@ -21,6 +21,7 @@ import { createTagEditor } from './tags/editor.js';
 import { createGameShell } from './games/shell.js';
 import { createUi } from './ui/hud.js';
 import { createProgress } from './progress.js';
+import { createCapture } from './capture.js';
 
 async function boot() {
   const ui = createUi();
@@ -150,6 +151,8 @@ async function boot() {
     worldBound: null,
     waterBands: null,
     env, // cycle jour/nuit lisible par le décor (halos de lampadaires…)
+    notify: (msg) => ui.toast(msg), // événements du monde (silure, statue…)
+    onRoi: null, // branché plus bas, une fois les PNJ créés
   };
 
   // Vrai Lyon (données OpenStreetMap) si le fichier a été généré sur le
@@ -313,6 +316,16 @@ async function boot() {
     },
   });
 
+  // Easter egg de la statue : voix royale + clameur des PNJ + confettis
+  ctx.onRoi = () => {
+    audio.announce('Vive le Roi !');
+    npcs.shout('VIVE LE ROI !');
+    ui.spawnConfetti(30);
+  };
+
+  // Capture d'écran stylée : touche C (desktop) ou bouton 📸 (tactile)
+  const capture = createCapture({ renderer, scene, camera, onToast: ui.toast });
+
   // Active les ombres sur tout le monde statique déjà construit
   if (SHADOWS) {
     scene.traverse((o) => {
@@ -422,6 +435,7 @@ async function boot() {
     // Entrée : ouvrir le chat de proximité
     if (e.code === 'Enter') { ui.openChat(); return; }
     if (e.code === 'KeyE' && nearestInteractable) nearestInteractable.action();
+    if (e.code === 'KeyC') capture.take();
     if (e.code === 'KeyF') spray.toggleMode();
     if (e.code === 'KeyG') spray.stampTag();
     if (e.code === 'KeyT') tagEditor.open();
@@ -438,7 +452,7 @@ async function boot() {
   // --- Contrôles tactiles (mobile) ---
   if (IS_TOUCH) {
     createTouchControls({
-      controls, weapon, spray, tagEditor, ui, voice,
+      controls, weapon, spray, tagEditor, ui, voice, capture,
       interact: () => nearestInteractable?.action(),
     });
     // Le prompt « ▶ JOUER » est lui-même tactile : plus besoin de viser le bouton E.

@@ -21,6 +21,7 @@ export function buildCity(ctx) {
   buildLandmarks(ctx, rand);
   buildDecor(ctx, rand);
   buildPeniches(ctx);
+  buildSilure(ctx, RHONE);
   buildGrandeRoue(ctx);
   buildFountain(ctx);
   buildStreetFurniture(ctx);
@@ -375,6 +376,74 @@ export function buildPeniches(ctx, bands = [SAONE, RHONE]) {
       group.position.y = 0.05 + Math.sin(performance.now() / 900 + cfg.z) * 0.04;
     });
   }
+}
+
+// Le silure géant du Rhône : toutes les 4 minutes (horloge partagée, donc
+// tous les joueurs le voient ensemble), un poisson-chat de 14 m remonte le
+// fleuve, dos et nageoire hors de l'eau. So bad it's good.
+export function buildSilure(ctx, band) {
+  const APPEAR_MS = 4 * 60 * 1000;
+  const SWIM_MS = 38 * 1000;
+  const cx = (band.minX + band.maxX) / 2;
+  const span = (ctx.worldBound ?? 140) + 30;
+
+  const fish = new THREE.Group();
+  const skin = new THREE.MeshLambertMaterial({ color: 0x3d4a3a });
+  const belly = new THREE.MeshLambertMaterial({ color: 0x6a7360 });
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(1.6, 8, 6, 10), skin);
+  body.rotation.x = Math.PI / 2;
+  fish.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(1.9, 10, 8), skin);
+  head.scale.set(1, 0.75, 1.1);
+  head.position.z = -4.6;
+  fish.add(head);
+  const jaw = new THREE.Mesh(new THREE.SphereGeometry(1.5, 8, 6), belly);
+  jaw.scale.set(0.95, 0.5, 1);
+  jaw.position.set(0, -0.7, -4.9);
+  fish.add(jaw);
+  // Nageoire dorsale bien visible hors de l'eau
+  const fin = new THREE.Mesh(new THREE.ConeGeometry(1.1, 2.2, 4), skin);
+  fin.scale.z = 0.25;
+  fin.position.set(0, 1.9, -0.5);
+  fish.add(fin);
+  // Queue
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(1.5, 3.4, 6), skin);
+  tail.rotation.x = -Math.PI / 2;
+  tail.scale.x = 0.35;
+  tail.position.z = 6.2;
+  fish.add(tail);
+  // Moustaches de silure
+  const whiskerMat = new THREE.MeshLambertMaterial({ color: 0x2a332a });
+  for (const side of [-1, 1]) {
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.02, 2.6, 4), whiskerMat);
+    w.position.set(side * 1.6, 0.2, -5.6);
+    w.rotation.z = side * 1.1;
+    w.rotation.x = 0.5;
+    fish.add(w);
+  }
+  fish.visible = false;
+  fish.traverse((o) => { o.userData.noShadow = true; });
+  ctx.scene.add(fish);
+
+  let announced = false;
+  ctx.updatables.push(() => {
+    const t = Date.now() % APPEAR_MS;
+    if (t >= SWIM_MS) {
+      fish.visible = false;
+      announced = false;
+      return;
+    }
+    const k = t / SWIM_MS; // 0..1 le long du fleuve
+    fish.visible = true;
+    if (!announced) {
+      announced = true;
+      ctx.notify?.('🐟 Le silure géant du Rhône est de sortie ! (regarde le fleuve)');
+    }
+    const wig = Math.sin(t / 180) * 0.5;
+    fish.position.set(cx + wig * 2, -1.15 + Math.sin(t / 400) * 0.25, -span + k * span * 2);
+    fish.rotation.y = Math.PI + wig * 0.18; // remonte vers le nord (-z → +z)
+    tail.rotation.y = Math.sin(t / 120) * 0.5;
+  });
 }
 
 // Grande roue de Bellecour
@@ -751,6 +820,44 @@ function buildLouisXIV(ctx, x, z) {
 
   st.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   ctx.scene.add(st);
+
+  // Easter egg « VIVE LE ROI » : 5 balles sur la statue et le Roi de bronze
+  // se cabre, l'annonceur tonne, les PNJ alentour acclament. Cooldown 30 s.
+  let roiHits = 0;
+  let roiCooldownUntil = 0;
+  let roiAnim = -1; // temps d'animation en cours (-1 = inactif)
+  const baseRotY = st.rotation.y;
+  st.traverse((o) => {
+    if (!o.isMesh) return;
+    o.userData.onHit = () => {
+      const now = performance.now();
+      if (now < roiCooldownUntil || roiAnim >= 0) return;
+      roiHits += 1;
+      if (roiHits >= 5) {
+        roiHits = 0;
+        roiCooldownUntil = now + 30000;
+        roiAnim = 0;
+        ctx.notify?.('👑 « ON NE TIRE PAS SUR LE ROI, GONE ! »');
+        ctx.onRoi?.();
+      }
+    };
+    ctx.shootables.push(o);
+  });
+  ctx.updatables.push((dt) => {
+    if (roiAnim < 0) return;
+    roiAnim += dt;
+    const D = 1.6;
+    if (roiAnim >= D) {
+      roiAnim = -1;
+      st.position.y = 3.3;
+      st.rotation.set(0, baseRotY, 0);
+      return;
+    }
+    const k = Math.sin((roiAnim / D) * Math.PI);
+    st.position.y = 3.3 + k * 0.9; // le cheval se cabre
+    st.rotation.z = k * 0.38;
+    st.rotation.y = baseRotY + Math.sin(roiAnim * 14) * 0.05; // frémissement
+  });
 }
 
 function buildBuildings(ctx, rand) {

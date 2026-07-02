@@ -4,7 +4,7 @@ import { ARCADE, RANGE, MUR_PEINT, BELLECOUR, makeRand } from './layout.js';
 import {
   makeWaterTexture, makeForestTexture, makeSkylineTexture, buildBellecour,
   buildGrandeRoue, buildFountain, buildStreetFurniture, buildMurPeint,
-  buildPeniches,
+  buildPeniches, buildSilure,
 } from './city.js';
 
 // Construit le vrai centre de Lyon à partir des empreintes OpenStreetMap
@@ -38,6 +38,9 @@ export function buildRealCity(ctx, data) {
   buildFountain(ctx);
   buildStreetFurniture(ctx);
   buildPeniches(ctx, data.water);
+  // Le silure remonte le plus large des fleuves (le Rhône)
+  const widest = [...data.water].sort((a, b) => (b.maxX - b.minX) - (a.maxX - a.minX))[0];
+  if (widest) buildSilure(ctx, widest);
 
   // Décor hors zone : Fourvière à l'ouest, le Crayon à l'est
   buildFarLandmarks(ctx, bound);

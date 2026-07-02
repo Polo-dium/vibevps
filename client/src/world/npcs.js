@@ -205,7 +205,24 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit }) {
     }
   }
 
-  return { update };
+  // Clameur collective : les PNJ proches du joueur crient tous le même texte
+  function shout(text, radius = 45) {
+    const playerPos = getPlayerPos();
+    let spoken = 0;
+    for (const npc of npcs) {
+      if (npc.mode !== 'walk') continue;
+      if (npc.group.position.distanceTo(playerPos) > radius) continue;
+      setBubble(npc.bubble, text);
+      npc.bubble.visible = true;
+      npc.bubbleTimer = 3.5;
+      if (spoken < 2) {
+        spoken += 1;
+        audio.npcSay(text, {});
+      }
+    }
+  }
+
+  return { update, shout };
 }
 
 function makeBubble() {

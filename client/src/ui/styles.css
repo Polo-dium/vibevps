@@ -303,9 +303,9 @@ button.ghost {
   #hud-ammo { right: auto; left: 50%; transform: translateX(-50%); bottom: 12px; }
 }
 
-/* PvP : santé et flash de dégâts */
+/* PvP : santé et flash de dégâts (au-dessus du bloc d'aide) */
 #hud-hp {
-  position: absolute; left: 14px; bottom: 14px;
+  position: absolute; left: 14px; bottom: 84px;
   font-family: monospace; font-size: 24px;
   color: #ff7a8a; text-shadow: 0 0 8px rgba(255, 60, 80, 0.6);
 }
@@ -320,7 +320,7 @@ button.ghost {
 
 /* Barre d'XP et niveaux */
 #hud-xp {
-  position: absolute; left: 132px; bottom: 22px;
+  position: absolute; left: 14px; bottom: 116px;
   display: flex; align-items: center; gap: 8px;
   font-family: monospace;
 }
