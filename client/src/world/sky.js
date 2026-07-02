@@ -3,19 +3,21 @@ import * as THREE from 'three';
 // Dôme de ciel en dégradé 3 tons (zénith / mi-hauteur / horizon) avec un
 // voile chaud du côté du soleil, + nuages dérivants.
 export function buildSky(scene, radius = 470) {
+  const uniforms = {
+    topColor: { value: new THREE.Color(0x2e63b8) },
+    midColor: { value: new THREE.Color(0x7fa8dd) },
+    horizonColor: { value: new THREE.Color(0xdce6ee) },
+    sunDir: { value: new THREE.Vector3(-90, 130, 50).normalize() },
+    sunTint: { value: new THREE.Color(0xffe0b0) },
+    starAmount: { value: 0 },
+  };
   const dome = new THREE.Mesh(
     new THREE.SphereGeometry(radius, 24, 12),
     new THREE.ShaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
       fog: false,
-      uniforms: {
-        topColor: { value: new THREE.Color(0x2e63b8) },
-        midColor: { value: new THREE.Color(0x7fa8dd) },
-        horizonColor: { value: new THREE.Color(0xdce6ee) },
-        sunDir: { value: new THREE.Vector3(-90, 130, 50).normalize() },
-        sunTint: { value: new THREE.Color(0xffe0b0) },
-      },
+      uniforms,
       vertexShader: `
         varying vec3 vPos;
         void main() {
@@ -29,6 +31,13 @@ export function buildSky(scene, radius = 470) {
         uniform vec3 horizonColor;
         uniform vec3 sunDir;
         uniform vec3 sunTint;
+        uniform float starAmount;
+        // Bruit de hachage bon marché pour les étoiles
+        float hash(vec3 p) {
+          p = fract(p * 0.3183099 + 0.1);
+          p *= 17.0;
+          return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+        }
         void main() {
           vec3 dir = normalize(vPos);
           float h = max(dir.y, 0.0);
@@ -38,6 +47,11 @@ export function buildSky(scene, radius = 470) {
           // Voile chaud autour du soleil, surtout près de l'horizon
           float s = pow(max(dot(dir, sunDir), 0.0), 6.0);
           col = mix(col, sunTint, s * 0.5 * (1.0 - smoothstep(0.0, 0.5, h)) + s * 0.15);
+          // Étoiles la nuit (seuil sur un bruit fixe : elles ne scintillent pas)
+          if (starAmount > 0.01 && h > 0.05) {
+            float st = step(0.9975, hash(floor(dir * 220.0)));
+            col += vec3(st) * starAmount * smoothstep(0.05, 0.3, h);
+          }
           gl_FragColor = vec4(col, 1.0);
         }`,
     })
@@ -65,18 +79,23 @@ export function buildSky(scene, radius = 470) {
       (Math.random() - 0.5) * 700
     );
     sprite.userData.speed = 1.2 + Math.random() * 1.6;
+    sprite.userData.baseOpacity = sprite.material.opacity;
     scene.add(sprite);
     clouds.push(sprite);
   }
 
-  function update(dt) {
+  // daylight ∈ [0,1] : les nuages s'estompent et s'assombrissent la nuit
+  function update(dt, daylight = 1) {
     for (const c of clouds) {
       c.position.x += c.userData.speed * dt;
       if (c.position.x > 420) c.position.x = -420;
+      c.material.opacity = c.userData.baseOpacity * (0.25 + 0.75 * daylight);
+      const v = 0.35 + 0.65 * daylight;
+      c.material.color.setRGB(v, v, v * 1.05);
     }
   }
 
-  return { update };
+  return { update, uniforms };
 }
 
 function makeCloudTexture() {

@@ -62,19 +62,46 @@ async function boot() {
   // Brume de distance : commence plus près pour la perspective atmosphérique
   scene.fog = new THREE.Fog(skyColor, 130, 540);
 
+  // --- Cycle jour/nuit ---------------------------------------------------
+  // Basé sur l'horloge (Date.now()) : tous les joueurs voient la même heure
+  // sans aucune synchro serveur. Cycle de 10 min (~6,5 min jour, 3,5 min nuit).
+  const DAY_CYCLE_MS = 10 * 60 * 1000;
+  const ENV_DAY = {
+    top: new THREE.Color(0x2e63b8), mid: new THREE.Color(0x7fa8dd),
+    horizon: new THREE.Color(0xdce6ee), fog: new THREE.Color(0xdce6ee),
+    hemiSky: new THREE.Color(0xaac8f0), hemiGround: new THREE.Color(0x6e604c),
+    sun: new THREE.Color(0xffe7bd),
+  };
+  const ENV_NIGHT = {
+    top: new THREE.Color(0x081020), mid: new THREE.Color(0x121d3a),
+    horizon: new THREE.Color(0x232c46), fog: new THREE.Color(0x1a2236),
+    hemiSky: new THREE.Color(0x4a5a85), hemiGround: new THREE.Color(0x2a2d3c),
+    sun: new THREE.Color(0xa8bce8),
+  };
+  const DUSK_TINT = new THREE.Color(0xff8a4d);
+  // phase 0..1 → position du soleil ; jour étiré (65 % du cycle)
+  function envPhase() {
+    const raw = (Date.now() % DAY_CYCLE_MS) / DAY_CYCLE_MS;
+    return raw < 0.65 ? (raw / 0.65) * 0.5 : 0.5 + ((raw - 0.65) / 0.35) * 0.5;
+  }
+  const env = { daylight: 1, night: 0, dusk: 0, sunDir: new THREE.Vector3(0, 1, 0) };
+
   const camera = new THREE.PerspectiveCamera(
     IS_TOUCH ? 82 : 75, v0.w / v0.h, 0.1, 1000
   );
   scene.add(camera); // nécessaire pour l'arme en vue subjective
 
-  // Lumières : fin d'après-midi dorée sur Lyon — ciel bleuté en rebond,
-  // sol chaud, soleil ambré (plus de contraste quand il y a des ombres)
-  scene.add(new THREE.HemisphereLight(0xaac8f0, 0x6e604c, SHADOWS ? 0.75 : 1.05));
+  // Lumières : soleil directionnel + rebond hémisphérique, tous deux pilotés
+  // par le cycle jour/nuit (plus de contraste quand il y a des ombres)
+  const hemi = new THREE.HemisphereLight(0xaac8f0, 0x6e604c, SHADOWS ? 0.75 : 1.05);
+  scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffe7bd, SHADOWS ? 2.0 : 1.7);
   const SUN_OFFSET = new THREE.Vector3(-90, 130, 50);
   sun.position.copy(SUN_OFFSET);
   scene.add(sun);
   scene.add(sun.target);
+  const HEMI_MAX = SHADOWS ? 0.75 : 1.05;
+  const SUN_MAX = SHADOWS ? 2.0 : 1.7;
   if (SHADOWS) {
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -88,7 +115,7 @@ async function boot() {
     sun.shadow.bias = -0.0006;
   }
 
-  // Soleil visible dans le ciel (même direction que la lumière)
+  // Soleil et lune visibles dans le ciel (même direction que la lumière)
   const sunMesh = new THREE.Mesh(
     new THREE.SphereGeometry(24, 20, 20),
     new THREE.MeshBasicMaterial({ color: 0xfff6d8, fog: false })
@@ -104,6 +131,12 @@ async function boot() {
   halo.scale.set(220, 220, 1);
   halo.position.copy(sunMesh.position);
   scene.add(halo);
+  const moonMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(16, 16, 16),
+    new THREE.MeshBasicMaterial({ color: 0xdfe6f5, fog: false })
+  );
+  moonMesh.visible = false;
+  scene.add(moonMesh);
 
   // --- Construction du monde ---
   const ctx = {
@@ -115,6 +148,7 @@ async function boot() {
     updatables: [], // animations du monde (eau, péniches, grande roue…)
     worldBound: null,
     waterBands: null,
+    env, // cycle jour/nuit lisible par le décor (halos de lampadaires…)
   };
 
   // Vrai Lyon (données OpenStreetMap) si le fichier a été généré sur le
@@ -137,7 +171,62 @@ async function boot() {
   }
 
   const sky = buildSky(scene, ctx.worldBound ? ctx.worldBound * 1.7 : 470);
-  ctx.updatables.push((dt) => sky.update(dt));
+  ctx.updatables.push((dt) => sky.update(dt, env.daylight));
+
+  // Interpolation de toute l'ambiance (ciel, brume, lumières, soleil/lune)
+  // selon la phase du cycle. Appelée à chaque frame : uniquement des lerps.
+  const _envColor = new THREE.Color();
+  const _lightDir = new THREE.Vector3(0, 1, 0);
+  function updateEnvironment() {
+    const ang = envPhase() * Math.PI * 2; // 0 = aube, π/2 = midi
+    const elev = Math.sin(ang);
+    const daylight = THREE.MathUtils.clamp(elev * 2.4, 0, 1);
+    const dusk = Math.max(0, 1 - Math.abs(elev) * 4); // pic aube/crépuscule
+    env.daylight = daylight;
+    env.night = 1 - daylight;
+    env.dusk = dusk;
+    env.sunDir.set(-Math.cos(ang) * 0.9, elev, 0.42).normalize();
+
+    // Ciel
+    const u = sky.uniforms;
+    u.topColor.value.copy(ENV_NIGHT.top).lerp(ENV_DAY.top, daylight);
+    u.midColor.value.copy(ENV_NIGHT.mid).lerp(ENV_DAY.mid, daylight);
+    u.horizonColor.value.copy(ENV_NIGHT.horizon).lerp(ENV_DAY.horizon, daylight)
+      .lerp(DUSK_TINT, dusk * 0.35);
+    u.sunTint.value.set(0xffe0b0).lerp(DUSK_TINT, dusk * 0.8);
+    u.sunDir.value.copy(env.sunDir);
+    u.starAmount.value = THREE.MathUtils.clamp(env.night * 1.3 - 0.3, 0, 1);
+
+    // Brume + fond raccordés à l'horizon
+    _envColor.copy(ENV_NIGHT.fog).lerp(ENV_DAY.fog, daylight).lerp(DUSK_TINT, dusk * 0.18);
+    scene.fog.color.copy(_envColor);
+    scene.background.copy(_envColor);
+
+    // Lumières
+    hemi.color.copy(ENV_NIGHT.hemiSky).lerp(ENV_DAY.hemiSky, daylight);
+    hemi.groundColor.copy(ENV_NIGHT.hemiGround).lerp(ENV_DAY.hemiGround, daylight);
+    hemi.intensity = HEMI_MAX * (0.45 + 0.55 * daylight);
+    sun.intensity = SUN_MAX * daylight + 0.3 * env.night; // clair de lune la nuit
+    sun.color.copy(ENV_DAY.sun).lerp(DUSK_TINT, dusk * 0.7)
+      .lerp(ENV_NIGHT.sun, env.night);
+    if (SHADOWS) sun.castShadow = daylight > 0.04;
+
+    // La lumière vient du soleil le jour, de la lune la nuit
+    if (elev >= 0.02) _lightDir.copy(env.sunDir);
+    else _lightDir.set(0.5, 0.8, -0.3).normalize();
+    env.lightDir = _lightDir;
+
+    // Astres visibles
+    const p = controls?.position ?? SPAWN;
+    sunMesh.position.set(p.x, 0, p.z).addScaledVector(env.sunDir, 620);
+    sunMesh.visible = elev > -0.12;
+    halo.position.copy(sunMesh.position);
+    halo.material.opacity = Math.max(0, Math.min(1, elev * 3 + 0.25));
+    halo.visible = sunMesh.visible;
+    moonMesh.position.set(p.x, 0, p.z)
+      .addScaledVector(env.sunDir, -620);
+    moonMesh.visible = elev < 0.1;
+  }
 
   const shell = createGameShell({ onToast: ui.toast });
   const arcade = buildArcade(ctx, {
@@ -393,11 +482,10 @@ async function boot() {
       stepTimer = Math.min(stepTimer, 0.12);
     }
 
-    // L'ombre suit le joueur (zone de 190 m autour de lui)
-    if (SHADOWS) {
-      sun.position.copy(controls.position).add(SUN_OFFSET);
-      sun.target.position.copy(controls.position);
-    }
+    // Ambiance jour/nuit + lumière qui suit le joueur (zone d'ombres de 190 m)
+    updateEnvironment();
+    sun.position.copy(controls.position).addScaledVector(env.lightDir, 165);
+    sun.target.position.copy(controls.position);
 
     nearestInteractable = state.overlayOpen ? null : findNearestInteractable();
     ui.setPrompt(nearestInteractable?.label ?? null);

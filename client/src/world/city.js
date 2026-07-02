@@ -617,8 +617,8 @@ function buildSkyline(ctx, rand) {
   ctx.scene.add(inst);
 }
 
-// Grille de fenêtres sombres sur fond clair (multiplié par la teinte d'instance)
-function makeSkylineTexture() {
+// Grille de fenêtres sombres sur fond clair (multiplié par la teinte du matériau)
+export function makeSkylineTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = 64;
   canvas.height = 128;
@@ -1060,9 +1060,13 @@ function paintFacade(mesh, rand, buildingH) {
 }
 
 export function buildMurPeint(ctx) {
-  // Grande fresque murale à taguer, hommage au mur des Canuts
+  // Grande fresque murale à taguer, hommage à la Fresque des Lyonnais :
+  // fenêtres en trompe-l'œil et personnages célèbres peints sur le mur
   const { x, z, w, h } = MUR_PEINT;
-  const wall = addBox(ctx, { x, z, w, h, d: 2.5, color: 0xd9cdb8, taggable: true });
+  const wall = addBox(ctx, {
+    x, z, w, h, d: 2.5, taggable: true,
+    material: new THREE.MeshLambertMaterial({ map: makeFresqueTexture() }),
+  });
   void wall;
   const sign = new THREE.Mesh(
     new THREE.PlaneGeometry(14, 2.4),
@@ -1070,6 +1074,121 @@ export function buildMurPeint(ctx) {
   );
   sign.position.set(x, h + 1.6, z + 1.3);
   ctx.scene.add(sign);
+}
+
+// Fresque des Lyonnais version low-poly : mur crème, fenêtres en trompe-l'œil,
+// et personnages naïfs peints aux balcons avec leur nom.
+function makeFresqueTexture() {
+  const W = 512, H = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const g = canvas.getContext('2d');
+
+  // Mur crème + grain
+  g.fillStyle = '#e6dcc4';
+  g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 900; i++) {
+    const a = 0.03 + Math.random() * 0.05;
+    g.fillStyle = Math.random() < 0.5 ? `rgba(255,250,240,${a})` : `rgba(90,75,55,${a})`;
+    g.fillRect(Math.random() * W, Math.random() * H, 2, 2);
+  }
+  // Bandeau titre peint en haut
+  g.fillStyle = '#a8543c';
+  g.fillRect(0, 0, W, 30);
+  g.font = 'bold 20px Georgia, serif';
+  g.textAlign = 'center';
+  g.fillStyle = '#f5ecd8';
+  g.fillText('★ LA FRESQUE DES LYONNAIS ★', W / 2, 21);
+
+  const FIGURES = [
+    { name: 'GUIGNOL', body: '#c0392b', hat: '#3a2c1e', special: 'guignol' },
+    { name: 'BOCUSE', body: '#f4f4f4', hat: '#ffffff', special: 'toque' },
+    { name: 'LUMIÈRE', body: '#4a5568', hat: '#2b2b2e', special: 'camera' },
+    { name: 'SAINT-EX', body: '#8a6d3b', hat: '#5d4632', special: 'aviateur' },
+    { name: 'AMPÈRE', body: '#3d5a80', hat: null, special: null },
+    { name: 'FENOTTE', body: '#9b5d8f', hat: null, special: null },
+  ];
+  const cols = FIGURES.length;
+  const cw = W / cols;
+  FIGURES.forEach((f, i) => {
+    const cx0 = i * cw + cw / 2;
+    const wy = 52, wh = 150, ww = cw * 0.62;
+    // Fenêtre trompe-l'œil : encadrement + fond sombre
+    g.fillStyle = '#c9b896';
+    g.fillRect(cx0 - ww / 2 - 6, wy - 6, ww + 12, wh + 12);
+    const gl = g.createLinearGradient(0, wy, 0, wy + wh);
+    gl.addColorStop(0, '#5a4a3a');
+    gl.addColorStop(1, '#332a20');
+    g.fillStyle = gl;
+    g.fillRect(cx0 - ww / 2, wy, ww, wh);
+    // Balcon
+    g.fillStyle = '#8a7a62';
+    g.fillRect(cx0 - ww / 2 - 8, wy + wh - 8, ww + 16, 8);
+    g.strokeStyle = 'rgba(30,30,34,0.85)';
+    g.lineWidth = 2;
+    for (let bx = cx0 - ww / 2 - 6; bx <= cx0 + ww / 2 + 6; bx += 7) {
+      g.beginPath();
+      g.moveTo(bx, wy + wh - 30);
+      g.lineTo(bx, wy + wh - 8);
+      g.stroke();
+    }
+    g.beginPath();
+    g.moveTo(cx0 - ww / 2 - 8, wy + wh - 30);
+    g.lineTo(cx0 + ww / 2 + 8, wy + wh - 30);
+    g.stroke();
+
+    // Personnage naïf au balcon : buste + tête + attribut
+    const py = wy + wh - 34;
+    g.fillStyle = f.body;
+    g.beginPath();
+    g.roundRect(cx0 - 16, py - 40, 32, 42, 8);
+    g.fill();
+    g.fillStyle = '#e8c39e';
+    g.beginPath();
+    g.arc(cx0, py - 52, 13, 0, Math.PI * 2);
+    g.fill();
+    if (f.special === 'toque') {
+      g.fillStyle = '#ffffff';
+      g.fillRect(cx0 - 10, py - 82, 20, 20);
+      g.beginPath();
+      g.arc(cx0, py - 82, 11, Math.PI, 0);
+      g.fill();
+    } else if (f.special === 'guignol') {
+      g.fillStyle = f.hat;
+      g.beginPath();
+      g.moveTo(cx0 - 15, py - 60);
+      g.quadraticCurveTo(cx0, py - 84, cx0 + 15, py - 60);
+      g.fill(); // bicorne de Guignol
+    } else if (f.special === 'camera') {
+      g.fillStyle = '#2b2b2e';
+      g.fillRect(cx0 + 12, py - 46, 16, 12); // caméra des frères Lumière
+      g.beginPath();
+      g.arc(cx0 + 30, py - 40, 5, 0, Math.PI * 2);
+      g.fill();
+    } else if (f.special === 'aviateur') {
+      g.fillStyle = f.hat;
+      g.beginPath();
+      g.arc(cx0, py - 56, 13, Math.PI, 0);
+      g.fill(); // casque d'aviateur
+      g.fillStyle = '#d9b44a';
+      g.beginPath();
+      g.arc(cx0 - 20, py - 30, 6, 0, Math.PI * 2); // Petit Prince
+      g.fill();
+    } else if (f.hat) {
+      g.fillStyle = f.hat;
+      g.fillRect(cx0 - 12, py - 66, 24, 6);
+    }
+    // Nom sous la fenêtre
+    g.font = 'bold 13px Georgia, serif';
+    g.fillStyle = '#6b4a32';
+    g.fillText(f.name, cx0, wy + wh + 24);
+  });
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
 }
 
 function buildLandmarks(ctx, rand) {
@@ -1107,18 +1226,28 @@ function buildLandmarks(ctx, rand) {
   tower.position.set(-170, 32 + 17, 10);
   ctx.scene.add(tower);
 
-  // Tour Part-Dieu « Le Crayon »
+  // Tour Part-Dieu « Le Crayon » : fût cylindrique quadrillé de fenêtres,
+  // couronne technique claire et pointe pyramidale — sa vraie silhouette
+  const towerTex = makeSkylineTexture();
+  towerTex.wrapS = towerTex.wrapT = THREE.RepeatWrapping;
+  towerTex.repeat.set(10, 7);
   const crayonBody = new THREE.Mesh(
     new THREE.CylinderGeometry(9, 9, 62, 18),
-    new THREE.MeshLambertMaterial({ color: 0xb05a4a })
+    new THREE.MeshLambertMaterial({ map: towerTex, color: 0xb05a4a })
   );
   crayonBody.position.set(116, 31, -45);
   ctx.scene.add(crayonBody);
+  const crown = new THREE.Mesh(
+    new THREE.CylinderGeometry(9.4, 9.4, 2.4, 18),
+    new THREE.MeshLambertMaterial({ color: 0xd8cfc2 })
+  );
+  crown.position.set(116, 62, -45);
+  ctx.scene.add(crown);
   const crayonTip = new THREE.Mesh(
     new THREE.ConeGeometry(9, 14, 18),
     new THREE.MeshLambertMaterial({ color: 0x8d4538 })
   );
-  crayonTip.position.set(116, 62 + 7, -45);
+  crayonTip.position.set(116, 63.2 + 7, -45);
   ctx.scene.add(crayonTip);
   addInvisibleWall(ctx, { x: 116, z: -45, w: 18, h: 62, d: 18 });
   void rand;
@@ -1158,17 +1287,56 @@ function buildDecor(ctx, rand) {
     ctx.scene.add(trunk, blob1, blob2, blob3);
   }
 
-  // Lampadaires autour de Bellecour
+  // Lampadaires : Bellecour + quais. La nuit, un halo additif s'allume
+  // (simple sprite : aucun vrai éclairage, les perfs mobile ne bougent pas).
   const poleMat = new THREE.MeshLambertMaterial({ color: 0x2c2f36 });
   const lampMat = new THREE.MeshBasicMaterial({ color: 0xffe3a0 });
+  const haloTex = makeLampHaloTexture();
+  const halos = [];
+  function addLamp(x, z) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 4.4, 6), poleMat);
+    pole.position.set(x, 2.2, z);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 8), lampMat);
+    lamp.position.set(x, 4.5, z);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: haloTex, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    glow.scale.set(6.5, 6.5, 1);
+    glow.position.set(x, 4.4, z);
+    glow.userData.noShadow = true;
+    halos.push(glow.material);
+    ctx.scene.add(pole, lamp, glow);
+  }
   for (let i = 0; i < 8; i++) {
     const x = BELLECOUR.minX + 6 + i * 8.2;
-    for (const z of [BELLECOUR.minZ + 1.5, BELLECOUR.maxZ - 1.5]) {
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 4.4, 6), poleMat);
-      pole.position.set(x, 2.2, z);
-      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 8), lampMat);
-      lamp.position.set(x, 4.5, z);
-      ctx.scene.add(pole, lamp);
-    }
+    addLamp(x, BELLECOUR.minZ + 1.5);
+    addLamp(x, BELLECOUR.maxZ - 1.5);
   }
+  for (let i = 0; i < 6; i++) {
+    const z = -100 + i * 40;
+    if (Math.abs(z) < 7) continue;
+    addLamp(SAONE.maxX + 6.5, z);
+    addLamp(RHONE.minX - 6.5, z);
+  }
+  ctx.updatables.push(() => {
+    const night = ctx.env?.night ?? 0;
+    const op = Math.max(0, night * 1.2 - 0.2) * 0.85;
+    for (const m of halos) m.opacity = op;
+  });
+}
+
+// Halo doux de réverbère (dégradé radial chaud)
+function makeLampHaloTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const g = canvas.getContext('2d');
+  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0, 'rgba(255, 224, 150, 0.9)');
+  grad.addColorStop(0.3, 'rgba(255, 205, 120, 0.35)');
+  grad.addColorStop(1, 'rgba(255, 195, 100, 0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(canvas);
 }

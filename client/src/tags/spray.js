@@ -32,6 +32,50 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange })
   camera.add(can);
   let canTime = 0;
 
+  // --- Gouttelettes de peinture (géométrie et matériaux partagés) ---
+  const MAX_DROPS = 40;
+  const dropGeo = new THREE.SphereGeometry(0.025, 5, 4);
+  const dropMats = new Map(); // couleur -> matériau partagé
+  const drops = []; // { mesh, vel, life }
+  function dropMat(col) {
+    let m = dropMats.get(col);
+    if (!m) {
+      m = new THREE.MeshBasicMaterial({ color: col });
+      dropMats.set(col, m);
+    }
+    return m;
+  }
+  function spawnSplatter(point, normal, count) {
+    for (let i = 0; i < count; i++) {
+      if (drops.length >= MAX_DROPS) {
+        const old = drops.shift();
+        scene.remove(old.mesh);
+      }
+      const mesh = new THREE.Mesh(dropGeo, dropMat(color()));
+      mesh.position.copy(point);
+      mesh.scale.setScalar(0.7 + Math.random() * 0.9);
+      scene.add(mesh);
+      const vel = normal.clone().multiplyScalar(0.8 + Math.random() * 1.4);
+      vel.x += (Math.random() - 0.5) * 1.6;
+      vel.y += Math.random() * 0.9;
+      vel.z += (Math.random() - 0.5) * 1.6;
+      drops.push({ mesh, vel, life: 0.3 + Math.random() * 0.25 });
+    }
+  }
+  function updateDrops(dt) {
+    for (let i = drops.length - 1; i >= 0; i--) {
+      const d = drops[i];
+      d.life -= dt;
+      d.vel.y -= 7 * dt;
+      d.mesh.position.addScaledVector(d.vel, dt);
+      d.mesh.scale.multiplyScalar(Math.max(0, 1 - dt * 2.2));
+      if (d.life <= 0) {
+        scene.remove(d.mesh);
+        drops.splice(i, 1);
+      }
+    }
+  }
+
   function color() { return PAINT_COLORS[colorIdx]; }
 
   function applyCanColor() {
@@ -219,7 +263,22 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange })
     }
     session.lastUv = uv;
     session.hasContent = true;
+
+    // Coulure de peinture occasionnelle (le charme du vrai graff)
+    if (Math.random() < 0.05) {
+      const len = 12 + Math.random() * 34;
+      g.shadowBlur = 3;
+      g.globalAlpha = 0.55;
+      g.lineWidth = 2.5 + Math.random() * 2;
+      g.beginPath();
+      g.moveTo(uv.x + (Math.random() - 0.5) * 8, uv.y);
+      g.lineTo(uv.x + (Math.random() - 0.5) * 4, uv.y + len);
+      g.stroke();
+    }
     session.tex.needsUpdate = true;
+
+    // Gouttelettes qui giclent du mur
+    if (Math.random() < 0.4) spawnSplatter(hit.point, normal, 1);
     audio.hissStart();
   }
 
@@ -282,6 +341,7 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange })
     stamping = true;
     audio.hissStart();
     setTimeout(() => audio.hissStop(), 350);
+    spawnSplatter(hit.point, normal, 9);
     try {
       await apiFetch('/tags', {
         method: 'POST',
@@ -301,6 +361,7 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange })
   }
 
   function update(dt) {
+    updateDrops(dt);
     const inputOk = IS_TOUCH || state.pointerLocked;
     if (state.tagMode && painting && inputOk && !state.overlayOpen) {
       paintFrame();

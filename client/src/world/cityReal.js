@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { addInvisibleWall } from './utils.js';
 import { ARCADE, RANGE, MUR_PEINT, BELLECOUR, makeRand } from './layout.js';
 import {
-  makeWaterTexture, makeForestTexture, buildBellecour, buildGrandeRoue,
-  buildFountain, buildStreetFurniture, buildMurPeint, buildPeniches,
+  makeWaterTexture, makeForestTexture, makeSkylineTexture, buildBellecour,
+  buildGrandeRoue, buildFountain, buildStreetFurniture, buildMurPeint,
+  buildPeniches,
 } from './city.js';
 
 // Construit le vrai centre de Lyon à partir des empreintes OpenStreetMap
@@ -309,19 +310,28 @@ function buildFarLandmarks(ctx, bound) {
   metal.position.set(FX + 55, HILL_TOP + 25, FZ + 30);
   ctx.scene.add(metal);
 
-  // Le Crayon (tour Part-Dieu), à l'est
+  // Le Crayon (tour Part-Dieu), à l'est : fenêtres + couronne + pointe
   const EX = bound + 70;
+  const towerTex = makeSkylineTexture();
+  towerTex.wrapS = towerTex.wrapT = THREE.RepeatWrapping;
+  towerTex.repeat.set(12, 10);
   const crayon = new THREE.Mesh(
     new THREE.CylinderGeometry(15, 15, 100, 20),
-    new THREE.MeshLambertMaterial({ color: 0xa9594a, fog: false })
+    new THREE.MeshLambertMaterial({ map: towerTex, color: 0xa9594a, fog: false })
   );
   crayon.position.set(EX, 50, -70);
   ctx.scene.add(crayon);
+  const crown = new THREE.Mesh(
+    new THREE.CylinderGeometry(15.6, 15.6, 3.6, 20),
+    new THREE.MeshLambertMaterial({ color: 0xd8cfc2, fog: false })
+  );
+  crown.position.set(EX, 100, -70);
+  ctx.scene.add(crown);
   const tip = new THREE.Mesh(
     new THREE.ConeGeometry(15, 24, 20),
     new THREE.MeshLambertMaterial({ color: 0x8d4538, fog: false })
   );
-  tip.position.set(EX, 112, -70);
+  tip.position.set(EX, 114, -70);
   ctx.scene.add(tip);
 }
 
