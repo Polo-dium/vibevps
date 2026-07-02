@@ -326,6 +326,25 @@ async function boot() {
   // Capture d'écran stylée : touche C (desktop) ou bouton 📸 (tactile)
   const capture = createCapture({ renderer, scene, camera, onToast: ui.toast });
 
+  // --- Emotes ridicules (3/4/5 ou bouton 😜) : passent par le chat de
+  // proximité, donc visibles en bulle au-dessus de la tête pour les autres
+  const EMOTES = [
+    { text: '👋 Salut les gones !', voice: 'Salut les gones !' },
+    { text: '💃 Danse de la quenelle !', voice: 'Danse de la quenelle !' },
+    { text: '👑 VIVE LE ROI !', voice: 'Vive le roi !' },
+  ];
+  let lastEmoteAt = 0;
+  function emote(idx) {
+    const now = Date.now();
+    if (now - lastEmoteAt < 600) return; // même anti-spam que le serveur
+    lastEmoteAt = now;
+    const e = EMOTES[idx % EMOTES.length];
+    net.send({ t: 'chat', text: e.text });
+    ui.addChatLine(state.auth?.name ?? 'moi', e.text, true);
+    audio.speak(e.voice, { pitch: 1.4 + Math.random() * 0.4, rate: 1.15, volume: 0.9 });
+    navigator.vibrate?.(10);
+  }
+
   // Active les ombres sur tout le monde statique déjà construit
   if (SHADOWS) {
     scene.traverse((o) => {
@@ -436,6 +455,9 @@ async function boot() {
     if (e.code === 'Enter') { ui.openChat(); return; }
     if (e.code === 'KeyE' && nearestInteractable) nearestInteractable.action();
     if (e.code === 'KeyC') capture.take();
+    if (e.code === 'Digit3') emote(0);
+    if (e.code === 'Digit4') emote(1);
+    if (e.code === 'Digit5') emote(2);
     if (e.code === 'KeyF') spray.toggleMode();
     if (e.code === 'KeyG') spray.stampTag();
     if (e.code === 'KeyT') tagEditor.open();
@@ -452,7 +474,7 @@ async function boot() {
   // --- Contrôles tactiles (mobile) ---
   if (IS_TOUCH) {
     createTouchControls({
-      controls, weapon, spray, tagEditor, ui, voice, capture,
+      controls, weapon, spray, tagEditor, ui, voice, capture, emote,
       interact: () => nearestInteractable?.action(),
     });
     // Le prompt « ▶ JOUER » est lui-même tactile : plus besoin de viser le bouton E.

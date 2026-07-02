@@ -19,9 +19,30 @@ const PHRASES = [
   'Y’a un de ces mondes à Bellecour !',
   'Une praline et ça repart.',
   'Fais gaffe, ça tire dans le quartier…',
+  'T’es un vrai gone, toi.',
+  'Ma fenotte m’attend au mâchon.',
+  'J’ai débaroulé les pentes en Vélo’v.',
+  'Le silure ? Il a mangé mon caniche.',
+  'Entre Rhône et Saône, mon cœur balance.',
+  'Guignol aurait pas fait mieux.',
+  'La quenelle, c’est la vie.',
+  'Un jour j’irai à Paris. Ou pas.',
+  'Regarde le cul de la Grande Roue !',
+  'Il est pas là, le gnôlu qui tague tout ?',
 ];
-const HURT_PHRASES = ['Aïe !', 'Hé oh, ça va pas ?!', 'Mais arrête !'];
-const DEATH_PHRASES = ['Aaaaah !', 'Au secours !', 'Noooon !'];
+// Running gag : à proximité de la statue de Louis XIV
+const ROI_PHRASES = ['Vive le Roi !', 'Le Roi vous regarde, gone.', 'On s’incline devant le Roi de bronze.'];
+const ROI_SPOT = { x: -2, z: 6, r: 22 };
+const HURT_PHRASES = [
+  'Aïe !', 'Hé oh, ça va pas ?!', 'Mais arrête !',
+  'Oh le gone, ça va pas la tête ?!', 'Mes pralines !!',
+  'J’appelle Guignol !', 'Gnôlu, va !',
+];
+const DEATH_PHRASES = [
+  'Aaaaah !', 'Au secours !', 'Noooon !',
+  'Adieu, belle Presqu’île…', 'Dites à ma fenotte que je l’aime !',
+  'Je rejoins Guignol…', 'Même pas mal… si.',
+];
 
 const CIVIL_COLORS = [0x6b7a8f, 0x8f6b6b, 0x6b8f74, 0x8f836b, 0x726b8f, 0x4f6272, 0x7d6754];
 
@@ -123,6 +144,18 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit }) {
     if (npc.hp <= 0) {
       npc.mode = 'dying';
       npc.timer = 0;
+      // Ragdoll de comédie : le PNJ s'envole loin du tireur en vrille
+      const away = npc.group.position.clone().sub(getPlayerPos());
+      away.y = 0;
+      away.normalize();
+      const punch = 4.5 + Math.random() * 3;
+      npc.fly = {
+        vx: away.x * punch, vz: away.z * punch,
+        vy: 6 + Math.random() * 3,
+        spinX: (Math.random() - 0.5) * 12,
+        spinZ: (Math.random() - 0.5) * 12,
+        bounces: 0,
+      };
       say(npc, DEATH_PHRASES[Math.floor(Math.random() * DEATH_PHRASES.length)], { hurt: true });
     } else {
       say(npc, HURT_PHRASES[Math.floor(Math.random() * HURT_PHRASES.length)], { hurt: true });
@@ -137,6 +170,7 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit }) {
     npc.group.position.set(x, 0, z);
     npc.group.rotation.set(0, 0, 0);
     npc.hp = NPC_HP;
+    npc.fly = null;
     npc.mode = 'walk';
     npc.speed = 1.0 + Math.random() * 0.8;
     npc.human.shirtMat.color.copy(npc.baseColor);
@@ -160,9 +194,33 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit }) {
 
       if (npc.mode === 'dying') {
         npc.timer += dt;
-        // Il s'effondre…
-        npc.group.rotation.x = -Math.min(1, npc.timer / 0.5) * Math.PI / 2;
-        if (npc.timer > 3.2) {
+        const fly = npc.fly;
+        if (fly) {
+          // Vol plané ridicule + vrille, avec rebond
+          fly.vy -= 17 * dt;
+          const g = npc.group;
+          g.position.x += fly.vx * dt;
+          g.position.z += fly.vz * dt;
+          g.position.y += fly.vy * dt;
+          g.rotation.x += fly.spinX * dt;
+          g.rotation.z += fly.spinZ * dt;
+          if (g.position.y <= 0 && fly.vy < 0) {
+            g.position.y = 0;
+            fly.bounces += 1;
+            if (fly.bounces >= 2) {
+              npc.fly = null;
+              g.rotation.set(-Math.PI / 2, g.rotation.y, 0); // à plat dos
+              npc.timer = Math.max(npc.timer, 1.2);
+            } else {
+              fly.vy *= -0.42;
+              fly.vx *= 0.55;
+              fly.vz *= 0.55;
+              fly.spinX *= 0.6;
+              fly.spinZ *= 0.6;
+            }
+          }
+        }
+        if (!npc.fly && npc.timer > 3.2) {
           npc.group.position.y -= dt * 0.8; // s'enfonce doucement
           if (npc.timer > 4.5) respawn(npc);
         }
@@ -196,7 +254,10 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit }) {
       if (npc.talkCd <= 0) {
         const dist = npc.group.position.distanceTo(playerPos);
         if (dist < 6.5) {
-          say(npc, PHRASES[Math.floor(Math.random() * PHRASES.length)]);
+          // Près de la statue, le running gag prend le dessus
+          const dRoi = Math.hypot(npc.group.position.x - ROI_SPOT.x, npc.group.position.z - ROI_SPOT.z);
+          const pool = dRoi < ROI_SPOT.r && Math.random() < 0.4 ? ROI_PHRASES : PHRASES;
+          say(npc, pool[Math.floor(Math.random() * pool.length)]);
           npc.talkCd = 12 + Math.random() * 12;
         } else {
           npc.talkCd = 1 + Math.random();

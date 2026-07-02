@@ -34,7 +34,8 @@ export function createUi() {
     <div id="help">
       ZQSD bouger (sprint auto) · Espace saut · E interagir · clic tirer<br>
       F bombe de peinture (clic = graffiti, molette = couleur) · G poser ton tag<br>
-      T éditeur de tags · 1 arme · R recharger · L classements/succès · C photo · P admin
+      T éditeur de tags · 1 arme · R recharger · 3/4/5 emotes<br>
+      L classements/succès · C photo · P admin
     </div>`;
   document.body.appendChild(hud);
   const vignette = document.createElement('div');
