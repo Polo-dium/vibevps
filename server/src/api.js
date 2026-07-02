@@ -117,9 +117,30 @@ api.post('/scores', auth, (req, res) => {
   }
 
   q.addScore.run(req.player.id, game.id, s, acc, Date.now());
+  // XP proportionnelle au score, bornée pour rester saine
+  const xpGain = Math.max(2, Math.min(80, Math.floor(s / 100)));
+  q.addXp.run(xpGain, req.player.id);
   const leaderboard = q.leaderboard.all(game.id);
   broadcast({ t: 'leaderboard', gameId: game.id, rows: leaderboard });
-  res.json({ ok: true, leaderboard });
+  res.json({
+    ok: true, leaderboard, xpGain,
+    xp: q.playerProgress.get(req.player.id).xp,
+  });
+});
+
+// Progression du joueur : XP + compteurs + meilleurs scores par borne
+api.get('/progress', auth, (req, res) => {
+  const p = q.playerProgress.get(req.player.id);
+  const best = {};
+  for (const row of q.bestScoresByPlayer.all(req.player.id)) {
+    best[row.game_id] = row.score;
+  }
+  res.json({
+    xp: p.xp,
+    tagsPosted: p.tags_posted,
+    kills: p.kills_total,
+    best,
+  });
 });
 
 api.get('/leaderboard/:gameId', (req, res) => {
@@ -170,7 +191,16 @@ api.post('/tags', auth, (req, res) => {
     author: req.player.name,
   };
   broadcast({ t: 'tag', tag });
-  res.json({ tag });
+
+  // Progression : +15 XP par tag, et la guerre de tags « ROI DU GRAFF »
+  // réutilise le circuit des scores (score = total de tags posés)
+  q.addXp.run(15, req.player.id);
+  q.bumpTagsPosted.run(req.player.id);
+  const progress = q.playerProgress.get(req.player.id);
+  q.addScore.run(req.player.id, 'graff', progress.tags_posted, null, Date.now());
+  broadcast({ t: 'leaderboard', gameId: 'graff', rows: q.leaderboard.all('graff') });
+
+  res.json({ tag, xp: progress.xp, xpGain: 15 });
 });
 
 // --- Génération IA de nouvelles bornes -----------------------------------

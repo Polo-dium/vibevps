@@ -147,6 +147,31 @@ export const audio = {
     });
   },
 
+  // Petite récompense (tag posé, XP gagnée) : carillon bref et satisfaisant
+  reward() {
+    if (!ctx) return;
+    tone(880, 0.09, { type: 'sine', gain: 0.1 });
+    tone(1320, 0.12, { type: 'sine', gain: 0.09, at: 0.07 });
+  },
+
+  // Passage de niveau : arpège ascendant triomphant
+  levelUp() {
+    if (!ctx) return;
+    const notes = [523, 659, 784, 1047, 1319];
+    notes.forEach((f, i) => {
+      tone(f, 0.16, { type: 'triangle', gain: 0.12, at: i * 0.09 });
+      tone(f * 2, 0.1, { type: 'sine', gain: 0.05, at: i * 0.09 });
+    });
+  },
+
+  // Succès débloqué : fanfare courte
+  trophy() {
+    if (!ctx) return;
+    tone(587, 0.12, { type: 'square', gain: 0.08 });
+    tone(784, 0.12, { type: 'square', gain: 0.08, at: 0.12 });
+    tone(1175, 0.3, { type: 'triangle', gain: 0.12, at: 0.24 });
+  },
+
   // Manette tactile des bornes d'arcade
   arcadeTick() {
     if (!ctx) return;

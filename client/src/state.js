@@ -12,6 +12,8 @@ export const state = {
   weaponEquipped: false,
   tagMode: false, // bombe de peinture en main
   rangeSession: null, // session de stand de tir en cours
+  xp: 0, // progression du joueur (source de vérité : serveur)
+  level: 1,
 };
 
 export async function apiFetch(path, options = {}) {

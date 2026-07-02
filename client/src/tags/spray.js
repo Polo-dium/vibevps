@@ -14,8 +14,10 @@ export const PAINT_COLORS = [
   '#ff3df0', '#00ffd5', '#ffe14d', '#ff5252',
   '#4da6ff', '#4dff6a', '#ff9d3d', '#ffffff', '#111111',
 ];
+// Niveau requis pour chaque couleur : 4 offertes, les autres se méritent
+export const COLOR_MIN_LEVEL = [1, 1, 1, 1, 2, 3, 4, 5, 6];
 
-export function createSpray(scene, camera, taggables, { onToast, onModeChange }) {
+export function createSpray(scene, camera, taggables, { onToast, onModeChange, onSaved }) {
   const raycaster = new THREE.Raycaster();
   raycaster.far = SPRAY_RANGE;
   const loader = new THREE.TextureLoader();
@@ -154,7 +156,11 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange })
   function toggleMode() { setMode(!state.tagMode); }
 
   function cycleColor(dir = 1) {
-    colorIdx = (colorIdx + dir + PAINT_COLORS.length) % PAINT_COLORS.length;
+    // Saute les couleurs pas encore débloquées (niveau du joueur)
+    for (let i = 0; i < PAINT_COLORS.length; i++) {
+      colorIdx = (colorIdx + dir + PAINT_COLORS.length) % PAINT_COLORS.length;
+      if (COLOR_MIN_LEVEL[colorIdx] <= (state.level ?? 1)) break;
+    }
     applyCanColor();
     onModeChange?.(state.tagMode, color());
   }
@@ -311,6 +317,7 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange })
       // On garde notre mesh local et on l'enregistre sous l'id serveur
       // pour ignorer l'écho WebSocket.
       decals.set(res.tag.id, s.mesh);
+      onSaved?.(res);
     } catch (err) {
       onToast('Graffiti non sauvegardé : ' + err.message);
       // On le garde quand même localement.
@@ -343,7 +350,7 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange })
     setTimeout(() => audio.hissStop(), 350);
     spawnSplatter(hit.point, normal, 9);
     try {
-      await apiFetch('/tags', {
+      const res = await apiFetch('/tags', {
         method: 'POST',
         body: JSON.stringify({
           image: state.activeTagImage,
@@ -353,6 +360,7 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange })
         }),
       });
       // Le décal arrive par le broadcast WebSocket.
+      onSaved?.(res);
     } catch (err) {
       onToast('Tag refusé : ' + err.message);
     } finally {

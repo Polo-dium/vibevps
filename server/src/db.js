@@ -68,16 +68,24 @@ const BUILTINS = [
   ['breakout', 'BREAKOUT'],
   ['shooting-range', 'STAND DE TIR'],
   ['pvp', 'DUELS DE RUE'],
+  ['graff', 'ROI DU GRAFF'], // guerre de tags : score = total de tags posés
 ];
 const insertBuiltin = db.prepare(
   `INSERT OR IGNORE INTO games (id, title, builtin, created_at) VALUES (?, ?, 1, ?)`
 );
 for (const [id, title] of BUILTINS) insertBuiltin.run(id, title, Date.now());
 
-// Migration : colonne admin sur les joueurs existants
-try {
-  db.exec(`ALTER TABLE players ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0`);
-} catch { /* colonne déjà présente */ }
+// Migrations : colonnes ajoutées au fil des versions
+for (const col of [
+  `is_admin INTEGER NOT NULL DEFAULT 0`,
+  `xp INTEGER NOT NULL DEFAULT 0`,
+  `tags_posted INTEGER NOT NULL DEFAULT 0`,
+  `kills_total INTEGER NOT NULL DEFAULT 0`,
+]) {
+  try {
+    db.exec(`ALTER TABLE players ADD COLUMN ${col}`);
+  } catch { /* colonne déjà présente */ }
+}
 
 const MAX_TAGS = 600;
 
@@ -141,6 +149,17 @@ export const q = {
   setAdmin: db.prepare(`UPDATE players SET is_admin = 1 WHERE id = ?`),
   deleteTag: db.prepare(`DELETE FROM tags WHERE id = ?`),
   deleteAllTags: db.prepare(`DELETE FROM tags`),
+
+  // Progression : XP et compteurs cumulés
+  addXp: db.prepare(`UPDATE players SET xp = xp + ? WHERE id = ?`),
+  bumpTagsPosted: db.prepare(`UPDATE players SET tags_posted = tags_posted + 1 WHERE id = ?`),
+  bumpKills: db.prepare(`UPDATE players SET kills_total = kills_total + 1 WHERE id = ?`),
+  playerProgress: db.prepare(
+    `SELECT xp, tags_posted, kills_total FROM players WHERE id = ?`
+  ),
+  bestScoresByPlayer: db.prepare(
+    `SELECT game_id, MAX(score) AS score FROM scores WHERE player_id = ? GROUP BY game_id`
+  ),
 };
 
 export function insertTagWithLimit(args) {

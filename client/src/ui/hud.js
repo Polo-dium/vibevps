@@ -1,5 +1,8 @@
 import { state, apiFetch } from '../state.js';
 import { IS_TOUCH } from '../player/controls.js';
+import { ACHIEVEMENTS, levelOf, xpForLevel } from '../progress.js';
+import { PAINT_COLORS, COLOR_MIN_LEVEL } from '../tags/spray.js';
+import { audio } from '../audio.js';
 
 export function createUi() {
   // --- HUD permanent ---
@@ -13,6 +16,11 @@ export function createUi() {
     <div id="hud-ammo" class="hidden"></div>
     <div id="toasts"></div>
     <div id="hud-hp">❤ 100</div>
+    <div id="hud-xp">
+      <span id="xp-level">NIV 1</span>
+      <div id="xp-bar"><div id="xp-fill"></div></div>
+    </div>
+    <div id="levelbanner" class="hidden"></div>
     <div id="mic-indicator" class="hidden">🎤 EN DIRECT</div>
     <div id="chatfeed"></div>
     <div id="chatbox" class="hidden"><input type="text" id="chatinput" maxlength="120" placeholder="Message de proximité… (Entrée pour envoyer)"></div>
@@ -91,6 +99,60 @@ export function createUi() {
       closeChat();
     }
   });
+
+  // --- XP, niveaux, confettis ---
+  const xpLevelEl = hud.querySelector('#xp-level');
+  const xpFillEl = hud.querySelector('#xp-fill');
+  const levelBannerEl = hud.querySelector('#levelbanner');
+  let levelBannerTimer = null;
+
+  function spawnConfetti(n = 36) {
+    const colors = ['#ff3df0', '#00ffd5', '#ffe14d', '#ff5252', '#4da6ff', '#4dff6a'];
+    for (let i = 0; i < n; i++) {
+      const c = document.createElement('div');
+      c.className = 'confetti';
+      c.style.left = `${8 + Math.random() * 84}vw`;
+      c.style.background = colors[i % colors.length];
+      c.style.animationDelay = `${Math.random() * 0.4}s`;
+      c.style.animationDuration = `${1.4 + Math.random() * 1.2}s`;
+      c.style.transform = `rotate(${Math.random() * 360}deg)`;
+      document.body.appendChild(c);
+      setTimeout(() => c.remove(), 3200);
+    }
+  }
+
+  function setXp(xp, { silent = false } = {}) {
+    const prevLevel = state.level ?? 1;
+    state.xp = xp;
+    state.level = levelOf(xp);
+    const cur = xpForLevel(state.level);
+    const next = xpForLevel(state.level + 1);
+    xpLevelEl.textContent = `NIV ${state.level}`;
+    xpFillEl.style.width = `${Math.round(((xp - cur) / (next - cur)) * 100)}%`;
+    if (!silent && state.level > prevLevel) {
+      levelBannerEl.textContent = `⭐ NIVEAU ${state.level} !`;
+      levelBannerEl.classList.remove('hidden');
+      levelBannerEl.style.animation = 'none';
+      void levelBannerEl.offsetWidth;
+      levelBannerEl.style.animation = '';
+      clearTimeout(levelBannerTimer);
+      levelBannerTimer = setTimeout(() => levelBannerEl.classList.add('hidden'), 2600);
+      spawnConfetti(44);
+      audio.levelUp();
+      navigator.vibrate?.([30, 30, 60]);
+      // Couleur de bombe débloquée à ce niveau ?
+      const newColors = PAINT_COLORS.filter((_, i) => COLOR_MIN_LEVEL[i] === state.level);
+      if (newColors.length > 0) {
+        toast(`🌈 Nouvelle couleur de bombe débloquée ! (molette ou bouton 🌈)`);
+      }
+    }
+  }
+
+  function achievementUnlocked(a) {
+    toast(`🏆 Succès débloqué : ${a.icon} ${a.name} — ${a.desc}`);
+    spawnConfetti(24);
+    audio.trophy();
+  }
 
   // Hitmarker : croix furtive au centre quand un tir touche
   const hitmarkerEl = hud.querySelector('#hitmarker');
@@ -274,6 +336,8 @@ export function createUi() {
     <div class="panel" style="width:900px;">
       <h2>CLASSEMENTS</h2>
       <div id="lb-grid"></div>
+      <h2 style="margin-top:16px;">🏆 SUCCÈS</h2>
+      <div id="ach-grid"></div>
       <div style="margin-top:14px; text-align:right;">
         <button class="ghost" id="lb-close">Fermer (Échap ou L)</button>
       </div>
@@ -303,10 +367,28 @@ export function createUi() {
     }
   }
 
+  // Instance de progression (branchée par main.js) pour l'état des succès
+  let progressRef = null;
+  function bindProgress(p) { progressRef = p; }
+
+  function renderAchievements() {
+    const grid = lbOverlay.querySelector('#ach-grid');
+    grid.innerHTML = ACHIEVEMENTS.map((a) => {
+      const ok = progressRef?.isUnlocked(a.id);
+      return `<div class="ach${ok ? ' unlocked' : ''}" title="${escapeHtml(a.desc)}">
+        <span class="ach-icon">${ok ? a.icon : '🔒'}</span>
+        <div><b>${escapeHtml(a.name)}</b><br><span class="ach-desc">${escapeHtml(a.desc)}</span></div>
+      </div>`;
+    }).join('');
+  }
+
   function toggleLeaderboards(force) {
     const show = force ?? lbOverlay.classList.contains('hidden');
     if (show) {
       renderLeaderboards();
+      renderAchievements();
+      // Rafraîchit depuis le serveur puis met à jour l'affichage
+      progressRef?.refresh().then(() => renderAchievements());
       lbOverlay.classList.remove('hidden');
       state.overlayOpen = true;
       document.exitPointerLock?.();
@@ -461,6 +543,7 @@ export function createUi() {
   return {
     ensureAuth, toast, setPrompt, onPromptTap, setInfo, setRange, setAmmo,
     setHp, damageFlash, killBanner, setTagMode, hitmarker, deathScreen,
+    setXp, spawnConfetti, achievementUnlocked, bindProgress,
     toggleLeaderboards, openCreator, toggleAdmin, closeTopOverlay,
     openChat, onChatSend, addChatLine, setMicState,
   };

@@ -20,6 +20,7 @@ import { createSpray } from './tags/spray.js';
 import { createTagEditor } from './tags/editor.js';
 import { createGameShell } from './games/shell.js';
 import { createUi } from './ui/hud.js';
+import { createProgress } from './progress.js';
 
 async function boot() {
   const ui = createUi();
@@ -228,7 +229,23 @@ async function boot() {
     moonMesh.visible = elev < 0.1;
   }
 
-  const shell = createGameShell({ onToast: ui.toast });
+  // --- Progression : XP, niveaux, succès ---
+  const progress = createProgress({
+    onXp: (xp, opts) => ui.setXp(xp, opts),
+    onUnlock: (a) => ui.achievementUnlocked(a),
+  });
+  ui.bindProgress(progress);
+  progress.refresh(); // restaure la barre d'XP et les succès déjà gagnés
+
+  const shell = createGameShell({
+    onToast: ui.toast,
+    onXp: (xp, xpGain) => {
+      ui.setXp(xp);
+      audio.reward();
+      if (xpGain) ui.toast(`+${xpGain} XP`);
+      progress.refresh();
+    },
+  });
   const arcade = buildArcade(ctx, {
     onPlayGame: (game) => shell.open(game),
     onOpenCreator: () => ui.openCreator(),
@@ -241,10 +258,15 @@ async function boot() {
       ui.setRange(null);
       ui.toast(`Stand de tir terminé : ${score} pts · ${hits}/${shots} touches · précision ${accuracy}%`);
       try {
-        await apiFetch('/scores', {
+        const res = await apiFetch('/scores', {
           method: 'POST',
           body: JSON.stringify({ gameId: 'shooting-range', score, accuracy }),
         });
+        if (res.xp != null) {
+          ui.setXp(res.xp);
+          audio.reward();
+        }
+        progress.refresh();
       } catch (err) {
         ui.toast('Score non enregistré : ' + err.message);
       }
@@ -271,6 +293,13 @@ async function boot() {
     onModeChange: (on, paintColor) => {
       if (on && state.weaponEquipped) weapon.toggle(false);
       ui.setTagMode(on ? paintColor : null);
+    },
+    onSaved: (res) => {
+      if (res.xp != null) {
+        ui.setXp(res.xp);
+        audio.reward();
+      }
+      progress.refresh();
     },
   });
   spray.loadExisting(state.tags);
@@ -342,7 +371,8 @@ async function boot() {
       const idx = Math.min(killTimes.length, STREAK_LABELS.length) - 1;
       ui.killBanner(STREAK_LABELS[idx]);
       audio.announce(STREAK_VOICE[idx]);
-      ui.toast(`🎯 Tu as abattu ${msg.victimName} ! (${msg.kills} kill${msg.kills > 1 ? 's' : ''} cette session)`);
+      ui.toast(`🎯 Tu as abattu ${msg.victimName} ! +50 XP (${msg.kills} kill${msg.kills > 1 ? 's' : ''} cette session)`);
+      progress.refresh();
     } else {
       ui.toast(`☠ ${msg.byName} a abattu ${msg.victimName}`);
     }

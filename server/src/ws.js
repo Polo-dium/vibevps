@@ -106,6 +106,8 @@ export function setupWs(httpServer) {
           me.kills += 1;
           try {
             q.addScore.run(me.playerId, 'pvp', me.kills, null, Date.now());
+            q.addXp.run(50, me.playerId);
+            q.bumpKills.run(me.playerId);
             broadcast({ t: 'leaderboard', gameId: 'pvp', rows: q.leaderboard.all('pvp') });
           } catch (err) {
             console.error('Score PvP non enregistré :', err);
