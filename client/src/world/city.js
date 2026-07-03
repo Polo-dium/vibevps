@@ -229,6 +229,27 @@ function getZincRoofMat() {
   return zincRoofMat;
 }
 
+// Toit-terrasse gravillonné partagé (face supérieure de tous les immeubles)
+let flatRoofMat = null;
+function getFlatRoofMat() {
+  if (flatRoofMat) return flatRoofMat;
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#8a8478';
+  g.fillRect(0, 0, 64, 64);
+  for (let i = 0; i < 500; i++) {
+    const v = 115 + Math.random() * 50;
+    g.fillStyle = `rgba(${v}, ${v - 4}, ${v - 12}, 0.45)`;
+    g.fillRect(Math.random() * 64, Math.random() * 64, 1.4, 1.4);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  flatRoofMat = new THREE.MeshLambertMaterial({ map: tex });
+  return flatRoofMat;
+}
+
 // Gravier stabilisé rose de la place Bellecour
 function makeGravelTexture() {
   const canvas = document.createElement('canvas');
@@ -865,8 +886,10 @@ function buildBuildings(ctx, rand) {
     { minX: BELLECOUR.minX - 6, maxX: BELLECOUR.maxX + 6, minZ: BELLECOUR.minZ - 6, maxZ: BELLECOUR.maxZ + 6 },
     { minX: ARCADE.x - ARCADE.w / 2 - 8, maxX: ARCADE.x + ARCADE.w / 2 + 8, minZ: ARCADE.z - ARCADE.d / 2 - 12, maxZ: ARCADE.z + ARCADE.d / 2 + 12 },
     { minX: RANGE.x - RANGE.width / 2 - 8, maxX: RANGE.x + RANGE.width / 2 + 8, minZ: RANGE.backZ - 8, maxZ: RANGE.counterZ + 12 },
-    { minX: SAONE.minX - 7, maxX: SAONE.maxX + 7, minZ: -300, maxZ: 300 },
-    { minX: RHONE.minX - 7, maxX: RHONE.maxX + 7, minZ: -300, maxZ: 300 },
+    // Marge large : la moitié d'un grand lot (9 m) + trottoir, pour qu'aucun
+    // bâtiment ne déborde sur l'eau ni sur les quais
+    { minX: SAONE.minX - 13, maxX: SAONE.maxX + 13, minZ: -300, maxZ: 300 },
+    { minX: RHONE.minX - 13, maxX: RHONE.maxX + 13, minZ: -300, maxZ: 300 },
     { minX: -300, maxX: 300, minZ: -9, maxZ: 9 }, // axe est-ouest (ponts)
     { minX: MUR_PEINT.x - 26, maxX: MUR_PEINT.x + 26, minZ: MUR_PEINT.z - 12, maxZ: MUR_PEINT.z + 16 },
     { minX: 105, maxX: 130, minZ: -65, maxZ: -25 }, // tour Part-Dieu
@@ -1163,7 +1186,11 @@ function paintFacade(mesh, rand, buildingH) {
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
-  mesh.material = new THREE.MeshLambertMaterial({ map: tex });
+  // Façades sur les 4 côtés, vrai toit-terrasse dessus (ordre BoxGeometry :
+  // +x, -x, +y (toit), -y, +z, -z) — fini les fenêtres coupées sans toit
+  const facadeMat = new THREE.MeshLambertMaterial({ map: tex });
+  const roof = getFlatRoofMat();
+  mesh.material = [facadeMat, facadeMat, roof, roof, facadeMat, facadeMat];
 }
 
 export function buildMurPeint(ctx) {
@@ -1425,6 +1452,26 @@ function buildDecor(ctx, rand) {
     if (Math.abs(z) < 7) continue;
     addLamp(SAONE.maxX + 6.5, z);
     addLamp(RHONE.minX - 6.5, z);
+  }
+  // Éclairage public le long des grands axes : toute la ville vit la nuit
+  const inPlaza = (x, z) =>
+    x > BELLECOUR.minX - 4 && x < BELLECOUR.maxX + 4 &&
+    z > BELLECOUR.minZ - 4 && z < BELLECOUR.maxZ + 4;
+  const inRiver = (x) =>
+    (x > SAONE.minX - 4 && x < SAONE.maxX + 4) ||
+    (x > RHONE.minX - 4 && x < RHONE.maxX + 4);
+  // Axes est-ouest (z = ±6.5 de la route centrale)
+  for (let x = -126; x <= 126; x += 26) {
+    if (inRiver(x)) continue;
+    addLamp(x, -6.5);
+    addLamp(x + 13, 6.5); // en quinconce
+  }
+  // Axes nord-sud
+  for (const rx of [12, -50, 110, -119]) {
+    for (let z = -124; z <= 124; z += 26) {
+      if (Math.abs(z) < 10 || inPlaza(rx + 6.5, z) || inPlaza(rx - 6.5, z)) continue;
+      addLamp(rx + (((z + 124) / 26) % 2 === 0 ? 6.5 : -6.5), z); // en quinconce aussi
+    }
   }
   ctx.updatables.push(() => {
     const night = ctx.env?.night ?? 0;

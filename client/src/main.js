@@ -81,10 +81,11 @@ async function boot() {
     sun: new THREE.Color(0xa8bce8),
   };
   const DUSK_TINT = new THREE.Color(0xff8a4d);
-  // phase 0..1 → position du soleil ; jour étiré (65 % du cycle)
+  // phase 0..1 → position du soleil ; la nuit dure 30 % du temps de jour
+  // (jour ≈ 77 % du cycle, nuit ≈ 23 %)
   function envPhase() {
     const raw = (Date.now() % DAY_CYCLE_MS) / DAY_CYCLE_MS;
-    return raw < 0.65 ? (raw / 0.65) * 0.5 : 0.5 + ((raw - 0.65) / 0.35) * 0.5;
+    return raw < 0.77 ? (raw / 0.77) * 0.5 : 0.5 + ((raw - 0.77) / 0.23) * 0.5;
   }
   const env = { daylight: 1, night: 0, dusk: 0, sunDir: new THREE.Vector3(0, 1, 0) };
 
