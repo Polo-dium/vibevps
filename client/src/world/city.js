@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { addBox, addInvisibleWall, makeTextTexture } from './utils.js';
+import { audio } from '../audio.js';
 import {
   WORLD_BOUND, BELLECOUR, ARCADE, RANGE, SAONE, RHONE, BRIDGE, MUR_PEINT, makeRand,
 } from './layout.js';
@@ -25,6 +26,7 @@ export function buildCity(ctx) {
   buildGrandeRoue(ctx);
   buildFountain(ctx);
   buildStreetFurniture(ctx);
+  buildTraboules(ctx);
 
   // Limites du monde — étendues à l'ouest pour rendre Fourvière jouable
   const WEST = -330;
@@ -402,6 +404,96 @@ export function buildPeniches(ctx, bands = [SAONE, RHONE]) {
   }
 }
 
+// Traboules secrètes : des arches de pierre discrètes qui téléportent d'un
+// quartier à l'autre, comme les vrais passages cachés des immeubles lyonnais.
+// À découvrir en explorant — aucune n'est indiquée sur le HUD.
+function buildTraboules(ctx) {
+  const PAIRS = [
+    {
+      a: { x: -38, z: 6, ry: Math.PI / 2 },
+      b: { x: -30, z: -118, ry: 0 },
+      loreAB: '🚪 Tu as traboulé jusqu’aux pentes ! Les canuts passaient par là.',
+      loreBA: '🚪 Retour à Bellecour par la traboule des canuts.',
+    },
+    {
+      a: { x: -119, z: 2, ry: Math.PI / 2 },
+      b: { x: -197, z: -5, ry: Math.PI / 2, onHill: true },
+      loreAB: '🚪 La ficelle des pauvres : cette traboule grimpe à Fourvière !',
+      loreBA: '🚪 Descente express : te voilà au pied du Vieux Lyon.',
+    },
+    {
+      a: { x: 48.5, z: -40, ry: -Math.PI / 2 },
+      b: { x: -8, z: -56, ry: 0 },
+      loreAB: '🚪 Raccourci de gone : direct à la salle d’arcade.',
+      loreBA: '🚪 Sortie secrète de l’arcade, quai du Rhône.',
+    },
+  ];
+
+  const stone = new THREE.MeshLambertMaterial({ color: 0x7d7468 });
+  const lintelMat = new THREE.MeshLambertMaterial({ color: 0x6b6257 });
+  const portalMat = new THREE.MeshBasicMaterial({ color: 0x0a0714 });
+  const glowTex = makeLampHaloTexture();
+  const glowMats = [];
+
+  function buildArch(spot) {
+    const baseY = spot.onHill ? Math.max(0, hillHeight(spot.x, spot.z)) : 0;
+    const g = new THREE.Group();
+    for (const dx of [-1.1, 1.1]) {
+      const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.1, 0.5), stone);
+      pillar.position.set(dx, 1.55, 0);
+      g.add(pillar);
+    }
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(3, 0.55, 0.6), lintelMat);
+    lintel.position.y = 3.3;
+    g.add(lintel);
+    const portal = new THREE.Mesh(new THREE.PlaneGeometry(1.75, 3.05), portalMat);
+    portal.position.y = 1.52;
+    g.add(portal);
+    const back = portal.clone();
+    back.rotation.y = Math.PI;
+    g.add(back);
+    // Lueur violette la nuit : la traboule se repère de loin après le coucher
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTex, color: 0x9a5cff, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    glow.scale.set(5, 5, 1);
+    glow.position.y = 1.8;
+    glowMats.push(glow.material);
+    g.add(glow);
+    g.position.set(spot.x, baseY, spot.z);
+    g.rotation.y = spot.ry;
+    ctx.scene.add(g);
+  }
+
+  function teleportTo(spot, lore) {
+    const y = spot.onHill ? Math.max(0, hillHeight(spot.x, spot.z)) : 0;
+    ctx.rideTick?.(spot.x, y, spot.z + 2.2);
+    audio.traboule();
+    ctx.notify?.(lore);
+  }
+
+  for (const pair of PAIRS) {
+    buildArch(pair.a);
+    buildArch(pair.b);
+    ctx.interactables.push({
+      x: pair.a.x, z: pair.a.z, r: 2.6,
+      label: 'E — Traboule secrète…',
+      action: () => teleportTo(pair.b, pair.loreAB),
+    });
+    ctx.interactables.push({
+      x: pair.b.x, z: pair.b.z, r: 2.6,
+      label: 'E — Traboule secrète…',
+      action: () => teleportTo(pair.a, pair.loreBA),
+    });
+  }
+
+  ctx.updatables.push(() => {
+    const op = Math.max(0, (ctx.env?.night ?? 0) * 1.2 - 0.2) * 0.6;
+    for (const m of glowMats) m.opacity = op;
+  });
+}
+
 // Le silure géant du Rhône : toutes les 4 minutes (horloge partagée, donc
 // tous les joueurs le voient ensemble), un poisson-chat de 14 m remonte le
 // fleuve, dos et nageoire hors de l'eau. So bad it's good.
@@ -536,7 +628,7 @@ export function buildGrandeRoue(ctx) {
     }
   });
 
-  ctx.abortRide = () => { riding = false; };
+  ctx.abortRides?.push(() => { riding = false; });
   ctx.interactables.push({
     x, z: z + 3.2, r: 3.4,
     label: 'E — Monter dans la Grande Roue',
@@ -932,6 +1024,7 @@ function buildBuildings(ctx, rand) {
     { minX: -300, maxX: 300, minZ: -9, maxZ: 9 }, // axe est-ouest (ponts)
     { minX: MUR_PEINT.x - 26, maxX: MUR_PEINT.x + 26, minZ: MUR_PEINT.z - 12, maxZ: MUR_PEINT.z + 16 },
     { minX: 105, maxX: 130, minZ: -65, maxZ: -25 }, // tour Part-Dieu
+    { minX: -400, maxX: -127, minZ: -300, maxZ: 300 }, // pied de Fourvière
   ];
   const isReserved = (x, z, half) =>
     reserved.some((r) =>
@@ -941,6 +1034,47 @@ function buildBuildings(ctx, rand) {
   const lots = [];
   const antennaMat = new THREE.MeshLambertMaterial({ color: 0x444a55 });
   const acMat = new THREE.MeshLambertMaterial({ color: 0x9aa0a8 });
+
+  // Enseignes néon type Confluence : ternes le jour, éclatantes la nuit
+  const NEON_NAMES = [
+    'BOUCHON', 'LE GONE', 'CHEZ PAULETTE', 'QUENELLE D’OR', 'PRALINE ROSE',
+    'BAR GUIGNOL', 'LA FENOTTE', 'CAFÉ DES CANUTS', 'LE MÂCHON', 'HÔTEL',
+    'TRABOULE CLUB', 'PIZZA DES PENTES',
+  ];
+  const NEON_COLORS = ['#ff3df0', '#00ffd5', '#ffe14d', '#4dff6a', '#ff7a4d', '#4da6ff'];
+  const neonMats = [];
+  const neonGlows = [];
+  const neonGlowTex = makeLampHaloTexture();
+  function addNeonSign(x, z, w, d, rand) {
+    const name = NEON_NAMES[Math.floor(rand() * NEON_NAMES.length)];
+    const color = NEON_COLORS[Math.floor(rand() * NEON_COLORS.length)];
+    const sw = Math.min(w * 0.7, 6.5);
+    const sy = 4.2 + rand() * 2.2;
+    const mat = new THREE.MeshBasicMaterial({
+      map: makeTextTexture(name, {
+        color, width: 256, height: 64,
+        font: 'bold 34px "Courier New", monospace',
+      }),
+    });
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(sw, sw * 0.25), mat);
+    const face = Math.floor(rand() * 4);
+    if (face === 0) sign.position.set(x, sy, z + d / 2 + 0.06);
+    else if (face === 1) { sign.position.set(x, sy, z - d / 2 - 0.06); sign.rotation.y = Math.PI; }
+    else if (face === 2) { sign.position.set(x + w / 2 + 0.06, sy, z); sign.rotation.y = Math.PI / 2; }
+    else { sign.position.set(x - w / 2 - 0.06, sy, z); sign.rotation.y = -Math.PI / 2; }
+    sign.userData.noShadow = true;
+    ctx.scene.add(sign);
+    neonMats.push(mat);
+    // Halo coloré derrière l'enseigne, la nuit uniquement
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: neonGlowTex, color: new THREE.Color(color), transparent: true,
+      opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    glow.scale.set(sw * 1.7, sw * 0.8, 1);
+    glow.position.copy(sign.position);
+    ctx.scene.add(glow);
+    neonGlows.push(glow.material);
+  }
 
   for (let gx = -126; gx <= 126; gx += 24) {
     for (let gz = -126; gz <= 126; gz += 24) {
@@ -1007,8 +1141,19 @@ function buildBuildings(ctx, rand) {
         chim.position.set(x + (rand() - 0.5) * w * 0.5, h + 1.1, z + (rand() - 0.5) * d * 0.5);
         ctx.scene.add(chim);
       }
+      // Enseigne néon sur ~1 immeuble sur 4
+      if (rand() < 0.26 && h >= 8) addNeonSign(x, z, w, d, rand);
     }
   }
+
+  // Les néons s'embrasent à la nuit tombée (et restent ternes le jour)
+  ctx.updatables.push(() => {
+    const night = ctx.env?.night ?? 0;
+    const on = Math.max(0, night * 1.2 - 0.2);
+    const v = 0.3 + 0.7 * on;
+    for (const m of neonMats) m.color.setScalar(v);
+    for (const m of neonGlows) m.opacity = on * 0.5;
+  });
 
   // Trottoirs : un seul InstancedMesh pour tous les îlots
   const walkGeo = new THREE.PlaneGeometry(1, 1);
@@ -1249,6 +1394,109 @@ export function buildMurPeint(ctx) {
   ctx.scene.add(sign);
 }
 
+// La ficelle : funiculaire entre le pied du Vieux Lyon et l'esplanade de
+// Fourvière. La cabine n'est pas synchronisée entre clients (comme la Grande
+// Roue) : chacun voit sa propre montée, aucun trafic réseau.
+function buildFunicular(ctx) {
+  const A = new THREE.Vector3(-122, 0.7, -20); // gare basse
+  const B = new THREE.Vector3(-195.5, 33.8, -12); // gare haute (esplanade)
+  const dir = B.clone().sub(A);
+  const RIDE_S = 12;
+
+  // Voie : une poutre inclinée + pylônes plantés dans la pente
+  const railMat = new THREE.MeshLambertMaterial({ color: 0x4a4f58 });
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.22, dir.length()), railMat);
+  rail.position.copy(A).addScaledVector(dir, 0.5);
+  rail.lookAt(B);
+  ctx.scene.add(rail);
+  for (const t of [0.16, 0.36, 0.56, 0.76]) {
+    const p = A.clone().addScaledVector(dir, t);
+    const gy = Math.max(0, ctx.terrainHeight?.(p.x, p.z) ?? 0);
+    const h = Math.max(0.6, p.y - gy);
+    const pyl = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.34, h, 6), railMat);
+    pyl.position.set(p.x, gy + h / 2, p.z);
+    ctx.scene.add(pyl);
+  }
+
+  // Quais de gare + enseigne
+  const quaiMat = new THREE.MeshLambertMaterial({ color: 0x8d8676 });
+  for (const s of [A, B]) {
+    const quai = new THREE.Mesh(new THREE.BoxGeometry(5, 0.5, 6), quaiMat);
+    quai.position.set(s.x, s.y - 0.55, s.z + 3.4);
+    ctx.scene.add(quai);
+  }
+  const sign = new THREE.Mesh(
+    new THREE.PlaneGeometry(6, 1.3),
+    new THREE.MeshBasicMaterial({ map: makeTextTexture('LA FICELLE', { color: '#ffe14d' }), transparent: true })
+  );
+  sign.position.set(A.x, 3.4, A.z + 6.2);
+  ctx.scene.add(sign);
+
+  // Cabine rouge de la ficelle
+  const cabin = new THREE.Group();
+  const red = new THREE.MeshLambertMaterial({ color: 0xb03a30 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.1, 3.6), red);
+  body.position.y = 1.25;
+  cabin.add(body);
+  const glassMat = new THREE.MeshLambertMaterial({ color: 0x9fc4d8 });
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.8, 3.0), glassMat);
+  glass.position.y = 1.7;
+  cabin.add(glass);
+  const roofC = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.18, 3.7),
+    new THREE.MeshLambertMaterial({ color: 0x6e2a24 }));
+  roofC.position.y = 2.4;
+  cabin.add(roofC);
+  cabin.position.copy(A);
+  ctx.scene.add(cabin);
+
+  let t = 0; // 0 = gare basse, 1 = gare haute
+  let riding = 0; // 0 : à quai, +1 : montée, -1 : descente
+  const pos = new THREE.Vector3();
+
+  ctx.updatables.push((dt) => {
+    if (riding === 0) return;
+    t = Math.max(0, Math.min(1, t + (riding * dt) / RIDE_S));
+    pos.copy(A).addScaledVector(dir, t);
+    cabin.position.copy(pos);
+    if (t >= 1 || t <= 0) {
+      const arrived = riding > 0;
+      riding = 0;
+      if (arrived) {
+        const ex = B.x, ez = B.z + 3.4;
+        ctx.rideTick?.(ex, Math.max(0, ctx.terrainHeight?.(ex, ez) ?? 0), ez);
+        ctx.notify?.('🚋 Terminus Fourvière ! La basilique est à deux pas.');
+      } else {
+        ctx.rideTick?.(A.x, 0, A.z + 3.4);
+        ctx.notify?.('🚋 Terminus Vieux Lyon, tout le monde descend !');
+      }
+    } else {
+      ctx.rideTick?.(pos.x, pos.y + 0.3, pos.z);
+    }
+  });
+  ctx.abortRides?.push(() => { riding = 0; });
+
+  ctx.interactables.push({
+    x: A.x, z: A.z + 3.4, r: 3.6,
+    label: 'E — Prendre la ficelle (funiculaire)',
+    action: () => {
+      if (riding) return;
+      t = 0;
+      riding = 1;
+      ctx.notify?.('🚋 La ficelle s’ébranle… direction Fourvière !');
+    },
+  });
+  ctx.interactables.push({
+    x: B.x, z: B.z + 3.4, r: 4,
+    label: 'E — Redescendre en ficelle',
+    action: () => {
+      if (riding) return;
+      t = 1;
+      riding = -1;
+      ctx.notify?.('🚋 Descente sur le Vieux Lyon, accroche-toi gone.');
+    },
+  });
+}
+
 // Fresque des Lyonnais version low-poly : mur crème, fenêtres en trompe-l'œil,
 // et personnages naïfs peints aux balcons avec leur nom.
 function makeFresqueTexture() {
@@ -1364,27 +1612,31 @@ function makeFresqueTexture() {
   return tex;
 }
 
+// Colline de Fourvière, recalée à l'ouest : elle n'avale plus le Vieux Lyon
+// ni la Saône maintenant qu'on peut la gravir.
+export const HILL = { cx: -215, cz: -20, cy: -4, rx: 90, ry: 38.5, rz: 110 };
+export function hillHeight(x, z) {
+  const u = (x - HILL.cx) / HILL.rx;
+  const v = (z - HILL.cz) / HILL.rz;
+  const d = 1 - u * u - v * v;
+  return d <= 0 ? 0 : HILL.cy + HILL.ry * Math.sqrt(d);
+}
+
 function buildLandmarks(ctx, rand) {
-  // Colline de Fourvière — JOUABLE : le sol suit l'ellipsoïde de la colline
-  // (fonction de hauteur analytique, aucun collider supplémentaire).
-  const HILL = { cx: -195, cz: -20, cy: -4, rx: 70 * 1.6, ry: 70 * 0.55, rz: 70 * 1.8 };
+  // Colline JOUABLE : le sol suit l'ellipsoïde (fonction de hauteur
+  // analytique, aucun collider supplémentaire).
   const hill = new THREE.Mesh(
     new THREE.SphereGeometry(70, 24, 16),
     new THREE.MeshLambertMaterial({ map: makeForestTexture() })
   );
-  hill.scale.set(1.6, 0.55, 1.8);
+  hill.scale.set(HILL.rx / 70, HILL.ry / 70, HILL.rz / 70);
   hill.position.set(HILL.cx, HILL.cy, HILL.cz);
   ctx.scene.add(hill);
-  ctx.terrainHeight = (x, z) => {
-    const u = (x - HILL.cx) / HILL.rx;
-    const v = (z - HILL.cz) / HILL.rz;
-    const d = 1 - u * u - v * v;
-    return d <= 0 ? 0 : HILL.cy + HILL.ry * Math.sqrt(d);
-  };
+  ctx.terrainHeight = hillHeight;
 
   // Esplanade : point de vue sur tout Lyon, au pied de la basilique
   ctx.interactables.push({
-    x: -170, z: -30, r: 7,
+    x: -192, z: -25, r: 7,
     label: 'E — Admirer Lyon depuis Fourvière',
     action: () => ctx.notify?.('🌇 Tout Lyon à tes pieds, gone. La plus belle vue du monde, et c’est pas négociable.'),
   });
@@ -1403,19 +1655,22 @@ function buildLandmarks(ctx, rand) {
     top.position.set(tx, 20, tz);
     basGroup.add(top);
   }
-  basGroup.position.set(-185, 32, -30);
+  basGroup.position.set(-205, 32, -25);
   ctx.scene.add(basGroup);
   // La basilique est solide maintenant qu'on peut monter la colline
-  ctx.colliders.push({ minX: -195, maxX: -175, minY: 30, maxY: 46, minZ: -46, maxZ: -14 });
+  ctx.colliders.push({ minX: -215, maxX: -195, minY: 30, maxY: 46, minZ: -41, maxZ: -9 });
 
   // Tour métallique de Fourvière (mini tour Eiffel)
   const tower = new THREE.Mesh(
     new THREE.ConeGeometry(5, 34, 4, 1, true),
     new THREE.MeshLambertMaterial({ color: 0x5a4438, wireframe: true })
   );
-  tower.position.set(-170, 32 + 17, 10);
+  tower.position.set(-190, 31 + 17, 5);
   ctx.scene.add(tower);
-  ctx.colliders.push({ minX: -173, maxX: -167, minY: 30, maxY: 66, minZ: 7, maxZ: 13 });
+  ctx.colliders.push({ minX: -193, maxX: -187, minY: 29, maxY: 64, minZ: 2, maxZ: 8 });
+
+  // La ficelle : funiculaire du Vieux Lyon à l'esplanade de Fourvière
+  buildFunicular(ctx);
 
   // Tour Part-Dieu « Le Crayon » : fût cylindrique quadrillé de fenêtres,
   // couronne technique claire et pointe pyramidale — sa vraie silhouette

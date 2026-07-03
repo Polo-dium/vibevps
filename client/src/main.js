@@ -154,6 +154,7 @@ async function boot() {
     env, // cycle jour/nuit lisible par le décor (halos de lampadaires…)
     notify: (msg) => ui.toast(msg), // événements du monde (silure, statue…)
     onRoi: null, // branché plus bas, une fois les PNJ créés
+    abortRides: [], // les manèges (Grande Roue, ficelle…) s'y inscrivent
   };
 
   // Vrai Lyon (données OpenStreetMap) si le fichier a été généré sur le
@@ -406,7 +407,7 @@ async function boot() {
   net.on('death', (msg) => {
     if (msg.id === myNetId) {
       const sp = spawnPoint();
-      ctx.abortRide?.();
+      for (const abort of ctx.abortRides) abort();
       npcs.calm(); // la Garde a eu sa vengeance
       controls.teleport(sp.x, sp.y, sp.z, sp.ry);
       ui.setHp(100);

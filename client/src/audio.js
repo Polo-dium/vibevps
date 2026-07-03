@@ -147,6 +147,14 @@ export const audio = {
     });
   },
 
+  // Passage de traboule : souffle grave + glissando mystérieux
+  traboule() {
+    if (!ctx) return;
+    noise(0.35, { freq: 500, gain: 0.18 });
+    tone(220, 0.4, { type: 'sine', gain: 0.1, slideTo: 660 });
+    tone(880, 0.2, { type: 'triangle', gain: 0.05, at: 0.25 });
+  },
+
   // Petite récompense (tag posé, XP gagnée) : carillon bref et satisfaisant
   reward() {
     if (!ctx) return;

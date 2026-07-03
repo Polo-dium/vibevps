@@ -57,6 +57,8 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit, onNpcAttack }) {
   function blocked(x, z) {
     const bound = Math.min(ctx.worldBound ?? 130, 200); // les PNJ restent au centre
     if (Math.abs(x) > bound || Math.abs(z) > bound) return true;
+    // Les PNJ ne grimpent pas Fourvière (ils marchent à plat, y = 0)
+    if ((ctx.terrainHeight?.(x, z) ?? 0) > 0.5) return true;
     // Fleuves infranchissables (sauf l'axe des ponts en ville procédurale)
     const water = ctx.waterBands ?? [SAONE, RHONE];
     const bridgeOk = !ctx.waterBands; // ponts garantis à z=0 en mode procédural
