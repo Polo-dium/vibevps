@@ -420,13 +420,14 @@ export function proceduralTraboules() {
     },
     {
       a: { x: -119, z: 2, ry: Math.PI / 2 },
-      b: { x: -197, z: -5, ry: Math.PI / 2, y: Math.max(0, hillHeight(-197, -5)) },
+      b: { x: -192, z: -8, ry: Math.PI / 2, y: Math.max(0, hillHeight(-192, -8)) },
       loreAB: '🚪 La ficelle des pauvres : cette traboule grimpe à Fourvière !',
       loreBA: '🚪 Descente express : te voilà au pied du Vieux Lyon.',
     },
     {
       a: { x: 48.5, z: -40, ry: -Math.PI / 2 },
-      b: { x: -8, z: -56, ry: 0 },
+      // Flanc droit de la salle d'arcade (côté est), pas devant la porte
+      b: { x: 13, z: -70, ry: Math.PI / 2 },
       loreAB: '🚪 Raccourci de gone : direct à la salle d’arcade.',
       loreBA: '🚪 Sortie secrète de l’arcade, quai du Rhône.',
     },
@@ -1661,47 +1662,108 @@ export function buildFourviere(ctx, def) {
   ctx.scene.add(hill);
   ctx.terrainHeight = h;
 
-  // Esplanade : point de vue sur tout Lyon, au pied de la basilique
-  const ex = def.cx + 23, ez = def.cz - 5;
+  // Esplanade : point de vue sur tout Lyon, au sud de la basilique
+  const ex = def.cx + 23, ez = def.cz + 9;
   ctx.interactables.push({
     x: ex, z: ez, r: 7,
     label: 'E — Admirer Lyon depuis Fourvière',
     action: () => ctx.notify?.('🌇 Tout Lyon à tes pieds, gone. La plus belle vue du monde, et c’est pas négociable.'),
   });
 
-  // Basilique stylisée, posée sur le haut de la colline
+  // Basilique Notre-Dame de Fourvière — nef allongée EST-OUEST, comme la
+  // vraie : depuis la ville on voit son long profil, la rosace et la Vierge
+  // dorée qui regardent Lyon.
   const bx = def.cx + 10, bz = def.cz - 5;
   const by = Math.max(0, h(bx, bz)) - 2.2;
   const basGroup = new THREE.Group();
   const white = new THREE.MeshLambertMaterial({ color: 0xe8e2d5 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(18, 12, 30), white);
-  body.position.y = 6;
-  basGroup.add(body);
-  for (const [tx, tz] of [[-7, -13], [7, -13], [-7, 13], [7, 13]]) {
-    const tower = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 18, 8), white);
-    tower.position.set(tx, 9, tz);
+  const cream = new THREE.MeshLambertMaterial({ color: 0xc7bba4 });
+  // Nef (longue en x)
+  const nave = new THREE.Mesh(new THREE.BoxGeometry(30, 11, 15), white);
+  nave.position.y = 5.5;
+  basGroup.add(nave);
+  // Toit en bâtière : boîte pivotée de 45°, moitié basse noyée dans la nef
+  const gable = new THREE.Mesh(new THREE.BoxGeometry(27, 10.6, 10.6), cream);
+  gable.rotation.x = Math.PI / 4;
+  gable.position.y = 11;
+  basGroup.add(gable);
+  // 4 tours octogonales aux angles + flèches
+  for (const [tx, tz] of [[-13, -6.5], [13, -6.5], [-13, 6.5], [13, 6.5]]) {
+    const tower = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.6, 17, 8), white);
+    tower.position.set(tx, 8.5, tz);
     basGroup.add(tower);
-    const top = new THREE.Mesh(new THREE.ConeGeometry(2.6, 4, 8), new THREE.MeshLambertMaterial({ color: 0xc7bba4 }));
-    top.position.set(tx, 20, tz);
+    const top = new THREE.Mesh(new THREE.ConeGeometry(2.8, 4.5, 8), cream);
+    top.position.set(tx, 19.2, tz);
     basGroup.add(top);
   }
+  // Rosace face à la ville (façade est)
+  const rose = new THREE.Mesh(
+    new THREE.CircleGeometry(2.6, 12),
+    new THREE.MeshLambertMaterial({ color: 0x2f4a7a, emissive: 0x14213a })
+  );
+  rose.position.set(15.05, 7.5, 0);
+  rose.rotation.y = Math.PI / 2;
+  basGroup.add(rose);
+  // Chapelle Saint-Thomas accolée + Vierge dorée qui veille sur Lyon
+  const chapel = new THREE.Mesh(new THREE.CylinderGeometry(2, 2.2, 13, 8), white);
+  chapel.position.set(16.5, 6.5, -9);
+  basGroup.add(chapel);
+  const gold = new THREE.MeshPhongMaterial({
+    color: 0xd9b44a, emissive: 0x6a5010, specular: 0xffe9a0, shininess: 60,
+  });
+  const virgin = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.9, 3.2, 6), gold);
+  virgin.position.set(16.5, 14.6, -9);
+  basGroup.add(virgin);
+  const virginHead = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), gold);
+  virginHead.position.set(16.5, 16.5, -9);
+  basGroup.add(virginHead);
   basGroup.position.set(bx, by, bz);
   ctx.scene.add(basGroup);
   ctx.colliders.push({
-    minX: bx - 10, maxX: bx + 10, minY: by - 2, maxY: by + 14,
-    minZ: bz - 16, maxZ: bz + 16,
+    minX: bx - 16, maxX: bx + 18, minY: by - 2, maxY: by + 13,
+    minZ: bz - 9, maxZ: bz + 9,
   });
 
-  // Tour métallique de Fourvière (mini tour Eiffel)
-  const mx = def.cx + 25, mz = def.cz + 25;
+  // Tour métallique de Fourvière, au NORD de la basilique (à droite vue
+  // depuis la ville) : vrai treillis — pieds évasés, deux plateformes,
+  // fût et antenne, comme la « petite tour Eiffel » lyonnaise.
+  const mx = def.cx + 18, mz = def.cz - 48;
   const my = Math.max(0, h(mx, mz)) - 1;
-  const metalTower = new THREE.Mesh(
-    new THREE.ConeGeometry(5, 34, 4, 1, true),
-    new THREE.MeshLambertMaterial({ color: 0x5a4438, wireframe: true })
+  const metal = new THREE.MeshLambertMaterial({ color: 0x6b5a4a });
+  const tower = new THREE.Group();
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.4, 14.5, 0.4), metal);
+    leg.position.set(sx * 2.1, 7, sz * 2.1);
+    leg.rotation.z = -sx * 0.17;
+    leg.rotation.x = sz * 0.17;
+    tower.add(leg);
+    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.3, 10.5, 0.3), metal);
+    upper.position.set(sx * 0.85, 18.5, sz * 0.85);
+    upper.rotation.z = -sx * 0.07;
+    upper.rotation.x = sz * 0.07;
+    tower.add(upper);
+  }
+  // Croisillons horizontaux + plateformes
+  for (const [py, ps] of [[6.5, 3.4], [13.8, 2.6], [23.5, 1.6]]) {
+    const ring = new THREE.Mesh(new THREE.BoxGeometry(ps, 0.35, ps), metal);
+    ring.position.y = py;
+    tower.add(ring);
+  }
+  const shaft = new THREE.Mesh(new THREE.BoxGeometry(1.1, 8, 1.1), metal);
+  shaft.position.y = 27.5;
+  tower.add(shaft);
+  const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.12, 7, 5), metal);
+  antenna.position.y = 35;
+  tower.add(antenna);
+  const beacon = new THREE.Mesh(
+    new THREE.SphereGeometry(0.28, 6, 6),
+    new THREE.MeshBasicMaterial({ color: 0xff4040 })
   );
-  metalTower.position.set(mx, my + 17, mz);
-  ctx.scene.add(metalTower);
-  ctx.colliders.push({ minX: mx - 3, maxX: mx + 3, minY: my - 2, maxY: my + 33, minZ: mz - 3, maxZ: mz + 3 });
+  beacon.position.y = 38.6;
+  tower.add(beacon);
+  tower.position.set(mx, my, mz);
+  ctx.scene.add(tower);
+  ctx.colliders.push({ minX: mx - 2.6, maxX: mx + 2.6, minY: my - 2, maxY: my + 38, minZ: mz - 2.6, maxZ: mz + 2.6 });
 
   // La ficelle : du pied du flanc est jusqu'à l'esplanade
   const A = new THREE.Vector3(def.cx + def.rx + 3, 0.7, def.cz);

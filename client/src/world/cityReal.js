@@ -18,9 +18,10 @@ const FLOOR_M = 3; // hauteur d'étage pour le calage de la texture fenêtres
 const WALL_TINTS = ['#e8ddc8', '#e3d4ba', '#d9c6a8', '#e6d9c4', '#dccab0', '#d5c0a0', '#efe6d4', '#cdb695'];
 const ROOF_TINTS = ['#a8543c', '#b05a40', '#9c4e38', '#b46248', '#7e8696', '#6d7585', '#a8543c', '#b05a40'];
 
-// Emprise de la colline de Fourvière (fixée par buildRealCity) : les
-// bâtiments et la verdure OSM n'y poussent pas.
+// Emprise de la colline de Fourvière et des fleuves (fixées par
+// buildRealCity) : les bâtiments et la verdure OSM n'y poussent pas.
 let HILL_RECT = null;
+let WATER_RECTS = [];
 
 export function buildRealCity(ctx, data) {
   const bound = data.bound;
@@ -40,6 +41,10 @@ export function buildRealCity(ctx, data) {
     minX: hillDef.cx - hillDef.rx - 4, maxX: hillDef.cx + hillDef.rx + 6,
     minZ: hillDef.cz - hillDef.rz, maxZ: hillDef.cz + hillDef.rz,
   };
+  // Aucun bâtiment ne doit tremper dans le Rhône ou la Saône
+  WATER_RECTS = data.water.map((w) => ({
+    minX: w.minX - 2, maxX: w.maxX + 2, minZ: -bound - 200, maxZ: bound + 200,
+  }));
   const WEST = Math.min(-(bound + 2), hillDef.cx - hillDef.rx - 12);
   const EAST = bound + 2;
 
@@ -113,7 +118,7 @@ function lampSpotsOsm(ctx, data) {
 // Traboules du mode OSM : uniquement des points sûrs (zones réservées),
 // puisque les bâtiments OSM peuvent pousser n'importe où ailleurs.
 function osmTraboules(ctx, hillDef) {
-  const hx = hillDef.cx + 23, hz = hillDef.cz + 2;
+  const hx = hillDef.cx + 23, hz = hillDef.cz + 9;
   const hy = Math.max(0, ctx.terrainHeight?.(hx, hz) ?? 0);
   return [
     {
@@ -130,7 +135,8 @@ function osmTraboules(ctx, hillDef) {
     },
     {
       a: { x: 52, z: 100, ry: Math.PI },
-      b: { x: -8, z: -56, ry: 0 },
+      // Flanc droit de la salle d'arcade (côté est), pas devant la porte
+      b: { x: 13, z: -70, ry: Math.PI / 2 },
       loreAB: '🚪 Raccourci de gone : du stand de tir à la salle d’arcade.',
       loreBA: '🚪 Sortie secrète de l’arcade, côté stand de tir.',
     },
@@ -184,6 +190,7 @@ function reservedRects() {
     { minX: MUR_PEINT.x - MUR_PEINT.w / 2 - 5, maxX: MUR_PEINT.x + MUR_PEINT.w / 2 + 5, minZ: MUR_PEINT.z - 8, maxZ: MUR_PEINT.z + 8 },
   ];
   if (HILL_RECT) rects.push(HILL_RECT);
+  rects.push(...WATER_RECTS);
   return rects;
 }
 
@@ -277,8 +284,27 @@ function buildOsmBuildings(ctx, data, rand) {
       }
     } catch { /* empreinte dégénérée : murs seuls */ }
 
-    // Collision : boîte englobante du bâtiment
-    ctx.colliders.push({ minX, maxX, minY: 0, maxY: h, minZ, maxZ });
+    // Collision : boîtes fines LE LONG DE CHAQUE MUR (découpé en tronçons de
+    // 4 m) au lieu de la boîte englobante du bâtiment — les rues diagonales
+    // entre les immeubles ne sont plus barrées par des murs invisibles.
+    for (let i = 0; i < pts.length; i++) {
+      const [x1, z1] = pts[i];
+      const [x2, z2] = pts[(i + 1) % pts.length];
+      const len = Math.hypot(x2 - x1, z2 - z1);
+      if (len < 0.05) continue;
+      const chunks = Math.max(1, Math.ceil(len / 4));
+      for (let k = 0; k < chunks; k++) {
+        const ax = x1 + ((x2 - x1) * k) / chunks;
+        const az = z1 + ((z2 - z1) * k) / chunks;
+        const bx = x1 + ((x2 - x1) * (k + 1)) / chunks;
+        const bz = z1 + ((z2 - z1) * (k + 1)) / chunks;
+        ctx.colliders.push({
+          minX: Math.min(ax, bx) - 0.25, maxX: Math.max(ax, bx) + 0.25,
+          minY: 0, maxY: h,
+          minZ: Math.min(az, bz) - 0.25, maxZ: Math.max(az, bz) + 0.25,
+        });
+      }
+    }
     kept += 1;
   }
 

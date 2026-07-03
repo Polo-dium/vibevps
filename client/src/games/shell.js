@@ -251,6 +251,22 @@ export function createGameShell({ onToast, onOpenChange, onXp }) {
     frameSlot.appendChild(iframe);
     pad.classList.toggle('hidden', !IS_TOUCH);
 
+    // Boutons adaptés au jeu : au Tetris, A fait TOURNER la pièce
+    // (ArrowUp) et B la fait tomber (Space) ; ailleurs A/B classiques.
+    const padA = pad.querySelector('.pad-a');
+    const padB = pad.querySelector('.pad-b');
+    if (game.id === 'tetris') {
+      padA.dataset.code = 'ArrowUp';
+      padA.textContent = '↻';
+      padB.dataset.code = 'Space';
+      padB.textContent = '⤓';
+    } else {
+      padA.dataset.code = 'Space';
+      padA.textContent = 'A';
+      padB.dataset.code = 'Enter';
+      padB.textContent = 'B';
+    }
+
     root.classList.remove('hidden');
     state.overlayOpen = true;
     onOpenChange?.(true);

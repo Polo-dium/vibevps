@@ -35,6 +35,9 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
   let joyOrigin = null;
   let lookTouchId = null;
   let lookLast = null;
+  // Le doigt posé sur TIR sert aussi à viser : glisser tout en tirant
+  let fireTouchId = null;
+  let fireLast = null;
 
   function isButton(target) {
     return target.closest?.('.tbtn');
@@ -73,6 +76,10 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
       } else if (t.identifier === lookTouchId && lookLast) {
         controls.addLook((t.clientX - lookLast.x) * 2.4, (t.clientY - lookLast.y) * 2.4);
         lookLast = { x: t.clientX, y: t.clientY };
+      } else if (t.identifier === fireTouchId && fireLast) {
+        // Visée pendant le tir : le glisser du pouce déplace la caméra
+        controls.addLook((t.clientX - fireLast.x) * 2.4, (t.clientY - fireLast.y) * 2.4);
+        fireLast = { x: t.clientX, y: t.clientY };
       }
     }
   }, { passive: true });
@@ -126,16 +133,30 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
       if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => {});
     }
   });
-  // En mode bombe, le bouton TIR devient le bouton PEINDRE
-  bind('#tb-fire', () => {
+  // En mode bombe, le bouton TIR devient le bouton PEINDRE. Le doigt qui
+  // appuie sert aussi à viser (voir le branchement dans touchmove).
+  const fireBtn = root.querySelector('#tb-fire');
+  fireBtn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    fireTouchId = t.identifier;
+    fireLast = { x: t.clientX, y: t.clientY };
     if (state.tagMode) {
       spray.setPaint(true);
     } else {
       if (!state.weaponEquipped) weapon.toggle(true);
       weapon.setTrigger(true);
     }
-  }, () => {
-    spray.setPaint(false);
-    weapon.setTrigger(false);
-  });
+  }, { passive: false });
+  const fireEnd = (e) => {
+    for (const t of e.changedTouches) {
+      if (t.identifier !== fireTouchId) continue;
+      fireTouchId = null;
+      fireLast = null;
+      spray.setPaint(false);
+      weapon.setTrigger(false);
+    }
+  };
+  fireBtn.addEventListener('touchend', (e) => { e.preventDefault(); fireEnd(e); }, { passive: false });
+  fireBtn.addEventListener('touchcancel', fireEnd, { passive: true });
 }
