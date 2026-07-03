@@ -324,6 +324,9 @@ async function boot() {
     },
   });
 
+  // La Grande Roue (et tout futur manège) déplace le joueur via ce hook
+  ctx.rideTick = (x, y, z) => controls.teleport(x, y, z);
+
   // Easter egg de la statue : voix royale, clameur… puis VENGEANCE. Les
   // gones alentour se muent en Garde Royale et chassent le régicide.
   ctx.onRoi = () => {

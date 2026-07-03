@@ -26,14 +26,17 @@ export function buildCity(ctx) {
   buildFountain(ctx);
   buildStreetFurniture(ctx);
 
-  // Limites du monde
+  // Limites du monde — étendues à l'ouest pour rendre Fourvière jouable
+  const WEST = -330;
+  const EAST = WORLD_BOUND + 2;
+  const NS = WORLD_BOUND + 2;
   for (const [x, z, w, d] of [
-    [0, -WORLD_BOUND - 2, WORLD_BOUND * 2 + 20, 4],
-    [0, WORLD_BOUND + 2, WORLD_BOUND * 2 + 20, 4],
-    [-WORLD_BOUND - 2, 0, 4, WORLD_BOUND * 2 + 20],
-    [WORLD_BOUND + 2, 0, 4, WORLD_BOUND * 2 + 20],
+    [(WEST + EAST) / 2, -NS, EAST - WEST + 8, 4],
+    [(WEST + EAST) / 2, NS, EAST - WEST + 8, 4],
+    [WEST, 0, 4, NS * 2 + 8],
+    [EAST, 0, 4, NS * 2 + 8],
   ]) {
-    addInvisibleWall(ctx, { x, z, w, d, h: 30 });
+    addInvisibleWall(ctx, { x, z, w, d, h: 80 });
   }
 }
 
@@ -507,7 +510,43 @@ export function buildGrandeRoue(ctx) {
   holder.rotation.y = Math.PI / 2; // axe de rotation le long de X (face à l'est-ouest)
   holder.position.set(x, hubY, z);
   ctx.scene.add(holder);
-  ctx.updatables.push((dt) => { wheel.rotation.z += dt * 0.12; });
+
+  // --- Tour de Grande Roue : le joueur suit une cabine pendant une
+  // révolution complète. La rotation est purement visuelle (non synchronisée
+  // entre clients), on peut donc l'accélérer pendant le tour sans rien casser.
+  const anchor = new THREE.Object3D();
+  anchor.position.set(R, 0, 0); // cabine d'angle 0
+  wheel.add(anchor);
+  const cabinWorld = new THREE.Vector3();
+  let riding = false;
+  let rideProgress = 0;
+
+  ctx.updatables.push((dt) => {
+    const speed = riding ? 0.4 : 0.12;
+    wheel.rotation.z += dt * speed;
+    if (!riding) return;
+    rideProgress += dt * speed;
+    anchor.getWorldPosition(cabinWorld);
+    if (rideProgress >= Math.PI * 2) {
+      riding = false;
+      ctx.rideTick?.(x, 0, z + 3.2); // dépose au pied de la roue
+      ctx.notify?.('🎡 Fin du tour ! Reviens quand tu veux, gone.');
+    } else {
+      ctx.rideTick?.(cabinWorld.x, cabinWorld.y - 0.45, cabinWorld.z);
+    }
+  });
+
+  ctx.abortRide = () => { riding = false; };
+  ctx.interactables.push({
+    x, z: z + 3.2, r: 3.4,
+    label: 'E — Monter dans la Grande Roue',
+    action: () => {
+      if (riding) return;
+      riding = true;
+      rideProgress = 0;
+      ctx.notify?.('🎡 Accroche-toi, gone : un tour complet au-dessus de Bellecour !');
+    },
+  });
 
   // Socle (collision)
   addInvisibleWall(ctx, { x, z, w: 4.5, h: 3, d: 2.5 });
@@ -683,7 +722,7 @@ function buildSkyline(ctx, rand) {
     const dist = 165 + rand() * 110;
     const x = Math.cos(angle) * dist;
     const z = Math.sin(angle) * dist;
-    if (x < -130 && Math.abs(z) < 70) continue; // on laisse la place à Fourvière
+    if (x < -130) continue; // tout l'ouest est à Fourvière, jouable désormais
     positions.push([x, z, 10 + rand() * 16, 15 + rand() * 40]);
   }
   const geo = new THREE.BoxGeometry(1, 1, 1);
@@ -1326,14 +1365,29 @@ function makeFresqueTexture() {
 }
 
 function buildLandmarks(ctx, rand) {
-  // Colline de Fourvière (décor, hors zone jouable), boisée
+  // Colline de Fourvière — JOUABLE : le sol suit l'ellipsoïde de la colline
+  // (fonction de hauteur analytique, aucun collider supplémentaire).
+  const HILL = { cx: -195, cz: -20, cy: -4, rx: 70 * 1.6, ry: 70 * 0.55, rz: 70 * 1.8 };
   const hill = new THREE.Mesh(
     new THREE.SphereGeometry(70, 24, 16),
     new THREE.MeshLambertMaterial({ map: makeForestTexture() })
   );
   hill.scale.set(1.6, 0.55, 1.8);
-  hill.position.set(-195, -4, -20);
+  hill.position.set(HILL.cx, HILL.cy, HILL.cz);
   ctx.scene.add(hill);
+  ctx.terrainHeight = (x, z) => {
+    const u = (x - HILL.cx) / HILL.rx;
+    const v = (z - HILL.cz) / HILL.rz;
+    const d = 1 - u * u - v * v;
+    return d <= 0 ? 0 : HILL.cy + HILL.ry * Math.sqrt(d);
+  };
+
+  // Esplanade : point de vue sur tout Lyon, au pied de la basilique
+  ctx.interactables.push({
+    x: -170, z: -30, r: 7,
+    label: 'E — Admirer Lyon depuis Fourvière',
+    action: () => ctx.notify?.('🌇 Tout Lyon à tes pieds, gone. La plus belle vue du monde, et c’est pas négociable.'),
+  });
 
   // Basilique stylisée
   const basGroup = new THREE.Group();
@@ -1351,6 +1405,8 @@ function buildLandmarks(ctx, rand) {
   }
   basGroup.position.set(-185, 32, -30);
   ctx.scene.add(basGroup);
+  // La basilique est solide maintenant qu'on peut monter la colline
+  ctx.colliders.push({ minX: -195, maxX: -175, minY: 30, maxY: 46, minZ: -46, maxZ: -14 });
 
   // Tour métallique de Fourvière (mini tour Eiffel)
   const tower = new THREE.Mesh(
@@ -1359,6 +1415,7 @@ function buildLandmarks(ctx, rand) {
   );
   tower.position.set(-170, 32 + 17, 10);
   ctx.scene.add(tower);
+  ctx.colliders.push({ minX: -173, maxX: -167, minY: 30, maxY: 66, minZ: 7, maxZ: 13 });
 
   // Tour Part-Dieu « Le Crayon » : fût cylindrique quadrillé de fenêtres,
   // couronne technique claire et pointe pyramidale — sa vraie silhouette
