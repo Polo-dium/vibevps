@@ -12,7 +12,7 @@ import { createWeapon } from './player/weapon.js';
 import { createRemotePlayers } from './player/remotes.js';
 import { createVoice } from './player/voice.js';
 import { createTouchControls } from './ui/touch.js';
-import { SPAWN } from './world/layout.js';
+import { SPAWN, spawnPoint } from './world/layout.js';
 import { createNpcs } from './world/npcs.js';
 import { buildSky } from './world/sky.js';
 import { audio } from './audio.js';
@@ -278,7 +278,10 @@ async function boot() {
   });
 
   // --- Joueur, arme, distants, tags ---
-  const controls = createControls(camera, renderer.domElement, ctx.colliders);
+  const controls = createControls(
+    camera, renderer.domElement, ctx.colliders,
+    (x, z) => ctx.terrainHeight?.(x, z) ?? 0
+  );
   const weapon = createWeapon(camera, scene, ctx.shootables, {
     onAmmoChange: (ammo, reloading) => ui.setAmmo(ammo, reloading, state.weaponEquipped),
     onShot: (a, b) => net.send({ t: 'shot', a, b }),
@@ -315,13 +318,20 @@ async function boot() {
       ui.hitmarker();
       navigator.vibrate?.(14);
     },
+    // Coup de la Garde Royale : dégâts validés (bornés) par le serveur
+    onNpcAttack: () => {
+      net.send({ t: 'ouch', dmg: 12, by: 'la Garde Royale' });
+    },
   });
 
-  // Easter egg de la statue : voix royale + clameur des PNJ + confettis
+  // Easter egg de la statue : voix royale, clameur… puis VENGEANCE. Les
+  // gones alentour se muent en Garde Royale et chassent le régicide.
   ctx.onRoi = () => {
     audio.announce('Vive le Roi !');
     npcs.shout('VIVE LE ROI !');
     ui.spawnConfetti(30);
+    npcs.enrage(18);
+    ui.toast('⚔️ La Garde Royale est à tes trousses ! Cours, gone !');
   };
 
   // Capture d'écran stylée : touche C (desktop) ou bouton 📸 (tactile)
@@ -392,7 +402,10 @@ async function boot() {
 
   net.on('death', (msg) => {
     if (msg.id === myNetId) {
-      controls.teleport(SPAWN.x, SPAWN.y, SPAWN.z);
+      const sp = spawnPoint();
+      ctx.abortRide?.();
+      npcs.calm(); // la Garde a eu sa vengeance
+      controls.teleport(sp.x, sp.y, sp.z, sp.ry);
       ui.setHp(100);
       ui.damageFlash(true);
       ui.deathScreen(msg.byName);

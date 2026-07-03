@@ -124,6 +124,31 @@ export function setupWs(httpServer) {
         return;
       }
 
+      // Dégâts d'environnement auto-déclarés (la Garde Royale des PNJ…).
+      // Borné et limité en cadence : au pire un tricheur se suicide.
+      if (msg.t === 'ouch') {
+        const now = Date.now();
+        if (now - (me.lastOuchAt ?? 0) < 350) return;
+        me.lastOuchAt = now;
+        const dmg = Math.min(25, Math.max(1, Math.floor(Number(msg.dmg) || 0)));
+        me.hp -= dmg;
+        me.lastDamagedAt = now;
+        if (me.hp > 0) {
+          broadcast({ t: 'hp', id, hp: me.hp });
+        } else {
+          me.hp = 100; // respawn
+          broadcast({
+            t: 'death',
+            id,
+            by: null,
+            byName: String(msg.by ?? 'la ville de Lyon').slice(0, 32),
+            victimName: me.name,
+            kills: 0,
+          });
+        }
+        return;
+      }
+
       // Signalisation WebRTC (chat vocal) : relais point à point
       if (msg.t === 'rtc') {
         const target = players.get(String(msg.to ?? ''));

@@ -4,7 +4,19 @@
 
 export const WORLD_BOUND = 134;
 
-export const SPAWN = { x: 0, y: 0, z: 34, ry: 0 }; // place Bellecour, face au nord
+// Statue de Louis XIV, cœur de la place — les joueurs apparaissent en
+// cercle autour d'elle, face au Roi.
+export const STATUE = { x: -2, z: 6 };
+export const SPAWN = { x: 0, y: 0, z: 34, ry: 0 }; // secours (ancien spawn)
+export function spawnPoint() {
+  const a = Math.random() * Math.PI * 2;
+  const r = 9;
+  const x = STATUE.x + Math.sin(a) * r;
+  const z = STATUE.z + Math.cos(a) * r;
+  // Orientation face à la statue (yaw 0 = regard vers -z)
+  const ry = Math.atan2(x - STATUE.x, z - STATUE.z);
+  return { x, y: 0, z, ry };
+}
 
 // Place Bellecour
 export const BELLECOUR = { minX: -34, maxX: 30, minZ: -16, maxZ: 28 };

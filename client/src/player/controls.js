@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { state } from '../state.js';
-import { SPAWN } from '../world/layout.js';
+import { spawnPoint } from '../world/layout.js';
 
 const MOVE_SPEED = 10.0; // sprint automatique : on court tout le temps
 const ACCEL = 14; // réactivité des déplacements
@@ -13,10 +13,11 @@ const STEP_UP = 0.55; // hauteur de marche franchissable automatiquement
 
 export const IS_TOUCH = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 
-export function createControls(camera, domElement, colliders) {
-  const pos = new THREE.Vector3(SPAWN.x, SPAWN.y, SPAWN.z); // position des pieds
+export function createControls(camera, domElement, colliders, terrain = null) {
+  const sp = spawnPoint();
+  const pos = new THREE.Vector3(sp.x, sp.y, sp.z); // position des pieds
   const vel = new THREE.Vector3();
-  let yaw = SPAWN.ry;
+  let yaw = sp.ry;
   let pitch = 0;
   let onGround = true;
   const keys = new Set();
@@ -149,7 +150,9 @@ export function createControls(camera, domElement, colliders) {
 
     onGround = false;
     resolveAxis('y', vel.y * dt);
-    if (pos.y <= 0) { pos.y = 0; vel.y = 0; onGround = true; }
+    // Sol : plancher plat + terrain éventuel (colline de Fourvière)
+    const groundLevel = Math.max(0, terrain ? terrain(pos.x, pos.z) : 0);
+    if (pos.y <= groundLevel) { pos.y = groundLevel; vel.y = 0; onGround = true; }
     resolveAxis('x', vel.x * dt);
     resolveAxis('z', vel.z * dt);
 
@@ -171,9 +174,10 @@ export function createControls(camera, domElement, colliders) {
       touchMove.strafe = strafe;
     },
     jump() { wantJump = true; },
-    teleport(x, y, z) {
+    teleport(x, y, z, ry) {
       pos.set(x, y, z);
       vel.set(0, 0, 0);
+      if (ry !== undefined) yaw = ry;
     },
     netState() {
       return {

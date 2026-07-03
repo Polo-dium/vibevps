@@ -48,8 +48,11 @@ const CIVIL_COLORS = [0x6b7a8f, 0x8f6b6b, 0x6b8f74, 0x8f836b, 0x726b8f, 0x4f6272
 
 let lastSpeechAt = 0; // anti-cacophonie global
 
-export function createNpcs(ctx, { getPlayerPos, onNpcHit }) {
+const ANGRY_PHRASES = ['POUR LE ROI !!', 'SUS AU RÉGICIDE !', 'ATTRAPEZ-LE, GONES !', 'LE ROI SERA VENGÉ !'];
+
+export function createNpcs(ctx, { getPlayerPos, onNpcHit, onNpcAttack }) {
   const npcs = [];
+  let enrageUntil = 0; // la Garde Royale est en chasse jusqu'à cet instant
 
   function blocked(x, z) {
     const bound = Math.min(ctx.worldBound ?? 130, 200); // les PNJ restent au centre
@@ -113,6 +116,7 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit }) {
       talkCd: Math.random() * 12,
       bubbleTimer: 0,
       flashUntil: 0,
+      lungeCd: 0, // cadence d'attaque en mode Garde Royale
     };
 
     for (const mesh of human.hitMeshes) {
@@ -181,6 +185,16 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit }) {
     const playerPos = getPlayerPos();
     const now = performance.now();
 
+    // Fin de la chasse : la Garde redevient de paisibles gones
+    if (enrageUntil > 0 && now >= enrageUntil) {
+      enrageUntil = 0;
+      for (const npc of npcs) {
+        if (npc.mode !== 'walk') continue;
+        npc.human.shirtMat.color.copy(npc.baseColor);
+        npc.speed = 1.0 + Math.random() * 0.8;
+      }
+    }
+
     for (const npc of npcs) {
       if (npc.flashUntil && now > npc.flashUntil && npc.mode === 'walk') {
         npc.human.shirtMat.color.copy(npc.baseColor);
@@ -228,6 +242,34 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit }) {
       }
       if (npc.mode !== 'walk') continue;
 
+      // Garde Royale : les PNJ proches chassent le régicide jusqu'à la mort
+      if (now < enrageUntil) {
+        const g = npc.group.position;
+        const dist = g.distanceTo(playerPos);
+        if (dist < 70) {
+          npc.dir = Math.atan2(playerPos.x - g.x, playerPos.z - g.z);
+          npc.speed = 4.6;
+          npc.human.shirtMat.color.set(0xaa1f1f); // uniformes rouges de rage
+          npc.lungeCd -= dt;
+          if (dist < 1.5 && npc.lungeCd <= 0) {
+            npc.lungeCd = 0.9;
+            onNpcAttack?.();
+            say(npc, ANGRY_PHRASES[Math.floor(Math.random() * ANGRY_PHRASES.length)], { hurt: true });
+          }
+          const dxx = Math.sin(npc.dir) * npc.speed * dt;
+          const dzz = Math.cos(npc.dir) * npc.speed * dt;
+          const nxx = g.x + dxx, nzz = g.z + dzz;
+          if (!blocked(nxx, nzz)) {
+            g.x = nxx;
+            g.z = nzz;
+          }
+          npc.group.rotation.y = npc.dir + Math.PI;
+          npc.animTime += dt * (3 + npc.speed * 2.4);
+          npc.human.animate(npc.animTime, npc.speed);
+          continue;
+        }
+      }
+
       // Errance
       npc.turnTimer -= dt;
       if (npc.turnTimer <= 0) {
@@ -266,6 +308,15 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit }) {
     }
   }
 
+  // La Garde Royale se lève : chasse au régicide pendant `seconds` secondes
+  // (ou jusqu'à ce que la mort du joueur y mette fin via calm()).
+  function enrage(seconds = 18) {
+    enrageUntil = performance.now() + seconds * 1000;
+  }
+  function calm() {
+    enrageUntil = 1; // sera remis à zéro (et couleurs restaurées) au prochain update
+  }
+
   // Clameur collective : les PNJ proches du joueur crient tous le même texte
   function shout(text, radius = 45) {
     const playerPos = getPlayerPos();
@@ -283,7 +334,7 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit }) {
     }
   }
 
-  return { update, shout };
+  return { update, shout, enrage, calm };
 }
 
 function makeBubble() {
