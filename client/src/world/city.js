@@ -26,7 +26,7 @@ export function buildCity(ctx) {
   buildGrandeRoue(ctx);
   buildFountain(ctx);
   buildStreetFurniture(ctx);
-  buildTraboules(ctx);
+  buildTraboules(ctx, proceduralTraboules());
 
   // Limites du monde — étendues à l'ouest pour rendre Fourvière jouable
   const WEST = -330;
@@ -407,8 +407,11 @@ export function buildPeniches(ctx, bands = [SAONE, RHONE]) {
 // Traboules secrètes : des arches de pierre discrètes qui téléportent d'un
 // quartier à l'autre, comme les vrais passages cachés des immeubles lyonnais.
 // À découvrir en explorant — aucune n'est indiquée sur le HUD.
-function buildTraboules(ctx) {
-  const PAIRS = [
+// Traboules par défaut de la ville procédurale. En mode OSM, cityReal fournit
+// ses propres paires (les positions sûres diffèrent). `y` est la hauteur du
+// sol au point donné (0 par défaut, la valeur du terrain sur la colline).
+export function proceduralTraboules() {
+  return [
     {
       a: { x: -38, z: 6, ry: Math.PI / 2 },
       b: { x: -30, z: -118, ry: 0 },
@@ -417,7 +420,7 @@ function buildTraboules(ctx) {
     },
     {
       a: { x: -119, z: 2, ry: Math.PI / 2 },
-      b: { x: -197, z: -5, ry: Math.PI / 2, onHill: true },
+      b: { x: -197, z: -5, ry: Math.PI / 2, y: Math.max(0, hillHeight(-197, -5)) },
       loreAB: '🚪 La ficelle des pauvres : cette traboule grimpe à Fourvière !',
       loreBA: '🚪 Descente express : te voilà au pied du Vieux Lyon.',
     },
@@ -428,7 +431,9 @@ function buildTraboules(ctx) {
       loreBA: '🚪 Sortie secrète de l’arcade, quai du Rhône.',
     },
   ];
+}
 
+export function buildTraboules(ctx, PAIRS) {
   const stone = new THREE.MeshLambertMaterial({ color: 0x7d7468 });
   const lintelMat = new THREE.MeshLambertMaterial({ color: 0x6b6257 });
   const portalMat = new THREE.MeshBasicMaterial({ color: 0x0a0714 });
@@ -436,7 +441,7 @@ function buildTraboules(ctx) {
   const glowMats = [];
 
   function buildArch(spot) {
-    const baseY = spot.onHill ? Math.max(0, hillHeight(spot.x, spot.z)) : 0;
+    const baseY = spot.y ?? 0;
     const g = new THREE.Group();
     for (const dx of [-1.1, 1.1]) {
       const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.1, 0.5), stone);
@@ -467,8 +472,7 @@ function buildTraboules(ctx) {
   }
 
   function teleportTo(spot, lore) {
-    const y = spot.onHill ? Math.max(0, hillHeight(spot.x, spot.z)) : 0;
-    ctx.rideTick?.(spot.x, y, spot.z + 2.2);
+    ctx.rideTick?.(spot.x, spot.y ?? 0, spot.z + 2.2);
     audio.traboule();
     ctx.notify?.(lore);
   }
@@ -603,42 +607,57 @@ export function buildGrandeRoue(ctx) {
   holder.position.set(x, hubY, z);
   ctx.scene.add(holder);
 
-  // --- Tour de Grande Roue : le joueur suit une cabine pendant une
-  // révolution complète. La rotation est purement visuelle (non synchronisée
-  // entre clients), on peut donc l'accélérer pendant le tour sans rien casser.
+  // --- Tour de Grande Roue : le joueur reste dans sa cabine tant qu'il
+  // n'appuie pas sur « Descendre » (l'interactable suit la cabine, le prompt
+  // E reste donc affiché pendant tout le tour). Rotation purement visuelle
+  // (non synchronisée entre clients) : on peut l'accélérer sans rien casser.
   const anchor = new THREE.Object3D();
   anchor.position.set(R, 0, 0); // cabine d'angle 0
   wheel.add(anchor);
   const cabinWorld = new THREE.Vector3();
   let riding = false;
-  let rideProgress = 0;
 
-  ctx.updatables.push((dt) => {
-    const speed = riding ? 0.4 : 0.12;
-    wheel.rotation.z += dt * speed;
-    if (!riding) return;
-    rideProgress += dt * speed;
-    anchor.getWorldPosition(cabinWorld);
-    if (rideProgress >= Math.PI * 2) {
-      riding = false;
-      ctx.rideTick?.(x, 0, z + 3.2); // dépose au pied de la roue
-      ctx.notify?.('🎡 Fin du tour ! Reviens quand tu veux, gone.');
-    } else {
-      ctx.rideTick?.(cabinWorld.x, cabinWorld.y - 0.45, cabinWorld.z);
-    }
-  });
-
-  ctx.abortRides?.push(() => { riding = false; });
-  ctx.interactables.push({
-    x, z: z + 3.2, r: 3.4,
+  const gate = {
+    x, z: z + 3.2, r: 3.6,
     label: 'E — Monter dans la Grande Roue',
     action: () => {
-      if (riding) return;
-      riding = true;
-      rideProgress = 0;
-      ctx.notify?.('🎡 Accroche-toi, gone : un tour complet au-dessus de Bellecour !');
+      if (!riding) {
+        riding = true;
+        gate.label = 'E — Descendre de la Grande Roue';
+        ctx.notify?.('🎡 Tu tournes au-dessus de Bellecour — appuie sur E quand tu veux descendre.');
+      } else {
+        dismount();
+        ctx.notify?.('🎡 Retour au plancher des gones !');
+      }
     },
+  };
+  function dismount() {
+    riding = false;
+    gate.label = 'E — Monter dans la Grande Roue';
+    gate.x = x;
+    gate.z = z + 3.2;
+    ctx.rideTick?.(x, 0, z + 3.2); // dépose au pied de la roue
+  }
+
+  ctx.updatables.push((dt) => {
+    const speed = riding ? 0.35 : 0.12;
+    wheel.rotation.z += dt * speed;
+    if (!riding) return;
+    anchor.getWorldPosition(cabinWorld);
+    ctx.rideTick?.(cabinWorld.x, cabinWorld.y - 0.45, cabinWorld.z);
+    // L'interactable voyage avec la cabine (portée 2D depuis le joueur)
+    gate.x = cabinWorld.x;
+    gate.z = cabinWorld.z;
   });
+
+  ctx.abortRides?.push(() => {
+    if (!riding) return;
+    riding = false;
+    gate.label = 'E — Monter dans la Grande Roue';
+    gate.x = x;
+    gate.z = z + 3.2;
+  });
+  ctx.interactables.push(gate);
 
   // Socle (collision)
   addInvisibleWall(ctx, { x, z, w: 4.5, h: 3, d: 2.5 });
@@ -1397,9 +1416,8 @@ export function buildMurPeint(ctx) {
 // La ficelle : funiculaire entre le pied du Vieux Lyon et l'esplanade de
 // Fourvière. La cabine n'est pas synchronisée entre clients (comme la Grande
 // Roue) : chacun voit sa propre montée, aucun trafic réseau.
-function buildFunicular(ctx) {
-  const A = new THREE.Vector3(-122, 0.7, -20); // gare basse
-  const B = new THREE.Vector3(-195.5, 33.8, -12); // gare haute (esplanade)
+// A = gare basse, B = gare haute (esplanade) — THREE.Vector3
+export function buildFunicular(ctx, A, B) {
   const dir = B.clone().sub(A);
   const RIDE_S = 12;
 
@@ -1622,26 +1640,38 @@ export function hillHeight(x, z) {
   return d <= 0 ? 0 : HILL.cy + HILL.ry * Math.sqrt(d);
 }
 
-function buildLandmarks(ctx, rand) {
-  // Colline JOUABLE : le sol suit l'ellipsoïde (fonction de hauteur
-  // analytique, aucun collider supplémentaire).
+// Fourvière complète et JOUABLE, paramétrée par un ellipsoïde `def`
+// ({cx, cz, cy, rx, ry, rz}) : colline boisée grimpable (fonction de hauteur
+// analytique), basilique et tour métallique solides, esplanade avec point de
+// vue, et la ficelle (funiculaire) sur le flanc est. Utilisée par la ville
+// procédurale ET par le mode OSM.
+export function buildFourviere(ctx, def) {
+  const h = (x, z) => {
+    const u = (x - def.cx) / def.rx;
+    const v = (z - def.cz) / def.rz;
+    const d = 1 - u * u - v * v;
+    return d <= 0 ? 0 : def.cy + def.ry * Math.sqrt(d);
+  };
   const hill = new THREE.Mesh(
     new THREE.SphereGeometry(70, 24, 16),
     new THREE.MeshLambertMaterial({ map: makeForestTexture() })
   );
-  hill.scale.set(HILL.rx / 70, HILL.ry / 70, HILL.rz / 70);
-  hill.position.set(HILL.cx, HILL.cy, HILL.cz);
+  hill.scale.set(def.rx / 70, def.ry / 70, def.rz / 70);
+  hill.position.set(def.cx, def.cy, def.cz);
   ctx.scene.add(hill);
-  ctx.terrainHeight = hillHeight;
+  ctx.terrainHeight = h;
 
   // Esplanade : point de vue sur tout Lyon, au pied de la basilique
+  const ex = def.cx + 23, ez = def.cz - 5;
   ctx.interactables.push({
-    x: -192, z: -25, r: 7,
+    x: ex, z: ez, r: 7,
     label: 'E — Admirer Lyon depuis Fourvière',
     action: () => ctx.notify?.('🌇 Tout Lyon à tes pieds, gone. La plus belle vue du monde, et c’est pas négociable.'),
   });
 
-  // Basilique stylisée
+  // Basilique stylisée, posée sur le haut de la colline
+  const bx = def.cx + 10, bz = def.cz - 5;
+  const by = Math.max(0, h(bx, bz)) - 2.2;
   const basGroup = new THREE.Group();
   const white = new THREE.MeshLambertMaterial({ color: 0xe8e2d5 });
   const body = new THREE.Mesh(new THREE.BoxGeometry(18, 12, 30), white);
@@ -1655,22 +1685,34 @@ function buildLandmarks(ctx, rand) {
     top.position.set(tx, 20, tz);
     basGroup.add(top);
   }
-  basGroup.position.set(-205, 32, -25);
+  basGroup.position.set(bx, by, bz);
   ctx.scene.add(basGroup);
-  // La basilique est solide maintenant qu'on peut monter la colline
-  ctx.colliders.push({ minX: -215, maxX: -195, minY: 30, maxY: 46, minZ: -41, maxZ: -9 });
+  ctx.colliders.push({
+    minX: bx - 10, maxX: bx + 10, minY: by - 2, maxY: by + 14,
+    minZ: bz - 16, maxZ: bz + 16,
+  });
 
   // Tour métallique de Fourvière (mini tour Eiffel)
-  const tower = new THREE.Mesh(
+  const mx = def.cx + 25, mz = def.cz + 25;
+  const my = Math.max(0, h(mx, mz)) - 1;
+  const metalTower = new THREE.Mesh(
     new THREE.ConeGeometry(5, 34, 4, 1, true),
     new THREE.MeshLambertMaterial({ color: 0x5a4438, wireframe: true })
   );
-  tower.position.set(-190, 31 + 17, 5);
-  ctx.scene.add(tower);
-  ctx.colliders.push({ minX: -193, maxX: -187, minY: 29, maxY: 64, minZ: 2, maxZ: 8 });
+  metalTower.position.set(mx, my + 17, mz);
+  ctx.scene.add(metalTower);
+  ctx.colliders.push({ minX: mx - 3, maxX: mx + 3, minY: my - 2, maxY: my + 33, minZ: mz - 3, maxZ: mz + 3 });
 
-  // La ficelle : funiculaire du Vieux Lyon à l'esplanade de Fourvière
-  buildFunicular(ctx);
+  // La ficelle : du pied du flanc est jusqu'à l'esplanade
+  const A = new THREE.Vector3(def.cx + def.rx + 3, 0.7, def.cz);
+  const bY = Math.max(0, h(def.cx + 19.5, def.cz + 8));
+  const B = new THREE.Vector3(def.cx + 19.5, bY + 0.3, def.cz + 8);
+  buildFunicular(ctx, A, B);
+}
+
+function buildLandmarks(ctx, rand) {
+  // Fourvière jouable (colline, basilique, ficelle…)
+  buildFourviere(ctx, HILL);
 
   // Tour Part-Dieu « Le Crayon » : fût cylindrique quadrillé de fenêtres,
   // couronne technique claire et pointe pyramidale — sa vraie silhouette
@@ -1733,62 +1775,80 @@ function buildDecor(ctx, rand) {
     ctx.scene.add(trunk, blob1, blob2, blob3);
   }
 
-  // Lampadaires : Bellecour + quais. La nuit, un halo additif s'allume
-  // (simple sprite : aucun vrai éclairage, les perfs mobile ne bougent pas).
-  const poleMat = new THREE.MeshLambertMaterial({ color: 0x2c2f36 });
-  const lampMat = new THREE.MeshBasicMaterial({ color: 0xffe3a0 });
-  const haloTex = makeLampHaloTexture();
-  const halos = [];
-  function addLamp(x, z) {
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 4.4, 6), poleMat);
-    pole.position.set(x, 2.2, z);
-    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 8), lampMat);
-    lamp.position.set(x, 4.5, z);
-    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: haloTex, transparent: true, opacity: 0,
-      blending: THREE.AdditiveBlending, depthWrite: false,
-    }));
-    glow.scale.set(6.5, 6.5, 1);
-    glow.position.set(x, 4.4, z);
-    glow.userData.noShadow = true;
-    halos.push(glow.material);
-    ctx.scene.add(pole, lamp, glow);
-  }
+  // Lampadaires : Bellecour, quais et grands axes (voir buildLamps)
+  const lampSpots = [];
   for (let i = 0; i < 8; i++) {
     const x = BELLECOUR.minX + 6 + i * 8.2;
-    addLamp(x, BELLECOUR.minZ + 1.5);
-    addLamp(x, BELLECOUR.maxZ - 1.5);
+    lampSpots.push([x, BELLECOUR.minZ + 1.5], [x, BELLECOUR.maxZ - 1.5]);
   }
   for (let i = 0; i < 6; i++) {
     const z = -100 + i * 40;
     if (Math.abs(z) < 7) continue;
-    addLamp(SAONE.maxX + 6.5, z);
-    addLamp(RHONE.minX - 6.5, z);
+    lampSpots.push([SAONE.maxX + 6.5, z], [RHONE.minX - 6.5, z]);
   }
-  // Éclairage public le long des grands axes : toute la ville vit la nuit
   const inPlaza = (x, z) =>
     x > BELLECOUR.minX - 4 && x < BELLECOUR.maxX + 4 &&
     z > BELLECOUR.minZ - 4 && z < BELLECOUR.maxZ + 4;
   const inRiver = (x) =>
     (x > SAONE.minX - 4 && x < SAONE.maxX + 4) ||
     (x > RHONE.minX - 4 && x < RHONE.maxX + 4);
-  // Axes est-ouest (z = ±6.5 de la route centrale)
+  // Axes est-ouest (z = ±6.5 de la route centrale), en quinconce
   for (let x = -126; x <= 126; x += 26) {
     if (inRiver(x)) continue;
-    addLamp(x, -6.5);
-    addLamp(x + 13, 6.5); // en quinconce
+    lampSpots.push([x, -6.5], [x + 13, 6.5]);
   }
   // Axes nord-sud
   for (const rx of [12, -50, 110, -119]) {
     for (let z = -124; z <= 124; z += 26) {
       if (Math.abs(z) < 10 || inPlaza(rx + 6.5, z) || inPlaza(rx - 6.5, z)) continue;
-      addLamp(rx + (((z + 124) / 26) % 2 === 0 ? 6.5 : -6.5), z); // en quinconce aussi
+      lampSpots.push([rx + (((z + 124) / 26) % 2 === 0 ? 6.5 : -6.5), z]);
     }
   }
+  buildLamps(ctx, lampSpots);
+}
+
+// Lampadaires mutualisés (les deux modes de ville) : mâts et globes en
+// InstancedMesh, halos nocturnes en un unique nuage de Points additif
+// → 3 draw calls quel que soit le nombre de lampadaires.
+export function buildLamps(ctx, spots) {
+  const n = spots.length;
+  if (n === 0) return;
+  const poles = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.09, 0.12, 4.4, 6),
+    new THREE.MeshLambertMaterial({ color: 0x2c2f36 }),
+    n
+  );
+  const bulbs = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(0.28, 8, 8),
+    new THREE.MeshBasicMaterial({ color: 0xffe3a0 }),
+    n
+  );
+  const m = new THREE.Matrix4();
+  const haloPos = [];
+  spots.forEach(([x, z], i) => {
+    m.makeTranslation(x, 2.2, z);
+    poles.setMatrixAt(i, m);
+    m.makeTranslation(x, 4.5, z);
+    bulbs.setMatrixAt(i, m);
+    haloPos.push(x, 4.4, z);
+  });
+  poles.instanceMatrix.needsUpdate = true;
+  bulbs.instanceMatrix.needsUpdate = true;
+  ctx.scene.add(poles, bulbs);
+
+  const haloGeo = new THREE.BufferGeometry();
+  haloGeo.setAttribute('position', new THREE.Float32BufferAttribute(haloPos, 3));
+  const haloMat = new THREE.PointsMaterial({
+    map: makeLampHaloTexture(), size: 7, sizeAttenuation: true,
+    transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const halos = new THREE.Points(haloGeo, haloMat);
+  halos.userData.noShadow = true;
+  ctx.scene.add(halos);
   ctx.updatables.push(() => {
-    const night = ctx.env?.night ?? 0;
-    const op = Math.max(0, night * 1.2 - 0.2) * 0.85;
-    for (const m of halos) m.opacity = op;
+    haloMat.opacity = Math.max(0, (ctx.env?.night ?? 0) * 1.2 - 0.2) * 0.85;
+    halos.visible = haloMat.opacity > 0.01;
   });
 }
 

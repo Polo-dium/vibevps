@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { addInvisibleWall } from './utils.js';
 import { ARCADE, RANGE, MUR_PEINT, BELLECOUR, makeRand } from './layout.js';
 import {
-  makeWaterTexture, makeForestTexture, makeSkylineTexture, buildBellecour,
+  makeWaterTexture, makeSkylineTexture, buildBellecour,
   buildGrandeRoue, buildFountain, buildStreetFurniture, buildMurPeint,
-  buildPeniches, buildSilure,
+  buildPeniches, buildSilure, buildFourviere, buildLamps, buildTraboules,
 } from './city.js';
 
 // Construit le vrai centre de Lyon à partir des empreintes OpenStreetMap
@@ -18,6 +18,10 @@ const FLOOR_M = 3; // hauteur d'étage pour le calage de la texture fenêtres
 const WALL_TINTS = ['#e8ddc8', '#e3d4ba', '#d9c6a8', '#e6d9c4', '#dccab0', '#d5c0a0', '#efe6d4', '#cdb695'];
 const ROOF_TINTS = ['#a8543c', '#b05a40', '#9c4e38', '#b46248', '#7e8696', '#6d7585', '#a8543c', '#b05a40'];
 
+// Emprise de la colline de Fourvière (fixée par buildRealCity) : les
+// bâtiments et la verdure OSM n'y poussent pas.
+let HILL_RECT = null;
+
 export function buildRealCity(ctx, data) {
   const bound = data.bound;
   ctx.worldBound = bound;
@@ -25,7 +29,21 @@ export function buildRealCity(ctx, data) {
   ctx.osmScale = data.scale ?? 0.5;
   const rand = makeRand(7);
 
-  buildGround(ctx, bound);
+  // Fourvière jouable : collée à l'ouest de la bande d'eau la plus à l'ouest
+  // (la Saône), le pied de la colline s'arrête ~22 m avant le quai.
+  const west = [...data.water].sort((a, b) => a.minX - b.minX)[0];
+  const hillDef = {
+    cx: (west ? west.minX : -bound) - 112,
+    cz: -20, cy: -4, rx: 90, ry: 38.5, rz: 110,
+  };
+  HILL_RECT = {
+    minX: hillDef.cx - hillDef.rx - 4, maxX: hillDef.cx + hillDef.rx + 6,
+    minZ: hillDef.cz - hillDef.rz, maxZ: hillDef.cz + hillDef.rz,
+  };
+  const WEST = Math.min(-(bound + 2), hillDef.cx - hillDef.rx - 12);
+  const EAST = bound + 2;
+
+  buildGround(ctx, Math.max(bound, -WEST));
   buildWater(ctx, data.water, bound);
   buildOsmBuildings(ctx, data, rand);
   buildOsmRoads(ctx, data);
@@ -42,17 +60,81 @@ export function buildRealCity(ctx, data) {
   const widest = [...data.water].sort((a, b) => (b.maxX - b.minX) - (a.maxX - a.minX))[0];
   if (widest) buildSilure(ctx, widest);
 
-  // Décor hors zone : Fourvière à l'ouest, le Crayon à l'est
+  // Fourvière complète (colline grimpable, basilique, ficelle) + lampadaires
+  // + traboules — partagés avec la ville procédurale
+  buildFourviere(ctx, hillDef);
+  buildLamps(ctx, lampSpotsOsm(ctx, data));
+  buildTraboules(ctx, osmTraboules(ctx, hillDef));
+
+  // Décor hors zone : le Crayon à l'est
   buildFarLandmarks(ctx, bound);
 
   for (const [x, z, w, d] of [
-    [0, -bound - 2, bound * 2 + 20, 4],
-    [0, bound + 2, bound * 2 + 20, 4],
-    [-bound - 2, 0, 4, bound * 2 + 20],
-    [bound + 2, 0, 4, bound * 2 + 20],
+    [(WEST + EAST) / 2, -bound - 2, EAST - WEST + 8, 4],
+    [(WEST + EAST) / 2, bound + 2, EAST - WEST + 8, 4],
+    [WEST, 0, 4, bound * 2 + 20],
+    [EAST, 0, 4, bound * 2 + 20],
   ]) {
-    addInvisibleWall(ctx, { x, z, w, d, h: 40 });
+    addInvisibleWall(ctx, { x, z, w, d, h: 80 });
   }
+}
+
+// Lampadaires du mode OSM : quais des deux fleuves, tour de Bellecour, et un
+// échantillon des grands axes routiers.
+function lampSpotsOsm(ctx, data) {
+  const spots = [];
+  for (const band of data.water) {
+    for (const x of [band.minX - 6.5, band.maxX + 6.5]) {
+      for (let z = -ctx.worldBound + 12; z < ctx.worldBound - 12; z += 24) {
+        if (Math.abs(z) < 6) continue;
+        spots.push([x, z]);
+      }
+    }
+  }
+  for (let i = 0; i < 8; i++) {
+    const x = BELLECOUR.minX + 6 + i * 8.2;
+    spots.push([x, BELLECOUR.minZ + 1.5], [x, BELLECOUR.maxZ - 1.5]);
+  }
+  const inWater = (x) => data.water.some((w) => x > w.minX - 4 && x < w.maxX + 4);
+  let done = false;
+  for (const road of data.roads) {
+    if (done) break;
+    if (road.w < 6) continue; // seulement les grands axes
+    for (let i = 0; i + 1 < road.p.length; i += 20) {
+      const x = road.p[i], z = road.p[i + 1];
+      if (inWater(x) || Math.abs(x) > ctx.worldBound - 6 || Math.abs(z) > ctx.worldBound - 6) continue;
+      spots.push([x + road.w / 2 + 1.5, z]);
+      if (spots.length > 220) { done = true; break; }
+    }
+  }
+  return spots;
+}
+
+// Traboules du mode OSM : uniquement des points sûrs (zones réservées),
+// puisque les bâtiments OSM peuvent pousser n'importe où ailleurs.
+function osmTraboules(ctx, hillDef) {
+  const hx = hillDef.cx + 23, hz = hillDef.cz + 2;
+  const hy = Math.max(0, ctx.terrainHeight?.(hx, hz) ?? 0);
+  return [
+    {
+      a: { x: -38, z: 6, ry: Math.PI / 2 },
+      b: { x: -30, z: -118, ry: 0 },
+      loreAB: '🚪 Tu as traboulé jusqu’aux pentes ! Les canuts passaient par là.',
+      loreBA: '🚪 Retour à Bellecour par la traboule des canuts.',
+    },
+    {
+      a: { x: hillDef.cx + hillDef.rx + 2, z: hillDef.cz + 16, ry: Math.PI / 2 },
+      b: { x: hx, z: hz, ry: Math.PI / 2, y: hy },
+      loreAB: '🚪 La ficelle des pauvres : cette traboule grimpe à Fourvière !',
+      loreBA: '🚪 Descente express : te voilà au pied de la colline.',
+    },
+    {
+      a: { x: 52, z: 100, ry: Math.PI },
+      b: { x: -8, z: -56, ry: 0 },
+      loreAB: '🚪 Raccourci de gone : du stand de tir à la salle d’arcade.',
+      loreBA: '🚪 Sortie secrète de l’arcade, côté stand de tir.',
+    },
+  ];
 }
 
 function buildGround(ctx, bound) {
@@ -95,12 +177,14 @@ function buildWater(ctx, bands, bound) {
 
 // Zones réservées au gameplay : on retire les bâtiments OSM qui les chevauchent
 function reservedRects() {
-  return [
+  const rects = [
     { minX: BELLECOUR.minX - 2, maxX: BELLECOUR.maxX + 2, minZ: BELLECOUR.minZ - 2, maxZ: BELLECOUR.maxZ + 2 },
     { minX: ARCADE.x - ARCADE.w / 2 - 9, maxX: ARCADE.x + ARCADE.w / 2 + 9, minZ: ARCADE.z - ARCADE.d / 2 - 11, maxZ: ARCADE.z + ARCADE.d / 2 + 11 },
     { minX: RANGE.x - RANGE.width / 2 - 7, maxX: RANGE.x + RANGE.width / 2 + 7, minZ: RANGE.backZ - 7, maxZ: RANGE.counterZ + 10 },
     { minX: MUR_PEINT.x - MUR_PEINT.w / 2 - 5, maxX: MUR_PEINT.x + MUR_PEINT.w / 2 + 5, minZ: MUR_PEINT.z - 8, maxZ: MUR_PEINT.z + 8 },
   ];
+  if (HILL_RECT) rects.push(HILL_RECT);
+  return rects;
 }
 
 function buildOsmBuildings(ctx, data, rand) {
@@ -167,8 +251,10 @@ function buildOsmBuildings(ctx, data, rand) {
       const [x2, z2] = pts[(i + 1) % pts.length];
       const len = Math.hypot(x2 - x1, z2 - z1);
       if (len < 0.05) continue;
-      const u = len / FLOOR_M;
-      const v = h / FLOOR_M;
+      // Nombres ENTIERS de fenêtres : plus jamais de dernier étage coupé
+      // (la cellule s'étire légèrement au lieu d'être tronquée)
+      const u = Math.max(1, Math.round(len / FLOOR_M));
+      const v = Math.max(1, Math.round(h / FLOOR_M));
       tile.wp.push(
         x1, 0, z1, x2, 0, z2, x2, h, z2,
         x1, 0, z1, x2, h, z2, x1, h, z1
@@ -256,62 +342,8 @@ function buildOsmRoads(ctx, data) {
 }
 
 function buildFarLandmarks(ctx, bound) {
-  // Position réelle de Fourvière par rapport à Bellecour (≈ 730 m O, 490 m N),
-  // ramenée à l'échelle de la carte. fog:false partout : la colline domine la
-  // ville depuis la Presqu'île quelle que soit la distance, comme en vrai.
-  const sc = (ctx.osmScale ?? 0.5) / 0.5;
-  const FX = -365 * sc;
-  const FZ = -244 * sc;
-
-  // Grande colline boisée (deux dômes pour une silhouette organique)
-  const hillMat = new THREE.MeshLambertMaterial({ map: makeForestTexture(), fog: false });
-  const hill = new THREE.Mesh(new THREE.SphereGeometry(150, 28, 18), hillMat);
-  hill.scale.set(1.5, 0.55, 1.6);
-  hill.position.set(FX - 10, -40, FZ);
-  ctx.scene.add(hill);
-  const hill2 = new THREE.Mesh(new THREE.SphereGeometry(95, 22, 14), hillMat);
-  hill2.scale.set(1.4, 0.6, 1.5);
-  hill2.position.set(FX + 70, -28, FZ + 60);
-  ctx.scene.add(hill2);
-
-  // Basilique Notre-Dame de Fourvière, perchée au sommet (~62 m de haut en jeu)
-  const HILL_TOP = 46 * sc;
-  const white = new THREE.MeshLambertMaterial({ color: 0xeae3d4, fog: false });
-  const cream = new THREE.MeshLambertMaterial({ color: 0xcdbf9f, fog: false });
-  const bas = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(30, 22, 52), white);
-  body.position.y = 11;
-  bas.add(body);
-  // Toiture
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(31, 4, 53), cream);
-  roof.position.y = 23.5;
-  bas.add(roof);
-  // 4 tours d'angle octogonales + flèches
-  for (const [tx, tz] of [[-12, -22], [12, -22], [-12, 22], [12, 22]]) {
-    const tower = new THREE.Mesh(new THREE.CylinderGeometry(4, 4.5, 34, 8), white);
-    tower.position.set(tx, 17, tz);
-    bas.add(tower);
-    const spire = new THREE.Mesh(new THREE.ConeGeometry(4.6, 9, 8), cream);
-    spire.position.set(tx, 38, tz);
-    bas.add(spire);
-  }
-  // Statue dorée de la Vierge au faîte
-  const virgin = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.8, 1.2, 5, 6),
-    new THREE.MeshLambertMaterial({ color: 0xd9b44a, emissive: 0x5a4310, fog: false })
-  );
-  virgin.position.set(0, 30, 0);
-  bas.add(virgin);
-  bas.position.set(FX, HILL_TOP, FZ);
-  ctx.scene.add(bas);
-
-  // Tour métallique de Fourvière, juste à côté
-  const metal = new THREE.Mesh(
-    new THREE.ConeGeometry(7, 50, 4, 1, true),
-    new THREE.MeshLambertMaterial({ color: 0x4a4a52, wireframe: true, fog: false })
-  );
-  metal.position.set(FX + 55, HILL_TOP + 25, FZ + 30);
-  ctx.scene.add(metal);
+  // Fourvière est désormais une vraie colline jouable (buildFourviere) :
+  // il ne reste ici que le décor lointain de l'est.
 
   // Le Crayon (tour Part-Dieu), à l'est : fenêtres + couronne + pointe
   const EX = bound + 70;
