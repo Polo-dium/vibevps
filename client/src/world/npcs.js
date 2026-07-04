@@ -57,8 +57,9 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit, onNpcAttack }) {
   function blocked(x, z) {
     const bound = Math.min(ctx.worldBound ?? 130, 200); // les PNJ restent au centre
     if (Math.abs(x) > bound || Math.abs(z) > bound) return true;
-    // Les PNJ ne grimpent pas Fourvière (ils marchent à plat, y = 0)
-    if ((ctx.terrainHeight?.(x, z) ?? 0) > 0.5) return true;
+    // Les PNJ restent à plat : ni Fourvière (terrain haut), ni le lit des
+    // fleuves / plan d'eau de la Confluence (terrain en contrebas)
+    if (Math.abs(ctx.terrainHeight?.(x, z) ?? 0) > 0.5) return true;
     // Fleuves infranchissables (les ponts sont surélevés, les PNJ marchent à plat)
     const water = ctx.waterBands ?? [SAONE, RHONE];
     for (const r of water) {

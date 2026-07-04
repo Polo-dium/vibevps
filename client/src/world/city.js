@@ -29,8 +29,11 @@ export function buildCity(ctx) {
   buildStreetFurniture(ctx);
   buildTraboules(ctx, proceduralTraboules());
   buildTraffic(ctx, [SAONE, RHONE]);
-  // Le lit des fleuves devient le sol quand on tombe à l'eau
-  composeRiverTerrain(ctx, [SAONE, RHONE]);
+  buildConfluence(ctx);
+  // Le lit des fleuves (et le plan d'eau de la Confluence) devient le sol
+  composeRiverTerrain(ctx, [SAONE, RHONE], [
+    { minX: SAONE.maxX + 0.35, maxX: RHONE.minX - 0.35, minZ: CONFLUENCE_Z, maxZ: 280 },
+  ]);
 
   // Limites du monde — étendues à l'ouest pour rendre Fourvière jouable
   const WEST = -330;
@@ -51,25 +54,30 @@ export function buildCity(ctx) {
 // (les escaliers de quai permettent de remonter).
 export const WATER_Y = -1.6;
 export const BED_Y = -2.6;
+// La Confluence : au sud de cette ligne, la Presqu'île s'arrête et l'eau
+// des deux fleuves se rejoint en un grand plan d'eau ouvert.
+export const CONFLUENCE_Z = 116;
 
 function buildGroundAndRivers(ctx) {
-  // Sol asphalte texturé, en trois bandes : les fleuves sont creusés
+  // Sol asphalte texturé, en trois bandes : les fleuves sont creusés, et la
+  // bande centrale (Presqu'île) s'arrête à la Confluence
   const strips = [
-    [-280, SAONE.minX],
-    [SAONE.maxX, RHONE.minX],
-    [RHONE.maxX, 280],
+    [-280, SAONE.minX, 280],
+    [SAONE.maxX, RHONE.minX, CONFLUENCE_Z], // pointe de la Presqu'île
+    [RHONE.maxX, 280, 280],
   ];
-  for (const [x0, x1] of strips) {
+  for (const [x0, x1, zMax] of strips) {
     const w = x1 - x0;
+    const h = zMax + 280;
     const t = makeAsphaltTexture();
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.repeat.set(Math.max(1, Math.round(w / 6.2)), 90);
+    t.repeat.set(Math.max(1, Math.round(w / 6.2)), Math.round(h / 6.2));
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(w, 560),
+      new THREE.PlaneGeometry(w, h),
       new THREE.MeshLambertMaterial({ map: t })
     );
     ground.rotation.x = -Math.PI / 2;
-    ground.position.set((x0 + x1) / 2, 0, 0);
+    ground.position.set((x0 + x1) / 2, 0, (zMax - 280) / 2);
     ground.userData.taggable = false;
     ctx.scene.add(ground);
   }
@@ -199,9 +207,24 @@ export function buildRiverWorks(ctx, band, {
       x: cx, y: DECK_Y, z: bz,
       w: w + 9, h: 0.4, d: 9.5, color: 0x8b8f99,
     });
+    // Rampes carrossables : marches basses (0,28 m, avalées par le step-up
+    // à pied comme en voiture) cachées sous un plan incliné
     for (const [edge, out] of [[band.minX, -1], [band.maxX, 1]]) {
-      addBox(ctx, { x: edge + out * 5.6, z: bz, w: 1.5, h: 0.55, d: 9.5, color: 0x7d828c });
-      addBox(ctx, { x: edge + out * 4.9, z: bz, w: 1.5, h: 1.1, d: 9.5, color: 0x848a94 });
+      for (let i = 1; i <= 6; i++) {
+        addBox(ctx, {
+          x: edge + out * (4.7 + (6 - i) * 0.8),
+          z: bz, w: 0.85, h: i * 0.275, d: 9.5,
+          color: 0x7d828c,
+        });
+      }
+      const slopeLen = Math.hypot(5.3, 1.65);
+      const slope = new THREE.Mesh(
+        new THREE.BoxGeometry(slopeLen, 0.12, 9.5),
+        new THREE.MeshLambertMaterial({ color: 0x848a94 })
+      );
+      slope.position.set(edge + out * 6.75, 0.85, bz);
+      slope.rotation.z = -out * Math.atan2(1.65, 5.3);
+      ctx.scene.add(slope);
     }
     for (const zr of [bz - 4.4, bz + 4.4]) {
       addBox(ctx, { x: cx, y: DECK_Y + 0.4, z: zr, w: w + 9, h: 0.95, d: 0.4, color: 0x6f7884 });
@@ -238,14 +261,17 @@ export function buildRiverWorks(ctx, band, {
   }
 }
 
-// Compose le terrain : lit des fleuves en contrebas + colline éventuelle.
+// Compose le terrain : lit des fleuves en contrebas + colline éventuelle
+// (+ rectangles d'eau supplémentaires, comme la Confluence).
 // À appeler après buildFourviere (qui pose ctx.terrainHeight = colline).
-export function composeRiverTerrain(ctx, bands) {
+export function composeRiverTerrain(ctx, bands, extraRects = []) {
   const prev = ctx.terrainHeight;
   ctx.terrainHeight = (x, z) => {
-    void z;
     for (const b of bands) {
       if (x > b.minX + 0.35 && x < b.maxX - 0.35) return BED_Y;
+    }
+    for (const r of extraRects) {
+      if (x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ) return BED_Y;
     }
     return prev ? prev(x, z) : 0;
   };
@@ -505,6 +531,114 @@ export function buildPeniches(ctx, bands = [SAONE, RHONE]) {
       group.position.y = WATER_Y + 0.05 + Math.sin(performance.now() / 900 + cfg.z) * 0.04;
     });
   }
+}
+
+// La Confluence : au sud, la Presqu'île se termine en pointe sur un grand
+// plan d'eau où Rhône et Saône se rejoignent — avec le Musée des Confluences
+// en cristal low-poly et, au bout, l'emplacement du futur jetpack.
+function buildConfluence(ctx) {
+  const x0 = SAONE.maxX, x1 = RHONE.minX;
+  const w = x1 - x0;
+  const cx = (x0 + x1) / 2;
+  const L = 280 - CONFLUENCE_Z;
+  const cz = CONFLUENCE_Z + L / 2;
+
+  // Lit + eau (raccordées au niveau des fleuves : continuité parfaite)
+  const bed = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, L),
+    new THREE.MeshLambertMaterial({ color: 0x27352b })
+  );
+  bed.rotation.x = -Math.PI / 2;
+  bed.position.set(cx, BED_Y + 0.01, cz);
+  ctx.scene.add(bed);
+  const waterTex = makeWaterTexture();
+  waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping;
+  waterTex.repeat.set(12, 18);
+  const water = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, L),
+    new THREE.MeshPhongMaterial({
+      map: waterTex, transparent: true, opacity: 0.93,
+      specular: 0xbdd9e2, shininess: 90,
+    })
+  );
+  water.rotation.x = -Math.PI / 2;
+  water.position.set(cx, WATER_Y, cz);
+  ctx.scene.add(water);
+  ctx.updatables.push((dt) => { waterTex.offset.y -= dt * 0.012; });
+
+  // Mur de quai de la pointe (face sud de la Presqu'île) + parapet troué
+  // au niveau de l'escalier de berge
+  const wallMat = new THREE.MeshLambertMaterial({ color: 0x8a8274 });
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(w, -BED_Y + 0.05, 0.7), wallMat);
+  wall.position.set(cx, (BED_Y + 0.05) / 2, CONFLUENCE_Z + 0.35);
+  ctx.scene.add(wall);
+  ctx.colliders.push({
+    minX: x0, maxX: x1, minY: BED_Y - 0.1, maxY: 0.02,
+    minZ: CONFLUENCE_Z, maxZ: CONFLUENCE_Z + 0.7,
+  });
+  for (const [px, len] of [[cx - w / 4 - 3, w / 2 - 8], [cx + w / 4 + 3, w / 2 - 8]]) {
+    addBox(ctx, { x: px, z: CONFLUENCE_Z, w: len, h: 1.05, d: 0.7, color: 0x9aa0a8 });
+  }
+  // Escalier de berge au milieu de la pointe
+  for (let i = 0; i < 5; i++) {
+    addBox(ctx, {
+      x: cx, y: BED_Y, z: CONFLUENCE_Z + 0.9 + (4 - i) * 0.85,
+      w: 2.4, h: 0.52 * (i + 1), d: 1.1, color: 0x9a9284,
+    });
+  }
+
+  // Musée des Confluences : le « nuage de cristal » déconstructiviste
+  const mx = cx, mz = CONFLUENCE_Z - 13;
+  const glassMat = new THREE.MeshPhongMaterial({
+    color: 0xaec9d8, specular: 0xe8f4fa, shininess: 80,
+    transparent: true, opacity: 0.85,
+  });
+  const steelMat = new THREE.MeshLambertMaterial({ color: 0xb8bec8 });
+  const museum = new THREE.Group();
+  const plinth = new THREE.Mesh(new THREE.BoxGeometry(26, 1.2, 14), steelMat);
+  plinth.position.y = 0.6;
+  museum.add(plinth);
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(24, 7, 12), glassMat);
+  hull.position.y = 6;
+  hull.rotation.z = 0.06;
+  hull.rotation.x = -0.05;
+  museum.add(hull);
+  const crystal = new THREE.Mesh(new THREE.ConeGeometry(5.5, 9, 4), glassMat);
+  crystal.position.set(-9, 8.5, 0);
+  crystal.rotation.z = 0.5;
+  museum.add(crystal);
+  const spike = new THREE.Mesh(new THREE.BoxGeometry(10, 2.6, 6), steelMat);
+  spike.position.set(10, 9.4, 0);
+  spike.rotation.z = -0.22;
+  museum.add(spike);
+  for (const [lx, lz] of [[-8, -4], [8, -4], [-8, 4], [8, 4]]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.55, 3.5, 6), steelMat);
+    leg.position.set(lx, 1.7, lz);
+    museum.add(leg);
+  }
+  museum.position.set(mx, 0, mz);
+  ctx.scene.add(museum);
+  ctx.colliders.push({
+    minX: mx - 13, maxX: mx + 13, minY: 0, maxY: 12, minZ: mz - 7, maxZ: mz + 7,
+  });
+  ctx.interactables.push({
+    x: mx, z: mz + 9, r: 6,
+    label: 'E — Musée des Confluences',
+    action: () => ctx.notify?.('🏛️ Le nuage de cristal, posé là où la Saône embrasse le Rhône.'),
+  });
+
+  // Au bout de la pointe : l'emplacement du futur JETPACK
+  const pad = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.6, 1.8, 0.25, 10),
+    new THREE.MeshLambertMaterial({ color: 0x2f3542, emissive: 0x101828 })
+  );
+  pad.position.set(cx, 0.13, CONFLUENCE_Z - 2.6);
+  ctx.scene.add(pad);
+  ctx.interactables.push({
+    x: cx, z: CONFLUENCE_Z - 2.6, r: 2.6,
+    label: 'E — ??? (prototype)',
+    action: () => ctx.notify?.('🚀 Un prototype de jetpack dort ici… Reviens bientôt, gone.'),
+  });
 }
 
 // Traboules secrètes : des arches de pierre discrètes qui téléportent d'un
@@ -885,9 +1019,9 @@ function buildRoads(ctx) {
     [-11, 0, 9, 132, true],   // EW : Presqu'île (entre les deux fleuves)
     [111, 0, 9, 96, true],    // EW : rive gauche du Rhône
     [12, -75.5, 9, 119, false], // NS : nord de Bellecour
-    [12, 82, 9, 108, false],    // NS : sud de Bellecour
+    [12, 69, 9, 82, false],     // NS : sud de Bellecour (jusqu'à la Confluence)
     [-50, -75.5, 9, 119, false],
-    [-50, 82, 9, 108, false],
+    [-50, 69, 9, 82, false],
     [110, -70, 9, 130, false],  // NS : Part-Dieu
   ];
   for (const [cx, cz, w, len, alongX] of segments) {
@@ -1148,6 +1282,8 @@ function buildBuildings(ctx, rand) {
     { minX: MUR_PEINT.x - 26, maxX: MUR_PEINT.x + 26, minZ: MUR_PEINT.z - 12, maxZ: MUR_PEINT.z + 16 },
     { minX: 105, maxX: 130, minZ: -65, maxZ: -25 }, // tour Part-Dieu
     { minX: -400, maxX: -127, minZ: -300, maxZ: 300 }, // pied de Fourvière
+    // Pointe de la Confluence : plan d'eau + Musée des Confluences
+    { minX: SAONE.maxX, maxX: RHONE.minX, minZ: CONFLUENCE_Z - 34, maxZ: 300 },
   ];
   const isReserved = (x, z, half) =>
     reserved.some((r) =>
@@ -1917,9 +2053,10 @@ function buildDecor(ctx, rand) {
     treeSpots.push([x, BELLECOUR.minZ - 3]);
     if (Math.abs(x) > 6) treeSpots.push([x, BELLECOUR.maxZ + 3]); // trouée au spawn
   }
-  for (let i = 0; i < 14; i++) {
-    treeSpots.push([SAONE.maxX + 4, -120 + i * 18]);
-    treeSpots.push([RHONE.minX - 4, -120 + i * 18]);
+  for (let i = 0; i < 13; i++) {
+    const z = -120 + i * 18; // ≤ 96 : on s'arrête avant la Confluence
+    treeSpots.push([SAONE.maxX + 4, z]);
+    treeSpots.push([RHONE.minX - 4, z]);
   }
   // Feuillages : amas de sphères, plus organique qu'un cône
   const leavesMat2 = new THREE.MeshLambertMaterial({ color: 0x567c3c });

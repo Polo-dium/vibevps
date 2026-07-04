@@ -18,7 +18,8 @@ const AVENUE_W = 7;
 
 export function buildTraffic(ctx, bands) {
   const rand = makeRand(4242);
-  const L = (ctx.worldBound ?? 134) - 6;
+  // Plafonné à 110 : les avenues s'arrêtent avant la Confluence
+  const L = Math.min((ctx.worldBound ?? 134) - 6, 110);
 
   // --- Avenues : une chaussée de chaque côté de chaque fleuve -------------
   // side = côté immeubles (pour y ranger les voitures garées)
@@ -126,8 +127,8 @@ export function buildTraffic(ctx, bands) {
     runOverCd -= dt;
     for (const car of moving) {
       car.z += car.dir * car.speed * dt;
-      if (car.z > L + 6) car.z = -L - 6;
-      if (car.z < -L - 6) car.z = L + 6;
+      if (car.z > L + 2) car.z = -L - 2;
+      if (car.z < -L - 2) car.z = L + 2;
       setCar(car.i, car.x, car.z, car.dir > 0 ? Math.PI : 0);
 
       // Écrasé par un chauffard : dégâts (validés côté serveur) + klaxon

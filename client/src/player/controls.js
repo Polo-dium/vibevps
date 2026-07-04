@@ -177,7 +177,12 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         v.speed = 0;
       }
 
-      camera.position.set(pos.x, pos.y + 1.15, pos.z); // assis au volant
+      // Assis au volant : caméra relevée et décalée côté conducteur (gauche)
+      camera.position.set(
+        pos.x - Math.cos(v.heading) * 0.45,
+        pos.y + 1.42,
+        pos.z + Math.sin(v.heading) * 0.45
+      );
       camera.rotation.order = 'YXZ';
       camera.rotation.set(pitch, yaw, 0);
       return;
