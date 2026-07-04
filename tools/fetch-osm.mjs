@@ -22,8 +22,11 @@ const M_PER_LON = 111320 * Math.cos((LAT0 * Math.PI) / 180);
 const M_PER_LAT = 111132;
 const H_SCALE = 0.6;
 
-// Emprise : Presqu'île de Bellecour aux Terreaux + berges
-const BBOX = '45.7505,4.8230,45.7675,4.8415'; // S, O, N, E
+// Emprise : LE GRAND LYON — de la pointe de la Confluence (sud) au plateau
+// de la Croix-Rousse (nord), de Fourvière (ouest) à Part-Dieu (est).
+// ~2,3 × 2,8 km en jeu (échelle 0,5). Le JSON pèse plusieurs Mo : il est
+// servi une fois puis mis en cache par le navigateur.
+const BBOX = '45.7310,4.8080,45.7790,4.8600'; // S, O, N, E
 
 const QUERY = `
 [out:json][timeout:120];
@@ -92,6 +95,31 @@ const WATER = [
 function inWater(x) {
   return WATER.some((w) => x > w.minX - 2 && x < w.maxX + 2);
 }
+
+// Collines réelles, à l'échelle : ellipsoïdes analytiques (cap = plateau).
+// Hauteurs en unités jeu (relief réel × H_SCALE).
+function hillDef(lonC, latC, rLon, rLat, ry, cap = null) {
+  const [cx, cz] = toXZ(latC, lonC);
+  return {
+    cx: r1(cx), cz: r1(cz),
+    rx: r1(rLon * M_PER_LON * SCALE),
+    rz: r1(rLat * M_PER_LAT * SCALE),
+    ry, cap,
+  };
+}
+const HILLS = [
+  // Fourvière : la colline qui prie (~100 m de relief réel)
+  hillDef(4.8187, 45.7585, 0.0057, 0.0095, 85),
+  // Croix-Rousse : la colline qui travaille — plateau au nord, pentes au sud
+  hillDef(4.8325, 45.7760, 0.0095, 0.0090, 60, 42),
+];
+
+// Pointe de la Confluence : au sud de cette ligne, les deux fleuves
+// se rejoignent (le client y construit la pointe et le musée).
+const CONFLUENCE_Z = r1((LAT0 - 45.7330) * M_PER_LAT * SCALE);
+// Basilique de Fourvière (position réelle) : sert d'ancre au funiculaire,
+// à l'esplanade et aux traboules côté client.
+const BASILICA = toXZ(45.7622, 4.8225).map(r1);
 
 async function fetchOsm() {
   let lastErr;
@@ -168,6 +196,9 @@ const out = {
   scale: SCALE,
   bound: Math.ceil(bound + 10),
   water: WATER,
+  hills: HILLS,
+  confluenceZ: CONFLUENCE_Z,
+  poi: { basilica: BASILICA },
   buildings,
   roads,
 };

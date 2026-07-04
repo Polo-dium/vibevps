@@ -199,9 +199,12 @@ async function boot() {
     buildRealCity(ctx, osmData);
     camera.far = Math.max(1400, ctx.worldBound * 3);
     camera.updateProjectionMatrix();
-    // Brouillard atmosphérique léger, repoussé loin pour garder la skyline
-    scene.fog = new THREE.FogExp2(skyColor, 0.0011);
-    ui.toast('Vrai centre de Lyon chargé — données © OpenStreetMap');
+    // Brouillard atmosphérique : un peu plus dense sur la ville complète
+    // (4× plus vaste) pour limiter ce qui est dessiné au loin
+    scene.fog = new THREE.FogExp2(skyColor, osmData.hills ? 0.0017 : 0.0011);
+    ui.toast(osmData.hills
+      ? 'Le GRAND Lyon chargé, de la Confluence à la Croix-Rousse — données © OpenStreetMap'
+      : 'Vrai centre de Lyon chargé — données © OpenStreetMap');
   } else {
     buildCity(ctx);
   }

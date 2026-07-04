@@ -16,10 +16,10 @@ const CABRIO_COLORS = [0xd9333f, 0x00b8a9, 0xffd23f, 0xff7a4d, 0x4da6ff, 0xc44df
 const LANE = 1.7; // demi-écart des deux voies
 const AVENUE_W = 7;
 
-export function buildTraffic(ctx, bands) {
+export function buildTraffic(ctx, bands, maxHalf = 110) {
   const rand = makeRand(4242);
-  // Plafonné à 110 : les avenues s'arrêtent avant la Confluence
-  const L = Math.min((ctx.worldBound ?? 134) - 6, 110);
+  // Longueur des avenues : bornée par le monde et la Confluence
+  const L = Math.min((ctx.worldBound ?? 134) - 6, maxHalf);
 
   // --- Avenues : une chaussée de chaque côté de chaque fleuve -------------
   // side = côté immeubles (pour y ranger les voitures garées)
@@ -43,10 +43,11 @@ export function buildTraffic(ctx, bands) {
   const moving = []; // { i, x, z, dir, speed, lastHitAt }
   const parked = []; // { i, x, z, ry }
 
+  // Densité de trafic proportionnelle à la longueur d'avenue
+  const perLane = Math.max(2, Math.min(8, Math.round(L / 55)));
   for (const av of avenues) {
-    // 2 voies × 2 voitures par avenue
     for (const dir of [1, -1]) {
-      for (let k = 0; k < 2; k++) {
+      for (let k = 0; k < perLane; k++) {
         moving.push({
           x: av.x + LANE * dir, // conduite à droite
           z: -L + rand() * L * 2,

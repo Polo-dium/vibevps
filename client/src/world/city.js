@@ -536,12 +536,14 @@ export function buildPeniches(ctx, bands = [SAONE, RHONE]) {
 // La Confluence : au sud, la Presqu'île se termine en pointe sur un grand
 // plan d'eau où Rhône et Saône se rejoignent — avec le Musée des Confluences
 // en cristal low-poly et, au bout, l'emplacement du futur jetpack.
-function buildConfluence(ctx) {
-  const x0 = SAONE.maxX, x1 = RHONE.minX;
+// Paramétrée pour servir la ville procédurale ET le mode OSM.
+export function buildConfluence(ctx, {
+  x0 = SAONE.maxX, x1 = RHONE.minX, zStart = CONFLUENCE_Z, zEnd = 280,
+} = {}) {
   const w = x1 - x0;
   const cx = (x0 + x1) / 2;
-  const L = 280 - CONFLUENCE_Z;
-  const cz = CONFLUENCE_Z + L / 2;
+  const L = zEnd - zStart;
+  const cz = zStart + L / 2;
 
   // Lit + eau (raccordées au niveau des fleuves : continuité parfaite)
   const bed = new THREE.Mesh(
@@ -570,25 +572,25 @@ function buildConfluence(ctx) {
   // au niveau de l'escalier de berge
   const wallMat = new THREE.MeshLambertMaterial({ color: 0x8a8274 });
   const wall = new THREE.Mesh(new THREE.BoxGeometry(w, -BED_Y + 0.05, 0.7), wallMat);
-  wall.position.set(cx, (BED_Y + 0.05) / 2, CONFLUENCE_Z + 0.35);
+  wall.position.set(cx, (BED_Y + 0.05) / 2, zStart + 0.35);
   ctx.scene.add(wall);
   ctx.colliders.push({
     minX: x0, maxX: x1, minY: BED_Y - 0.1, maxY: 0.02,
-    minZ: CONFLUENCE_Z, maxZ: CONFLUENCE_Z + 0.7,
+    minZ: zStart, maxZ: zStart + 0.7,
   });
   for (const [px, len] of [[cx - w / 4 - 3, w / 2 - 8], [cx + w / 4 + 3, w / 2 - 8]]) {
-    addBox(ctx, { x: px, z: CONFLUENCE_Z, w: len, h: 1.05, d: 0.7, color: 0x9aa0a8 });
+    addBox(ctx, { x: px, z: zStart, w: len, h: 1.05, d: 0.7, color: 0x9aa0a8 });
   }
   // Escalier de berge au milieu de la pointe
   for (let i = 0; i < 5; i++) {
     addBox(ctx, {
-      x: cx, y: BED_Y, z: CONFLUENCE_Z + 0.9 + (4 - i) * 0.85,
+      x: cx, y: BED_Y, z: zStart + 0.9 + (4 - i) * 0.85,
       w: 2.4, h: 0.52 * (i + 1), d: 1.1, color: 0x9a9284,
     });
   }
 
   // Musée des Confluences : le « nuage de cristal » déconstructiviste
-  const mx = cx, mz = CONFLUENCE_Z - 13;
+  const mx = cx, mz = zStart - 13;
   const glassMat = new THREE.MeshPhongMaterial({
     color: 0xaec9d8, specular: 0xe8f4fa, shininess: 80,
     transparent: true, opacity: 0.85,
@@ -632,10 +634,10 @@ function buildConfluence(ctx) {
     new THREE.CylinderGeometry(1.6, 1.8, 0.25, 10),
     new THREE.MeshLambertMaterial({ color: 0x2f3542, emissive: 0x101828 })
   );
-  pad.position.set(cx, 0.13, CONFLUENCE_Z - 2.6);
+  pad.position.set(cx, 0.13, zStart - 2.6);
   ctx.scene.add(pad);
   ctx.interactables.push({
-    x: cx, z: CONFLUENCE_Z - 2.6, r: 2.6,
+    x: cx, z: zStart - 2.6, r: 2.6,
     label: 'E — ??? (prototype)',
     action: () => ctx.notify?.('🚀 Un prototype de jetpack dort ici… Reviens bientôt, gone.'),
   });
@@ -2127,12 +2129,13 @@ export function buildLamps(ctx, spots) {
   );
   const m = new THREE.Matrix4();
   const haloPos = [];
-  spots.forEach(([x, z], i) => {
-    m.makeTranslation(x, 2.2, z);
+  spots.forEach(([x, z, gy = 0], i) => {
+    // gy = altitude du sol (lampadaires posés sur les collines)
+    m.makeTranslation(x, gy + 2.2, z);
     poles.setMatrixAt(i, m);
-    m.makeTranslation(x, 4.5, z);
+    m.makeTranslation(x, gy + 4.5, z);
     bulbs.setMatrixAt(i, m);
-    haloPos.push(x, 4.4, z);
+    haloPos.push(x, gy + 4.4, z);
   });
   poles.instanceMatrix.needsUpdate = true;
   bulbs.instanceMatrix.needsUpdate = true;

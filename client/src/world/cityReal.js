@@ -4,26 +4,48 @@ import { ARCADE, RANGE, MUR_PEINT, BELLECOUR, makeRand } from './layout.js';
 import {
   makeSkylineTexture, buildBellecour,
   buildGrandeRoue, buildFountain, buildStreetFurniture, buildMurPeint,
-  buildPeniches, buildSilure, buildFourviere, buildLamps, buildTraboules,
-  buildRiverWorks, composeRiverTerrain,
+  buildPeniches, buildSilure, buildFourviere, buildFunicular, buildLamps,
+  buildTraboules, buildRiverWorks, composeRiverTerrain, buildConfluence,
 } from './city.js';
 import { buildTraffic } from './traffic.js';
 
-// Construit le vrai centre de Lyon à partir des empreintes OpenStreetMap
+// Construit le vrai Lyon à partir des empreintes OpenStreetMap
 // (client/public/lyon-osm.json, généré par tools/fetch-osm.mjs).
-// Toute la géométrie est fusionnée en tuiles de 80 m : quelques dizaines de
+// Toute la géométrie est fusionnée en tuiles : quelques dizaines de
 // draw calls pour des milliers de bâtiments, frustum culling gratuit.
+//
+// Deux régimes selon le JSON :
+// - « ville complète » (data.hills présent) : Confluence → Croix-Rousse,
+//   collines réelles à l'échelle avec les bâtiments posés dessus, terrain
+//   continu, pointe de la Confluence et musée.
+// - ancien JSON (Presqu'île seule) : comportement historique conservé.
 
-const TILE = 80;
 const FLOOR_M = 3; // hauteur d'étage pour le calage de la texture fenêtres
 
 const WALL_TINTS = ['#e8ddc8', '#e3d4ba', '#d9c6a8', '#e6d9c4', '#dccab0', '#d5c0a0', '#efe6d4', '#cdb695'];
 const ROOF_TINTS = ['#a8543c', '#b05a40', '#9c4e38', '#b46248', '#7e8696', '#6d7585', '#a8543c', '#b05a40'];
 
-// Emprise de la colline de Fourvière et des fleuves (fixées par
-// buildRealCity) : les bâtiments et la verdure OSM n'y poussent pas.
+// Zones fixées par buildRealCity, consommées par reservedRects()
 let HILL_RECT = null;
 let WATER_RECTS = [];
+let EXTRA_RECTS = [];
+
+// Collines réelles : max d'ellipsoïdes analytiques (cap = plateau)
+function makeHillsFn(hills) {
+  return (x, z) => {
+    let best = 0;
+    for (const d of hills) {
+      const u = (x - d.cx) / d.rx;
+      const v = (z - d.cz) / d.rz;
+      const q = 1 - u * u - v * v;
+      if (q <= 0) continue;
+      let h = (d.cy ?? -6) + d.ry * Math.sqrt(q);
+      if (d.cap != null) h = Math.min(d.cap, h);
+      if (h > best) best = h;
+    }
+    return best;
+  };
+}
 
 export function buildRealCity(ctx, data) {
   const bound = data.bound;
@@ -31,30 +53,58 @@ export function buildRealCity(ctx, data) {
   ctx.waterBands = data.water;
   ctx.osmScale = data.scale ?? 0.5;
   const rand = makeRand(7);
+  const full = Array.isArray(data.hills) && data.hills.length > 0;
 
-  // Fourvière jouable : collée à l'ouest de la bande d'eau la plus à l'ouest
-  // (la Saône), le pied de la colline s'arrête ~22 m avant le quai.
-  const west = [...data.water].sort((a, b) => a.minX - b.minX)[0];
-  const hillDef = {
-    cx: (west ? west.minX : -bound) - 112,
-    cz: -20, cy: -4, rx: 90, ry: 38.5, rz: 110,
-  };
-  HILL_RECT = {
-    minX: hillDef.cx - hillDef.rx - 4, maxX: hillDef.cx + hillDef.rx + 6,
-    minZ: hillDef.cz - hillDef.rz, maxZ: hillDef.cz + hillDef.rz,
-  };
+  const sorted = [...data.water].sort((a, b) => a.minX - b.minX);
+  const west = sorted[0];
+  const east = sorted[sorted.length - 1];
+
   // Aucun bâtiment sur l'eau NI sur les avenues des quais (± 18 m)
   WATER_RECTS = data.water.map((w) => ({
     minX: w.minX - 18, maxX: w.maxX + 18, minZ: -bound - 200, maxZ: bound + 200,
   }));
-  const WEST = Math.min(-(bound + 2), hillDef.cx - hillDef.rx - 12);
-  const EAST = bound + 2;
 
-  buildGround(ctx, Math.max(bound, -WEST), data.water);
-  buildWater(ctx, data.water, bound);
-  buildOsmBuildings(ctx, data, rand);
-  buildOsmRoads(ctx, data);
-  buildGreenery(ctx, data, rand);
+  let WEST = -(bound + 2);
+  const EAST = bound + 2;
+  let zConf = null;
+  let bas = null;
+  let legacyHill = null;
+
+  if (full) {
+    // --- VILLE COMPLÈTE : collines réelles + terrain continu -------------
+    HILL_RECT = null;
+    bas = data.poi?.basilica ?? [-369, -244];
+    zConf = data.confluenceZ ?? bound - 90;
+    EXTRA_RECTS = [
+      // Esplanade de la basilique (avec les gares de la ficelle)
+      { minX: bas[0] - 26, maxX: bas[0] + 36, minZ: bas[1] - 22, maxZ: bas[1] + 40 },
+      // Pointe de la Confluence : plan d'eau + musée
+      { minX: west.maxX, maxX: east.minX, minZ: zConf - 34, maxZ: bound + 300 },
+    ];
+    ctx.terrainHeight = makeHillsFn(data.hills);
+    composeRiverTerrain(ctx, data.water, [
+      { minX: west.maxX + 0.35, maxX: east.minX - 0.35, minZ: zConf, maxZ: bound + 120 },
+    ]);
+    buildTerrainMesh(ctx, bound);
+  } else {
+    // --- ANCIEN JSON : colline synthétique collée à l'ouest de la Saône --
+    EXTRA_RECTS = [];
+    legacyHill = {
+      cx: (west ? west.minX : -bound) - 112,
+      cz: -20, cy: -4, rx: 90, ry: 38.5, rz: 110,
+    };
+    HILL_RECT = {
+      minX: legacyHill.cx - legacyHill.rx - 4, maxX: legacyHill.cx + legacyHill.rx + 6,
+      minZ: legacyHill.cz - legacyHill.rz, maxZ: legacyHill.cz + legacyHill.rz,
+    };
+    WEST = Math.min(-(bound + 2), legacyHill.cx - legacyHill.rx - 12);
+    buildGround(ctx, Math.max(bound, -WEST), data.water);
+  }
+
+  buildWater(ctx, data.water, bound, zConf);
+  buildOsmBuildings(ctx, data, rand, full);
+  buildOsmRoads(ctx, data, full);
+  buildGreenery(ctx, data, rand, full);
 
   // Lieux de gameplay (zones déjà déblayées des bâtiments OSM)
   buildBellecour(ctx);
@@ -67,17 +117,37 @@ export function buildRealCity(ctx, data) {
   const widest = [...data.water].sort((a, b) => (b.maxX - b.minX) - (a.maxX - a.minX))[0];
   if (widest) buildSilure(ctx, widest);
 
-  // Fourvière complète (colline grimpable, basilique, ficelle) + lampadaires
-  // + traboules — partagés avec la ville procédurale
-  buildFourviere(ctx, hillDef);
-  buildLamps(ctx, lampSpotsOsm(ctx, data));
-  buildTraboules(ctx, osmTraboules(ctx, hillDef));
-  buildTraffic(ctx, data.water);
-  // Le lit des fleuves devient le sol quand on tombe à l'eau
-  composeRiverTerrain(ctx, data.water);
-
-  // Décor hors zone : le Crayon à l'est
-  buildFarLandmarks(ctx, bound);
+  if (full) {
+    // Esplanade, ficelle et traboule ancrées sur la VRAIE basilique ;
+    // Confluence en pointe au sud, comme en ville procédurale
+    const t = ctx.terrainHeight;
+    ctx.interactables.push({
+      x: bas[0] + 16, z: bas[1] + 22, r: 8,
+      label: 'E — Admirer Lyon depuis Fourvière',
+      action: () => ctx.notify?.('🌇 Tout Lyon à tes pieds, gone. La plus belle vue du monde, et c’est pas négociable.'),
+    });
+    const A = new THREE.Vector3(west.minX - 22, 0.7, bas[1] + 12);
+    const B = new THREE.Vector3(
+      bas[0] + 20,
+      Math.max(0, t(bas[0] + 20, bas[1] + 26)) + 0.3,
+      bas[1] + 26
+    );
+    buildFunicular(ctx, A, B);
+    buildTraboules(ctx, fullTraboules(ctx, bas, west));
+    buildConfluence(ctx, {
+      x0: west.maxX, x1: east.minX, zStart: zConf, zEnd: bound + 120,
+    });
+    buildTraffic(ctx, data.water, zConf - 12);
+  } else {
+    buildFourviere(ctx, legacyHill);
+    // Le lit des fleuves devient le sol quand on tombe à l'eau
+    composeRiverTerrain(ctx, data.water);
+    buildTraboules(ctx, osmTraboules(ctx, legacyHill));
+    buildTraffic(ctx, data.water);
+    // Crayon décoratif hors carte (dans la ville complète, le vrai y est)
+    buildFarLandmarks(ctx, bound);
+  }
+  buildLamps(ctx, lampSpotsOsm(ctx, data, full, zConf));
 
   for (const [x, z, w, d] of [
     [(WEST + EAST) / 2, -bound - 2, EAST - WEST + 8, 4],
@@ -89,13 +159,74 @@ export function buildRealCity(ctx, data) {
   }
 }
 
+// Terrain continu de la ville complète : un seul maillage déplacé par la
+// fonction de hauteur (collines, lits des fleuves), coloré par altitude.
+function buildTerrainMesh(ctx, bound) {
+  const size = bound * 2 + 240;
+  const seg = 160;
+  const geo = new THREE.PlaneGeometry(size, size, seg, seg);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+  const asphalt = new THREE.Color(0x4a505d);
+  const grass = new THREE.Color(0x4d6b43);
+  const forest = new THREE.Color(0x36512e);
+  const bedC = new THREE.Color(0x27352b);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i);
+    const h = ctx.terrainHeight(x, z);
+    pos.setY(i, h);
+    if (h < -0.5) c.copy(bedC);
+    else if (h < 1.4) c.copy(asphalt);
+    else c.copy(grass).lerp(forest, Math.min(1, (h - 1.4) / 32));
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(
+    geo,
+    new THREE.MeshLambertMaterial({ vertexColors: true })
+  );
+  ctx.scene.add(mesh);
+}
+
+// Traboules de la ville complète : ancrées sur la vraie basilique
+function fullTraboules(ctx, bas, west) {
+  const hx = bas[0] + 24, hz = bas[1] + 32;
+  const hy = Math.max(0, ctx.terrainHeight?.(hx, hz) ?? 0);
+  return [
+    {
+      a: { x: -38, z: 6, ry: Math.PI / 2 },
+      b: { x: -30, z: -118, ry: 0 },
+      loreAB: '🚪 Tu as traboulé jusqu’aux pentes ! Les canuts passaient par là.',
+      loreBA: '🚪 Retour à Bellecour par la traboule des canuts.',
+    },
+    {
+      a: { x: west.minX - 20, z: bas[1] + 30, ry: Math.PI / 2 },
+      b: { x: hx, z: hz, ry: Math.PI / 2, y: hy },
+      loreAB: '🚪 La ficelle des pauvres : cette traboule grimpe à Fourvière !',
+      loreBA: '🚪 Descente express : te voilà au pied de la colline.',
+    },
+    {
+      a: { x: 52, z: 100, ry: Math.PI },
+      b: { x: 13, z: -70, ry: Math.PI / 2 },
+      loreAB: '🚪 Raccourci de gone : du stand de tir à la salle d’arcade.',
+      loreBA: '🚪 Sortie secrète de l’arcade, côté stand de tir.',
+    },
+  ];
+}
+
 // Lampadaires du mode OSM : quais des deux fleuves, tour de Bellecour, et un
-// échantillon des grands axes routiers.
-function lampSpotsOsm(ctx, data) {
+// échantillon des grands axes routiers (posés sur les collines si besoin).
+function lampSpotsOsm(ctx, data, full = false, zConf = null) {
   const spots = [];
+  const zEdge = zConf != null ? zConf - 6 : ctx.worldBound - 12;
   for (const band of data.water) {
     for (const x of [band.minX - 6.5, band.maxX + 6.5]) {
-      for (let z = -ctx.worldBound + 12; z < ctx.worldBound - 12; z += 24) {
+      for (let z = -ctx.worldBound + 12; z < zEdge; z += 24) {
         if (Math.abs(z) < 6) continue;
         spots.push([x, z]);
       }
@@ -106,6 +237,7 @@ function lampSpotsOsm(ctx, data) {
     spots.push([x, BELLECOUR.minZ + 1.5], [x, BELLECOUR.maxZ - 1.5]);
   }
   const inWater = (x) => data.water.some((w) => x > w.minX - 4 && x < w.maxX + 4);
+  const cap = full ? 700 : 220;
   let done = false;
   for (const road of data.roads) {
     if (done) break;
@@ -113,8 +245,9 @@ function lampSpotsOsm(ctx, data) {
     for (let i = 0; i + 1 < road.p.length; i += 20) {
       const x = road.p[i], z = road.p[i + 1];
       if (inWater(x) || Math.abs(x) > ctx.worldBound - 6 || Math.abs(z) > ctx.worldBound - 6) continue;
-      spots.push([x + road.w / 2 + 1.5, z]);
-      if (spots.length > 220) { done = true; break; }
+      const gy = full ? Math.max(0, ctx.terrainHeight?.(x, z) ?? 0) : 0;
+      spots.push([x + road.w / 2 + 1.5, z, gy]);
+      if (spots.length > cap) { done = true; break; }
     }
   }
   return spots;
@@ -166,13 +299,19 @@ function buildGround(ctx, bound, bands) {
   }
 }
 
-function buildWater(ctx, bands, bound) {
+function buildWater(ctx, bands, bound, zConf = null) {
   for (const band of bands) {
-    // Ponts : un au centre, deux autres à mi-chemin des bords
-    const bz = Math.round(bound * 0.55);
+    // Ponts sur la zone plate du centre (jamais dans les collines) ;
+    // en ville complète on en met cinq, tous au nord de la Confluence
+    const candidates = zConf != null
+      ? [0, 170, -170, 340, -340]
+      : [0, Math.round(bound * 0.55), -Math.round(bound * 0.55)];
+    const bridgesZ = candidates.filter(
+      (z) => Math.abs(z) < bound - 30 && (zConf == null || z < zConf - 30)
+    );
     buildRiverWorks(ctx, band, {
       halfLength: bound + 100,
-      bridgesZ: [0, bz, -bz],
+      bridgesZ,
       parapetHalf: bound,
     });
     for (const x of [band.minX - 2.5, band.maxX + 2.5]) {
@@ -196,18 +335,20 @@ function reservedRects() {
     { minX: MUR_PEINT.x - MUR_PEINT.w / 2 - 5, maxX: MUR_PEINT.x + MUR_PEINT.w / 2 + 5, minZ: MUR_PEINT.z - 8, maxZ: MUR_PEINT.z + 8 },
   ];
   if (HILL_RECT) rects.push(HILL_RECT);
-  rects.push(...WATER_RECTS);
+  rects.push(...WATER_RECTS, ...EXTRA_RECTS);
   return rects;
 }
 
-function buildOsmBuildings(ctx, data, rand) {
+function buildOsmBuildings(ctx, data, rand, full = false) {
   const reserved = reservedRects();
   const facadeTex = makeFacadeTexture();
   facadeTex.wrapS = facadeTex.wrapT = THREE.RepeatWrapping;
   const wallMat = new THREE.MeshLambertMaterial({ map: facadeTex, vertexColors: true });
   const roofMat = new THREE.MeshLambertMaterial({ vertexColors: true });
 
-  // Accumulateurs par tuile spatiale
+  // Accumulateurs par tuile spatiale (plus grandes sur la ville complète :
+  // moins de draw calls pour une carte 4× plus vaste)
+  const TILE = full ? 120 : 80;
   const tiles = new Map(); // key -> { wp, wuv, wc, rp, rc }
   const tileOf = (x, z) => {
     const key = Math.floor(x / TILE) + ',' + Math.floor(z / TILE);
@@ -258,6 +399,12 @@ function buildOsmBuildings(ctx, data, rand) {
     roofColor.set(ROOF_TINTS[hash2(bi * 7 + 3) % ROOF_TINTS.length])
       .offsetHSL(0, 0, (rand() - 0.5) * 0.05);
 
+    // Sur la ville complète, le bâtiment est posé sur le terrain (pentes de
+    // la Croix-Rousse, flanc de Fourvière) avec une jupe enterrée de 2 m
+    const yBase = full ? Math.max(0, ctx.terrainHeight?.(cx, cz) ?? 0) : 0;
+    const y0 = yBase - (full ? 2 : 0);
+    const y1 = yBase + h;
+
     // Murs
     for (let i = 0; i < pts.length; i++) {
       const [x1, z1] = pts[i];
@@ -267,10 +414,10 @@ function buildOsmBuildings(ctx, data, rand) {
       // Nombres ENTIERS de fenêtres : plus jamais de dernier étage coupé
       // (la cellule s'étire légèrement au lieu d'être tronquée)
       const u = Math.max(1, Math.round(len / FLOOR_M));
-      const v = Math.max(1, Math.round(h / FLOOR_M));
+      const v = Math.max(1, Math.round((y1 - y0) / FLOOR_M));
       tile.wp.push(
-        x1, 0, z1, x2, 0, z2, x2, h, z2,
-        x1, 0, z1, x2, h, z2, x1, h, z1
+        x1, y0, z1, x2, y0, z2, x2, y1, z2,
+        x1, y0, z1, x2, y1, z2, x1, y1, z1
       );
       tile.wuv.push(0, 0, u, 0, u, v, 0, 0, u, v, 0, v);
       for (let k = 0; k < 6; k++) tile.wc.push(wallColor.r, wallColor.g, wallColor.b);
@@ -285,7 +432,7 @@ function buildOsmBuildings(ctx, data, rand) {
         // Normale vers le haut
         const ny = (pb[1] - pa[1]) * (pc[0] - pa[0]) - (pb[0] - pa[0]) * (pc[1] - pa[1]);
         if (ny < 0) { const t = pb; pb = pc; pc = t; }
-        tile.rp.push(pa[0], h, pa[1], pb[0], h, pb[1], pc[0], h, pc[1]);
+        tile.rp.push(pa[0], y1, pa[1], pb[0], y1, pb[1], pc[0], y1, pc[1]);
         for (let k = 0; k < 3; k++) tile.rc.push(roofColor.r, roofColor.g, roofColor.b);
       }
     } catch { /* empreinte dégénérée : murs seuls */ }
@@ -306,7 +453,7 @@ function buildOsmBuildings(ctx, data, rand) {
         const bz = z1 + ((z2 - z1) * (k + 1)) / chunks;
         ctx.colliders.push({
           minX: Math.min(ax, bx) - 0.25, maxX: Math.max(ax, bx) + 0.25,
-          minY: 0, maxY: h,
+          minY: y0, maxY: y1,
           minZ: Math.min(az, bz) - 0.25, maxZ: Math.max(az, bz) + 0.25,
         });
       }
@@ -338,8 +485,12 @@ function buildOsmBuildings(ctx, data, rand) {
   console.log(`Lyon OSM : ${kept} bâtiments dans ${tiles.size} tuiles.`);
 }
 
-function buildOsmRoads(ctx, data) {
+function buildOsmRoads(ctx, data, full = false) {
   const pos = [];
+  // Sur la ville complète, les rubans de route épousent le terrain
+  const yAt = full
+    ? (x, z) => Math.max(0, ctx.terrainHeight?.(x, z) ?? 0) + 0.06
+    : () => 0.045;
   for (const road of data.roads) {
     const half = road.w / 2;
     for (let i = 0; i + 3 < road.p.length; i += 2) {
@@ -350,11 +501,11 @@ function buildOsmRoads(ctx, data) {
       if (len < 0.1) continue;
       // Perpendiculaire au segment
       const px = (-dz / len) * half, pz = (dx / len) * half;
-      const y = 0.045;
+      const ya = yAt(x1, z1), yb = yAt(x2, z2);
       // Deux triangles formant le ruban
       pos.push(
-        x1 - px, y, z1 - pz, x2 - px, y, z2 - pz, x2 + px, y, z2 + pz,
-        x1 - px, y, z1 - pz, x2 + px, y, z2 + pz, x1 + px, y, z1 + pz
+        x1 - px, ya, z1 - pz, x2 - px, yb, z2 - pz, x2 + px, yb, z2 + pz,
+        x1 - px, ya, z1 - pz, x2 + px, yb, z2 + pz, x1 + px, ya, z1 + pz
       );
     }
   }
@@ -404,7 +555,7 @@ function buildFarLandmarks(ctx, bound) {
 
 // Verdure : parcs, alignements le long des quais et de Bellecour. Tout le
 // feuillage en un seul InstancedMesh, les troncs en un autre → 2 draw calls.
-function buildGreenery(ctx, data, rand) {
+function buildGreenery(ctx, data, rand, full = false) {
   const spots = [];
   const reserved = reservedRects();
   const inReserved = (x, z) => reserved.some(
@@ -427,8 +578,9 @@ function buildGreenery(ctx, data, rand) {
     spots.push([BELLECOUR.minX + t * (BELLECOUR.maxX - BELLECOUR.minX), BELLECOUR.minZ - 2]);
     spots.push([BELLECOUR.minX + t * (BELLECOUR.maxX - BELLECOUR.minX), BELLECOUR.maxZ + 2]);
   }
-  // Quelques arbres épars dans les rues
-  for (let i = 0; i < 140; i++) {
+  // Arbres épars dans les rues (et sur les collines en ville complète)
+  const scatter = full ? 420 : 140;
+  for (let i = 0; i < scatter; i++) {
     spots.push([(rand() - 0.5) * ctx.worldBound * 1.9, (rand() - 0.5) * ctx.worldBound * 1.9]);
   }
 
@@ -436,12 +588,14 @@ function buildGreenery(ctx, data, rand) {
   const valid = [];
   for (const [x, z] of spots) {
     if (inWater(x) || inReserved(x, z)) continue;
+    const ty = full ? (ctx.terrainHeight?.(x, z) ?? 0) : 0;
+    if (ty < -0.5) continue; // pas dans les lits des fleuves
     const near = ctx.colliders.nearby ? ctx.colliders.nearby(x, z, 1.5) : [];
     let hit = false;
     for (const b of near) {
       if (x > b.minX - 1 && x < b.maxX + 1 && z > b.minZ - 1 && z < b.maxZ + 1) { hit = true; break; }
     }
-    if (!hit) valid.push([x, z, 0.85 + rand() * 0.5]);
+    if (!hit) valid.push([x, z, 0.85 + rand() * 0.5, Math.max(0, ty)]);
   }
   if (valid.length === 0) return;
 
@@ -455,12 +609,12 @@ function buildGreenery(ctx, data, rand) {
 
   const m = new THREE.Matrix4();
   const col = new THREE.Color();
-  valid.forEach(([x, z, s], i) => {
+  valid.forEach(([x, z, s, ty = 0], i) => {
     m.makeScale(s, s, s);
-    m.setPosition(x, 1.2 * s, z);
+    m.setPosition(x, ty + 1.2 * s, z);
     trunks.setMatrixAt(i, m);
     m.makeScale(s * 1.6, s * 1.5, s * 1.6);
-    m.setPosition(x, 3.6 * s, z);
+    m.setPosition(x, ty + 3.6 * s, z);
     foliage.setMatrixAt(i, m);
     col.setHSL(0.28 + rand() * 0.06, 0.45, 0.32 + rand() * 0.12);
     foliage.setColorAt(i, col);
