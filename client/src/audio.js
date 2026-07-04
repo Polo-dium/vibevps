@@ -147,6 +147,60 @@ export const audio = {
     });
   },
 
+  // Moteur de voiture : oscillateur persistant dont la hauteur suit la vitesse
+  _engine: null,
+  engineStart() {
+    ensure();
+    if (this._engine) return;
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.value = 55;
+    const osc2 = ctx.createOscillator();
+    osc2.type = 'square';
+    osc2.frequency.value = 28;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 500;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.07, ctx.currentTime + 0.2);
+    osc.connect(filter);
+    osc2.connect(filter);
+    filter.connect(g).connect(master);
+    osc.start();
+    osc2.start();
+    this._engine = { osc, osc2, g };
+  },
+  engineUpdate(k) { // k = vitesse normalisée 0..1
+    if (!this._engine || !ctx) return;
+    const f = 45 + k * 130;
+    this._engine.osc.frequency.setTargetAtTime(f, ctx.currentTime, 0.08);
+    this._engine.osc2.frequency.setTargetAtTime(f / 2, ctx.currentTime, 0.08);
+    this._engine.g.gain.setTargetAtTime(0.05 + k * 0.06, ctx.currentTime, 0.1);
+  },
+  engineStop() {
+    if (!this._engine || !ctx) return;
+    const { osc, osc2, g } = this._engine;
+    this._engine = null;
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+    osc.stop(ctx.currentTime + 0.3);
+    osc2.stop(ctx.currentTime + 0.3);
+  },
+
+  // Klaxon deux tons, très français
+  horn() {
+    if (!ctx) return;
+    tone(440, 0.18, { type: 'square', gain: 0.12 });
+    tone(554, 0.18, { type: 'square', gain: 0.12, at: 0.02 });
+  },
+
+  // Tôle froissée (petite collision en voiture)
+  crash() {
+    if (!ctx) return;
+    noise(0.22, { freq: 900, gain: 0.25, q: 0.6 });
+    tone(90, 0.18, { type: 'square', gain: 0.14, slideTo: 45 });
+  },
+
   // Passage de traboule : souffle grave + glissando mystérieux
   traboule() {
     if (!ctx) return;

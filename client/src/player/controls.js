@@ -24,6 +24,10 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   // Entrées tactiles (mobile)
   const touchMove = { fwd: 0, strafe: 0 };
   let wantJump = false;
+  // Mode véhicule : quand il est défini, update() conduit au lieu de marcher
+  // ({ heading, speed, onHorn, onCrash } — la position reste `pos`)
+  let vehicle = null;
+  let bodyHalf = HALF_W; // s'élargit au volant
 
   if (!IS_TOUCH) {
     domElement.addEventListener('click', () => {
@@ -63,9 +67,9 @@ export function createControls(camera, domElement, colliders, terrain = null) {
 
   function overlaps(box) {
     return (
-      pos.x + HALF_W > box.minX && pos.x - HALF_W < box.maxX &&
+      pos.x + bodyHalf > box.minX && pos.x - bodyHalf < box.maxX &&
       pos.y + HEIGHT > box.minY && pos.y < box.maxY &&
-      pos.z + HALF_W > box.minZ && pos.z - HALF_W < box.maxZ
+      pos.z + bodyHalf > box.minZ && pos.z - bodyHalf < box.maxZ
     );
   }
 
@@ -91,12 +95,13 @@ export function createControls(camera, domElement, colliders, terrain = null) {
           onGround = true;
           continue;
         }
-        const half = HALF_W;
+        const half = bodyHalf;
         if (axis === 'x') {
           pos.x = delta > 0 ? box.minX - half : box.maxX + half;
         } else {
           pos.z = delta > 0 ? box.minZ - half : box.maxZ + half;
         }
+        if (vehicle) hitWall = true;
       }
     }
   }
@@ -105,13 +110,16 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     for (const box of activeColliders) {
       if (box === ignore) continue;
       if (
-        x + HALF_W > box.minX && x - HALF_W < box.maxX &&
+        x + bodyHalf > box.minX && x - bodyHalf < box.maxX &&
         y + HEIGHT > box.minY && y < box.maxY &&
-        z + HALF_W > box.minZ && z - HALF_W < box.maxZ
+        z + bodyHalf > box.minZ && z - bodyHalf < box.maxZ
       ) return false;
     }
     return true;
   }
+
+  // Collision latérale du véhicule pendant la frame en cours
+  let hitWall = false;
 
   function update(dt) {
     const active = inputActive();
@@ -128,6 +136,50 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       if (keys.has('KeyA') || keys.has('ArrowLeft')) strafe -= 1;
       fwd += touchMove.fwd;
       strafe += touchMove.strafe;
+    }
+
+    if (vehicle) {
+      // --- Conduite : W/S accélère et freine, A/D braque, Espace klaxonne
+      const v = vehicle;
+      const braking = fwd < 0 && v.speed > 0.5;
+      v.speed += fwd * (braking ? 16 : 9) * dt;
+      v.speed *= 1 - 1.1 * dt; // frottements
+      v.speed = Math.max(-7, Math.min(19, v.speed));
+      if (Math.abs(v.speed) < 0.04 && fwd === 0) v.speed = 0;
+      // Braquage proportionnel à la vitesse (pas de rotation à l'arrêt)
+      const grip = Math.min(1, Math.abs(v.speed) / 5);
+      v.heading -= strafe * 1.9 * grip * Math.sign(v.speed || 1) * dt;
+
+      if (active && (keys.has('Space') || wantJump)) {
+        if (!v._hornAt || performance.now() - v._hornAt > 350) {
+          v._hornAt = performance.now();
+          v.onHorn?.();
+        }
+      }
+      wantJump = false;
+
+      vel.x = -Math.sin(v.heading) * v.speed;
+      vel.z = -Math.cos(v.heading) * v.speed;
+      vel.y -= GRAVITY * dt;
+
+      onGround = false;
+      hitWall = false;
+      resolveAxis('y', vel.y * dt);
+      const gLevel = Math.max(0, terrain ? terrain(pos.x, pos.z) : 0);
+      if (pos.y <= gLevel) { pos.y = gLevel; vel.y = 0; onGround = true; }
+      resolveAxis('x', vel.x * dt);
+      resolveAxis('z', vel.z * dt);
+      if (hitWall && Math.abs(v.speed) > 2.5) {
+        v.speed *= -0.28; // rebond de tôle
+        v.onCrash?.();
+      } else if (hitWall) {
+        v.speed = 0;
+      }
+
+      camera.position.set(pos.x, pos.y + 1.15, pos.z); // assis au volant
+      camera.rotation.order = 'YXZ';
+      camera.rotation.set(pitch, yaw, 0);
+      return;
     }
 
     const sin = Math.sin(yaw), cos = Math.cos(yaw);
@@ -174,6 +226,13 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       touchMove.strafe = strafe;
     },
     jump() { wantJump = true; },
+    // Entrer/sortir du mode véhicule ({ heading, speed, onHorn, onCrash })
+    setVehicle(v) {
+      vehicle = v;
+      bodyHalf = v ? 1.05 : HALF_W;
+      if (v) yaw = v.heading; // on regarde d'abord la route
+    },
+    get vehicle() { return vehicle; },
     teleport(x, y, z, ry) {
       pos.set(x, y, z);
       vel.set(0, 0, 0);

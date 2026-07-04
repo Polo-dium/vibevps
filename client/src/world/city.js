@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { addBox, addInvisibleWall, makeTextTexture } from './utils.js';
+import { buildTraffic } from './traffic.js';
 import { audio } from '../audio.js';
 import {
   WORLD_BOUND, BELLECOUR, ARCADE, RANGE, SAONE, RHONE, BRIDGE, MUR_PEINT, makeRand,
@@ -27,6 +28,7 @@ export function buildCity(ctx) {
   buildFountain(ctx);
   buildStreetFurniture(ctx);
   buildTraboules(ctx, proceduralTraboules());
+  buildTraffic(ctx, [SAONE, RHONE]);
 
   // Limites du monde — étendues à l'ouest pour rendre Fourvière jouable
   const WEST = -330;
@@ -1037,10 +1039,10 @@ function buildBuildings(ctx, rand) {
     { minX: BELLECOUR.minX - 6, maxX: BELLECOUR.maxX + 6, minZ: BELLECOUR.minZ - 6, maxZ: BELLECOUR.maxZ + 6 },
     { minX: ARCADE.x - ARCADE.w / 2 - 8, maxX: ARCADE.x + ARCADE.w / 2 + 8, minZ: ARCADE.z - ARCADE.d / 2 - 12, maxZ: ARCADE.z + ARCADE.d / 2 + 12 },
     { minX: RANGE.x - RANGE.width / 2 - 8, maxX: RANGE.x + RANGE.width / 2 + 8, minZ: RANGE.backZ - 8, maxZ: RANGE.counterZ + 12 },
-    // Marge large : la moitié d'un grand lot (9 m) + trottoir, pour qu'aucun
-    // bâtiment ne déborde sur l'eau ni sur les quais
-    { minX: SAONE.minX - 13, maxX: SAONE.maxX + 13, minZ: -300, maxZ: 300 },
-    { minX: RHONE.minX - 13, maxX: RHONE.maxX + 13, minZ: -300, maxZ: 300 },
+    // Marge large : quais + avenues + stationnement — aucun bâtiment ne
+    // déborde sur l'eau, la chaussée ou les voitures garées
+    { minX: SAONE.minX - 18, maxX: SAONE.maxX + 18, minZ: -300, maxZ: 300 },
+    { minX: RHONE.minX - 18, maxX: RHONE.maxX + 18, minZ: -300, maxZ: 300 },
     { minX: -300, maxX: 300, minZ: -9, maxZ: 9 }, // axe est-ouest (ponts)
     { minX: MUR_PEINT.x - 26, maxX: MUR_PEINT.x + 26, minZ: MUR_PEINT.z - 12, maxZ: MUR_PEINT.z + 16 },
     { minX: 105, maxX: 130, minZ: -65, maxZ: -25 }, // tour Part-Dieu

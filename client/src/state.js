@@ -14,6 +14,7 @@ export const state = {
   rangeSession: null, // session de stand de tir en cours
   xp: 0, // progression du joueur (source de vérité : serveur)
   level: 1,
+  driving: false, // au volant d'une décapotable
 };
 
 export async function apiFetch(path, options = {}) {

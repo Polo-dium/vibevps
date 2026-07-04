@@ -6,6 +6,7 @@ import {
   buildGrandeRoue, buildFountain, buildStreetFurniture, buildMurPeint,
   buildPeniches, buildSilure, buildFourviere, buildLamps, buildTraboules,
 } from './city.js';
+import { buildTraffic } from './traffic.js';
 
 // Construit le vrai centre de Lyon à partir des empreintes OpenStreetMap
 // (client/public/lyon-osm.json, généré par tools/fetch-osm.mjs).
@@ -41,9 +42,9 @@ export function buildRealCity(ctx, data) {
     minX: hillDef.cx - hillDef.rx - 4, maxX: hillDef.cx + hillDef.rx + 6,
     minZ: hillDef.cz - hillDef.rz, maxZ: hillDef.cz + hillDef.rz,
   };
-  // Aucun bâtiment ne doit tremper dans le Rhône ou la Saône
+  // Aucun bâtiment sur l'eau NI sur les avenues des quais (± 18 m)
   WATER_RECTS = data.water.map((w) => ({
-    minX: w.minX - 2, maxX: w.maxX + 2, minZ: -bound - 200, maxZ: bound + 200,
+    minX: w.minX - 18, maxX: w.maxX + 18, minZ: -bound - 200, maxZ: bound + 200,
   }));
   const WEST = Math.min(-(bound + 2), hillDef.cx - hillDef.rx - 12);
   const EAST = bound + 2;
@@ -70,6 +71,7 @@ export function buildRealCity(ctx, data) {
   buildFourviere(ctx, hillDef);
   buildLamps(ctx, lampSpotsOsm(ctx, data));
   buildTraboules(ctx, osmTraboules(ctx, hillDef));
+  buildTraffic(ctx, data.water);
 
   // Décor hors zone : le Crayon à l'est
   buildFarLandmarks(ctx, bound);

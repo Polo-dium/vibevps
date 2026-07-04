@@ -155,6 +155,36 @@ async function boot() {
     notify: (msg) => ui.toast(msg), // événements du monde (silure, statue…)
     onRoi: null, // branché plus bas, une fois les PNJ créés
     abortRides: [], // les manèges (Grande Roue, ficelle…) s'y inscrivent
+    playerPos: () => controls.position, // lu par le trafic (voitures)
+    isDriving: () => state.driving,
+    // Écrasé par une voiture du trafic : dégâts validés côté serveur
+    onRunOver: () => {
+      net.send({ t: 'ouch', dmg: 15, by: 'un chauffard lyonnais' });
+      navigator.vibrate?.(60);
+    },
+    // Conduite des décapotables (voir world/traffic.js)
+    startDrive: (car, group) => {
+      controls.teleport(group.position.x, group.position.y, group.position.z);
+      car.onHorn = () => audio.horn();
+      car.onCrash = () => {
+        audio.crash();
+        navigator.vibrate?.(35);
+      };
+      controls.setVehicle(car);
+      state.driving = true;
+      audio.engineStart();
+    },
+    stopDrive: (car, group) => {
+      controls.setVehicle(null);
+      state.driving = false;
+      audio.engineStop();
+      // On descend côté conducteur
+      controls.teleport(
+        group.position.x + Math.cos(car.heading) * 2,
+        group.position.y,
+        group.position.z - Math.sin(car.heading) * 2
+      );
+    },
   };
 
   // Vrai Lyon (données OpenStreetMap) si le fichier a été généré sur le
@@ -408,6 +438,12 @@ async function boot() {
     if (msg.id === myNetId) {
       const sp = spawnPoint();
       for (const abort of ctx.abortRides) abort();
+      // Mort au volant : on coupe le moteur, la voiture reste sur place
+      if (state.driving) {
+        controls.setVehicle(null);
+        state.driving = false;
+        audio.engineStop();
+      }
       npcs.calm(); // la Garde a eu sa vengeance
       controls.teleport(sp.x, sp.y, sp.z, sp.ry);
       ui.setHp(100);
@@ -567,9 +603,14 @@ async function boot() {
     // L'arme range la bombe (et inversement)
     if (state.weaponEquipped && state.tagMode) spray.setMode(false);
 
+    // Moteur de la décapotable : la hauteur suit la vitesse
+    if (state.driving) {
+      audio.engineUpdate(Math.min(1, Math.abs(controls.vehicle?.speed ?? 0) / 19));
+    }
+
     // Bruits de pas : cadence et volume selon la vitesse réelle
     const speed = controls.speed();
-    if (controls.onGround && speed > 1.2) {
+    if (controls.onGround && speed > 1.2 && !state.driving) {
       stepTimer -= dt;
       if (stepTimer <= 0) {
         audio.footstep(Math.min(1, speed / 10));
