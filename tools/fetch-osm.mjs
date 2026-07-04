@@ -29,7 +29,7 @@ const H_SCALE = 0.6;
 const BBOX = '45.7310,4.8080,45.7790,4.8600'; // S, O, N, E
 
 const QUERY = `
-[out:json][timeout:120];
+[out:json][timeout:300];
 (
   way["building"](${BBOX});
   way["highway"~"^(primary|secondary|tertiary|residential|pedestrian|living_street|unclassified|service)$"](${BBOX});
@@ -42,7 +42,18 @@ out skel qt;
 const ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
 ];
+
+// Overpass filtre les clients anonymes (HTTP 406) et limite par IP (429) :
+// on s'identifie proprement et on réessaie par vagues espacées.
+const HEADERS = {
+  'Content-Type': 'application/x-www-form-urlencoded',
+  Accept: 'application/json',
+  'User-Agent': 'vibevps-lyon-arcade/1.0 (+https://github.com/Polo-dium/vibevps)',
+};
+
+const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
 
 function toXZ(lat, lon) {
   return [
@@ -123,19 +134,25 @@ const BASILICA = toXZ(45.7622, 4.8225).map(r1);
 
 async function fetchOsm() {
   let lastErr;
-  for (const url of ENDPOINTS) {
-    try {
-      console.log(`Téléchargement OSM depuis ${url}…`);
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'data=' + encodeURIComponent(QUERY),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    } catch (err) {
-      console.warn(`Échec : ${err.message}`);
-      lastErr = err;
+  for (let round = 1; round <= 3; round++) {
+    for (const url of ENDPOINTS) {
+      try {
+        console.log(`Téléchargement OSM depuis ${url} (vague ${round}/3)…`);
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: HEADERS,
+          body: 'data=' + encodeURIComponent(QUERY),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+      } catch (err) {
+        console.warn(`Échec : ${err.message}`);
+        lastErr = err;
+      }
+    }
+    if (round < 3) {
+      console.log('Tous les serveurs ont refusé — nouvelle vague dans 45 s (quotas Overpass)…');
+      await sleep(45);
     }
   }
   throw lastErr;
