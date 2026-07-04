@@ -586,6 +586,7 @@ async function boot() {
   }
 
   let stepTimer = 0;
+  let wetToastAt = 0;
 
   function loop() {
     requestAnimationFrame(loop);
@@ -606,6 +607,14 @@ async function boot() {
     // Moteur de la décapotable : la hauteur suit la vitesse
     if (state.driving) {
       audio.engineUpdate(Math.min(1, Math.abs(controls.vehicle?.speed ?? 0) / 19));
+    }
+
+    // Tombé dans le fleuve : petit message (la vraie nage viendra plus tard)
+    if (controls.position.y < -1.2 && !state.driving && infoTimer <= 0 && !wetToastAt) {
+      wetToastAt = Date.now();
+      ui.toast('🌊 Glagla ! Rejoins un escalier de quai pour remonter.');
+    } else if (controls.position.y > -0.5 && wetToastAt && Date.now() - wetToastAt > 8000) {
+      wetToastAt = 0;
     }
 
     // Bruits de pas : cadence et volume selon la vitesse réelle

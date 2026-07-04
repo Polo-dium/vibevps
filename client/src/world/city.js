@@ -29,6 +29,8 @@ export function buildCity(ctx) {
   buildStreetFurniture(ctx);
   buildTraboules(ctx, proceduralTraboules());
   buildTraffic(ctx, [SAONE, RHONE]);
+  // Le lit des fleuves devient le sol quand on tombe à l'eau
+  composeRiverTerrain(ctx, [SAONE, RHONE]);
 
   // Limites du monde — étendues à l'ouest pour rendre Fourvière jouable
   const WEST = -330;
@@ -44,52 +46,41 @@ export function buildCity(ctx) {
   }
 }
 
-function buildGroundAndRivers(ctx) {
-  // Sol asphalte texturé (grain procédural)
-  const groundTex = makeAsphaltTexture();
-  groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping;
-  groundTex.repeat.set(90, 90);
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(560, 560),
-    new THREE.MeshLambertMaterial({ map: groundTex })
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = 0;
-  ground.userData.taggable = false;
-  ctx.scene.add(ground);
+// Niveau de l'eau et du lit des fleuves : l'eau coule en contrebas des
+// quais, les péniches passent sous les ponts, et on peut tomber dedans
+// (les escaliers de quai permettent de remonter).
+export const WATER_Y = -1.6;
+export const BED_Y = -2.6;
 
-  // Eau animée des deux fleuves : deux couches de texture qui défilent à des
-  // vitesses différentes + reflet spéculaire du soleil (Phong)
-  const waterTex = makeWaterTexture();
-  waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping;
-  waterTex.repeat.set(3, 60);
-  const waterTex2 = makeWaterTexture();
-  waterTex2.wrapS = waterTex2.wrapT = THREE.RepeatWrapping;
-  waterTex2.repeat.set(5, 80);
-  const waterMat = new THREE.MeshPhongMaterial({
-    map: waterTex, transparent: true, opacity: 0.94,
-    specular: 0xbdd9e2, shininess: 90,
-  });
-  const waterMat2 = new THREE.MeshPhongMaterial({
-    map: waterTex2, transparent: true, opacity: 0.28,
-    specular: 0x9fc4d0, shininess: 60, depthWrite: false,
-  });
-  ctx.updatables.push((dt) => {
-    waterTex.offset.y -= dt * 0.018;
-    waterTex2.offset.y += dt * 0.011;
-    waterTex2.offset.x += dt * 0.004;
-  });
+function buildGroundAndRivers(ctx) {
+  // Sol asphalte texturé, en trois bandes : les fleuves sont creusés
+  const strips = [
+    [-280, SAONE.minX],
+    [SAONE.maxX, RHONE.minX],
+    [RHONE.maxX, 280],
+  ];
+  for (const [x0, x1] of strips) {
+    const w = x1 - x0;
+    const t = makeAsphaltTexture();
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(Math.max(1, Math.round(w / 6.2)), 90);
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, 560),
+      new THREE.MeshLambertMaterial({ map: t })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.set((x0 + x1) / 2, 0, 0);
+    ground.userData.taggable = false;
+    ctx.scene.add(ground);
+  }
+
   for (const river of [SAONE, RHONE]) {
-    const w = river.maxX - river.minX;
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(w, 560), waterMat);
-    water.rotation.x = -Math.PI / 2;
-    water.position.set((river.minX + river.maxX) / 2, 0.05, 0);
-    ctx.scene.add(water);
-    const shimmer = new THREE.Mesh(new THREE.PlaneGeometry(w, 560), waterMat2);
-    shimmer.rotation.x = -Math.PI / 2;
-    shimmer.position.set((river.minX + river.maxX) / 2, 0.08, 0);
-    shimmer.userData.noShadow = true;
-    ctx.scene.add(shimmer);
+    buildRiverWorks(ctx, river, {
+      halfLength: 280,
+      bridgesZ: [0, 76, -88],
+      withArcs: river === SAONE,
+      parapetHalf: WORLD_BOUND,
+    });
 
     // Bandes de quai en pierre claire le long des berges
     for (const x of [river.minX - 2.2, river.maxX + 2.2]) {
@@ -101,54 +92,163 @@ function buildGroundAndRivers(ctx) {
       quay.position.set(x, 0.011, 0);
       ctx.scene.add(quay);
     }
+  }
+}
 
-    // Parapets de quai, avec une ouverture au niveau du pont (z = 0)
-    for (const x of [river.minX, river.maxX]) {
-      for (const [zc, len] of [
-        [-(WORLD_BOUND + BRIDGE.halfWidth + 1) / 2, WORLD_BOUND - BRIDGE.halfWidth - 1],
-        [(WORLD_BOUND + BRIDGE.halfWidth + 1) / 2, WORLD_BOUND - BRIDGE.halfWidth - 1],
-      ]) {
-        addBox(ctx, { x, z: zc, w: 0.7, h: 1.05, d: len, color: 0x9aa0a8 });
+// Tout l'aménagement d'un fleuve : lit en contrebas, eau animée, murs de
+// quai en pierre, escaliers pour remonter de l'eau, parapets troués au
+// droit des ponts, et de VRAIS ponts surélevés (rampes, parapets, piles)
+// sous lesquels passent les péniches. Partagé procédural / mode OSM.
+export function buildRiverWorks(ctx, band, {
+  halfLength = 280, bridgesZ = [0], withArcs = false, parapetHalf = 134,
+} = {}) {
+  const w = band.maxX - band.minX;
+  const cx = (band.minX + band.maxX) / 2;
+  const L = halfLength * 2;
+
+  // Lit du fleuve (deviné par transparence)
+  const bed = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, L),
+    new THREE.MeshLambertMaterial({ color: 0x27352b })
+  );
+  bed.rotation.x = -Math.PI / 2;
+  bed.position.set(cx, BED_Y + 0.01, 0);
+  ctx.scene.add(bed);
+
+  // Eau animée : deux couches qui défilent + reflet spéculaire
+  const waterTex = makeWaterTexture();
+  waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping;
+  waterTex.repeat.set(3, 60);
+  const waterTex2 = makeWaterTexture();
+  waterTex2.wrapS = waterTex2.wrapT = THREE.RepeatWrapping;
+  waterTex2.repeat.set(5, 80);
+  const water = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, L),
+    new THREE.MeshPhongMaterial({
+      map: waterTex, transparent: true, opacity: 0.93,
+      specular: 0xbdd9e2, shininess: 90,
+    })
+  );
+  water.rotation.x = -Math.PI / 2;
+  water.position.set(cx, WATER_Y, 0);
+  ctx.scene.add(water);
+  const shimmer = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, L),
+    new THREE.MeshPhongMaterial({
+      map: waterTex2, transparent: true, opacity: 0.28,
+      specular: 0x9fc4d0, shininess: 60, depthWrite: false,
+    })
+  );
+  shimmer.rotation.x = -Math.PI / 2;
+  shimmer.position.set(cx, WATER_Y + 0.03, 0);
+  shimmer.userData.noShadow = true;
+  ctx.scene.add(shimmer);
+  ctx.updatables.push((dt) => {
+    waterTex.offset.y -= dt * 0.018;
+    waterTex2.offset.y += dt * 0.011;
+    waterTex2.offset.x += dt * 0.004;
+  });
+
+  // Murs de quai en pierre, du lit au niveau de la rue
+  const wallMat = new THREE.MeshLambertMaterial({ color: 0x8a8274 });
+  for (const [edge, out] of [[band.minX, -1], [band.maxX, 1]]) {
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(0.7, -BED_Y + 0.05, L), wallMat);
+    wall.position.set(edge + out * 0.35, (BED_Y + 0.05) / 2, 0);
+    ctx.scene.add(wall);
+    ctx.colliders.push({
+      minX: edge + out * 0.35 - 0.35, maxX: edge + out * 0.35 + 0.35,
+      minY: BED_Y - 0.1, maxY: 0.02,
+      minZ: -halfLength, maxZ: halfLength,
+    });
+
+    // Escaliers de quai : pour remonter quand on est tombé à l'eau
+    for (const sz of [-56, 56]) {
+      for (let i = 0; i < 5; i++) {
+        addBox(ctx, {
+          x: edge - out * (0.9 + (4 - i) * 0.85),
+          y: BED_Y,
+          z: sz,
+          w: 1.1, h: 0.52 * (i + 1), d: 2.4,
+          color: 0x9a9284,
+        });
       }
     }
+  }
 
-    // Pont à z = 0
-    const bridgeCx = (river.minX + river.maxX) / 2;
-    addBox(ctx, {
-      x: bridgeCx, z: 0,
-      w: w + 6, h: 0.45, d: BRIDGE.halfWidth * 2,
-      color: 0x8b8f99,
-    });
-    for (const zr of [-BRIDGE.halfWidth + 0.4, BRIDGE.halfWidth - 0.4]) {
-      addBox(ctx, {
-        x: bridgeCx, y: 0.45, z: zr,
-        w: w + 6, h: 1.0, d: 0.4, color: 0x6f7884,
-      });
+  // Parapets le long des berges, avec des trouées au droit de chaque pont
+  const gaps = [...bridgesZ].sort((a, b) => a - b);
+  const GAP = 6.2;
+  for (const x of [band.minX, band.maxX]) {
+    let z0 = -parapetHalf;
+    for (const gz of [...gaps, parapetHalf + GAP]) {
+      const z1 = Math.min(gz - GAP, parapetHalf);
+      if (z1 - z0 > 1.5) {
+        addBox(ctx, {
+          x, z: (z0 + z1) / 2, w: 0.7, h: 1.05, d: z1 - z0, color: 0x9aa0a8,
+        });
+      }
+      z0 = gz + GAP;
     }
-    // Arcs supérieurs style passerelle Saint-Georges (sur la Saône uniquement)
-    if (river === SAONE) {
+  }
+
+  // Ponts surélevés : tablier + rampes en marches (step-up) + parapets + piles
+  const DECK_Y = 1.25; // dessous du tablier : les péniches passent en dessous
+  const pileMat = new THREE.MeshLambertMaterial({ color: 0x7a7264 });
+  for (const bz of bridgesZ) {
+    addBox(ctx, {
+      x: cx, y: DECK_Y, z: bz,
+      w: w + 9, h: 0.4, d: 9.5, color: 0x8b8f99,
+    });
+    for (const [edge, out] of [[band.minX, -1], [band.maxX, 1]]) {
+      addBox(ctx, { x: edge + out * 5.6, z: bz, w: 1.5, h: 0.55, d: 9.5, color: 0x7d828c });
+      addBox(ctx, { x: edge + out * 4.9, z: bz, w: 1.5, h: 1.1, d: 9.5, color: 0x848a94 });
+    }
+    for (const zr of [bz - 4.4, bz + 4.4]) {
+      addBox(ctx, { x: cx, y: DECK_Y + 0.4, z: zr, w: w + 9, h: 0.95, d: 0.4, color: 0x6f7884 });
+    }
+    // Piles écartées du chenal central (les péniches passent entre)
+    for (const px of [cx - w / 3, cx + w / 3]) {
+      const pile = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.9, 1.1, DECK_Y - BED_Y, 8), pileMat
+      );
+      pile.position.set(px, (DECK_Y + BED_Y) / 2, bz);
+      ctx.scene.add(pile);
+    }
+    // Arcs supérieurs style passerelle Saint-Georges (Saône, pont central)
+    if (withArcs && bz === 0) {
       const archMat = new THREE.MeshLambertMaterial({ color: 0x8a93a5 });
-      for (const zr of [-BRIDGE.halfWidth + 0.4, BRIDGE.halfWidth - 0.4]) {
+      for (const zr of [bz - 4.4, bz + 4.4]) {
         const arc = new THREE.Mesh(
-          new THREE.TorusGeometry((w + 6) / 2 * 0.92, 0.18, 8, 24, Math.PI),
+          new THREE.TorusGeometry(((w + 9) / 2) * 0.92, 0.18, 8, 24, Math.PI),
           archMat
         );
-        arc.scale.y = 0.42; // arc surbaissé
-        arc.position.set(bridgeCx, 0.45, zr);
+        arc.scale.y = 0.42;
+        arc.position.set(cx, DECK_Y + 0.6, zr);
         ctx.scene.add(arc);
-        // Suspentes verticales
         for (let k = -2; k <= 2; k++) {
-          const hgt = 5.6 * 0.42 * Math.cos((k / 3.4)) * 2.3;
+          const hgt = 5.6 * 0.42 * Math.cos(k / 3.4) * 2.3;
           const cable = new THREE.Mesh(
-            new THREE.BoxGeometry(0.08, Math.max(0.6, hgt), 0.08),
-            archMat
+            new THREE.BoxGeometry(0.08, Math.max(0.6, hgt), 0.08), archMat
           );
-          cable.position.set(bridgeCx + k * 4.2, 0.45 + Math.max(0.6, hgt) / 2, zr);
+          cable.position.set(cx + k * 4.2, DECK_Y + 0.6 + Math.max(0.6, hgt) / 2, zr);
           ctx.scene.add(cable);
         }
       }
     }
   }
+}
+
+// Compose le terrain : lit des fleuves en contrebas + colline éventuelle.
+// À appeler après buildFourviere (qui pose ctx.terrainHeight = colline).
+export function composeRiverTerrain(ctx, bands) {
+  const prev = ctx.terrainHeight;
+  ctx.terrainHeight = (x, z) => {
+    void z;
+    for (const b of bands) {
+      if (x > b.minX + 0.35 && x < b.maxX - 0.35) return BED_Y;
+    }
+    return prev ? prev(x, z) : 0;
+  };
 }
 
 function makeAsphaltTexture() {
@@ -385,15 +485,16 @@ export function buildPeniches(ctx, bands = [SAONE, RHONE]) {
     deck.position.y = 1.2;
     deck.position.z = 1;
     group.add(deck);
+    // Cabine surbaissée : la péniche passe sous les tabliers des ponts
     const cabin = new THREE.Mesh(
-      new THREE.BoxGeometry(3, 1.6, 3),
+      new THREE.BoxGeometry(3, 1.15, 3),
       new THREE.MeshLambertMaterial({ color: 0xe5e1d4 })
     );
-    cabin.position.set(0, 1.9, -5.5);
+    cabin.position.set(0, 1.55, -5.5);
     group.add(cabin);
 
     const cx = (cfg.river.minX + cfg.river.maxX) / 2 + cfg.offset;
-    group.position.set(cx, 0.05, cfg.z);
+    group.position.set(cx, WATER_Y + 0.05, cfg.z);
     if (cfg.speed < 0) group.rotation.y = Math.PI;
     ctx.scene.add(group);
 
@@ -401,7 +502,7 @@ export function buildPeniches(ctx, bands = [SAONE, RHONE]) {
       group.position.z += cfg.speed * dt;
       if (group.position.z > wrap) group.position.z = -wrap;
       if (group.position.z < -wrap) group.position.z = wrap;
-      group.position.y = 0.05 + Math.sin(performance.now() / 900 + cfg.z) * 0.04;
+      group.position.y = WATER_Y + 0.05 + Math.sin(performance.now() / 900 + cfg.z) * 0.04;
     });
   }
 }
@@ -563,7 +664,7 @@ export function buildSilure(ctx, band) {
       ctx.notify?.('🐟 Le silure géant du Rhône est de sortie ! (regarde le fleuve)');
     }
     const wig = Math.sin(t / 180) * 0.5;
-    fish.position.set(cx + wig * 2, -1.15 + Math.sin(t / 400) * 0.25, -span + k * span * 2);
+    fish.position.set(cx + wig * 2, WATER_Y - 1.2 + Math.sin(t / 400) * 0.25, -span + k * span * 2);
     fish.rotation.y = Math.PI + wig * 0.18; // remonte vers le nord (-z → +z)
     tail.rotation.y = Math.sin(t / 120) * 0.5;
   });

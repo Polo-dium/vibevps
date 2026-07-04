@@ -59,11 +59,10 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit, onNpcAttack }) {
     if (Math.abs(x) > bound || Math.abs(z) > bound) return true;
     // Les PNJ ne grimpent pas Fourvière (ils marchent à plat, y = 0)
     if ((ctx.terrainHeight?.(x, z) ?? 0) > 0.5) return true;
-    // Fleuves infranchissables (sauf l'axe des ponts en ville procédurale)
+    // Fleuves infranchissables (les ponts sont surélevés, les PNJ marchent à plat)
     const water = ctx.waterBands ?? [SAONE, RHONE];
-    const bridgeOk = !ctx.waterBands; // ponts garantis à z=0 en mode procédural
     for (const r of water) {
-      if (x > r.minX - 1 && x < r.maxX + 1 && (!bridgeOk || Math.abs(z) > 4.2)) return true;
+      if (x > r.minX - 1 && x < r.maxX + 1) return true;
     }
     const boxes = ctx.colliders.nearby
       ? ctx.colliders.nearby(x, z, 1)

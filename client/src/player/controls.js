@@ -165,7 +165,8 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       onGround = false;
       hitWall = false;
       resolveAxis('y', vel.y * dt);
-      const gLevel = Math.max(0, terrain ? terrain(pos.x, pos.z) : 0);
+      // Le terrain peut être NÉGATIF (lit des fleuves en contrebas)
+      const gLevel = terrain ? terrain(pos.x, pos.z) : 0;
       if (pos.y <= gLevel) { pos.y = gLevel; vel.y = 0; onGround = true; }
       resolveAxis('x', vel.x * dt);
       resolveAxis('z', vel.z * dt);
@@ -202,8 +203,8 @@ export function createControls(camera, domElement, colliders, terrain = null) {
 
     onGround = false;
     resolveAxis('y', vel.y * dt);
-    // Sol : plancher plat + terrain éventuel (colline de Fourvière)
-    const groundLevel = Math.max(0, terrain ? terrain(pos.x, pos.z) : 0);
+    // Sol : terrain (colline de Fourvière, lit des fleuves en contrebas) ou 0
+    const groundLevel = terrain ? terrain(pos.x, pos.z) : 0;
     if (pos.y <= groundLevel) { pos.y = groundLevel; vel.y = 0; onGround = true; }
     resolveAxis('x', vel.x * dt);
     resolveAxis('z', vel.z * dt);
@@ -239,11 +240,18 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       if (ry !== undefined) yaw = ry;
     },
     netState() {
-      return {
+      const s = {
         p: [Math.round(pos.x * 100) / 100, Math.round(pos.y * 100) / 100, Math.round(pos.z * 100) / 100],
         ry: Math.round(yaw * 1000) / 1000,
         m: this.isMoving() ? 1 : 0,
       };
+      // Au volant : les autres joueurs voient la voiture (champs optionnels,
+      // ignorés par les anciens clients/serveurs)
+      if (vehicle) {
+        s.veh = 1;
+        s.vry = Math.round(vehicle.heading * 1000) / 1000;
+      }
+      return s;
     },
   };
 }

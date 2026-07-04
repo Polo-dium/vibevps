@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import { addInvisibleWall } from './utils.js';
 import { ARCADE, RANGE, MUR_PEINT, BELLECOUR, makeRand } from './layout.js';
 import {
-  makeWaterTexture, makeSkylineTexture, buildBellecour,
+  makeSkylineTexture, buildBellecour,
   buildGrandeRoue, buildFountain, buildStreetFurniture, buildMurPeint,
   buildPeniches, buildSilure, buildFourviere, buildLamps, buildTraboules,
+  buildRiverWorks, composeRiverTerrain,
 } from './city.js';
 import { buildTraffic } from './traffic.js';
 
@@ -49,7 +50,7 @@ export function buildRealCity(ctx, data) {
   const WEST = Math.min(-(bound + 2), hillDef.cx - hillDef.rx - 12);
   const EAST = bound + 2;
 
-  buildGround(ctx, Math.max(bound, -WEST));
+  buildGround(ctx, Math.max(bound, -WEST), data.water);
   buildWater(ctx, data.water, bound);
   buildOsmBuildings(ctx, data, rand);
   buildOsmRoads(ctx, data);
@@ -72,6 +73,8 @@ export function buildRealCity(ctx, data) {
   buildLamps(ctx, lampSpotsOsm(ctx, data));
   buildTraboules(ctx, osmTraboules(ctx, hillDef));
   buildTraffic(ctx, data.water);
+  // Le lit des fleuves devient le sol quand on tombe à l'eau
+  composeRiverTerrain(ctx, data.water);
 
   // Décor hors zone : le Crayon à l'est
   buildFarLandmarks(ctx, bound);
@@ -145,32 +148,33 @@ function osmTraboules(ctx, hillDef) {
   ];
 }
 
-function buildGround(ctx, bound) {
+// Sol en bandes : les fleuves sont creusés (l'eau coule en contrebas)
+function buildGround(ctx, bound, bands) {
   const size = bound * 2 + 400;
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(size, size),
-    new THREE.MeshLambertMaterial({ color: 0x4a505d })
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ctx.scene.add(ground);
+  const edges = [...bands].sort((a, b) => a.minX - b.minX);
+  const xs = [-size / 2];
+  for (const b of edges) xs.push(b.minX, b.maxX);
+  xs.push(size / 2);
+  const mat = new THREE.MeshLambertMaterial({ color: 0x4a505d });
+  for (let i = 0; i < xs.length; i += 2) {
+    const x0 = xs[i], x1 = xs[i + 1];
+    if (x1 - x0 < 1) continue;
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, size), mat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.set((x0 + x1) / 2, 0, 0);
+    ctx.scene.add(ground);
+  }
 }
 
 function buildWater(ctx, bands, bound) {
-  const waterTex = makeWaterTexture();
-  waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping;
-  waterTex.repeat.set(3, 90);
-  const waterMat = new THREE.MeshLambertMaterial({
-    map: waterTex, transparent: true, opacity: 0.94,
-  });
-  ctx.updatables.push((dt) => { waterTex.offset.y -= dt * 0.018; });
-
   for (const band of bands) {
-    const w = band.maxX - band.minX;
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(w, bound * 2 + 200), waterMat);
-    water.rotation.x = -Math.PI / 2;
-    water.position.set((band.minX + band.maxX) / 2, 0.03, 0);
-    ctx.scene.add(water);
-
+    // Ponts : un au centre, deux autres à mi-chemin des bords
+    const bz = Math.round(bound * 0.55);
+    buildRiverWorks(ctx, band, {
+      halfLength: bound + 100,
+      bridgesZ: [0, bz, -bz],
+      parapetHalf: bound,
+    });
     for (const x of [band.minX - 2.5, band.maxX + 2.5]) {
       const quay = new THREE.Mesh(
         new THREE.PlaneGeometry(5, bound * 2 + 200),

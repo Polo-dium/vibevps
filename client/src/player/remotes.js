@@ -52,6 +52,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
   function remove(id) {
     const r = remotes.get(id);
     if (!r) return;
+    if (r.car) scene.remove(r.car);
     scene.remove(r.human.group);
     if (shootables) {
       for (const mesh of r.human.hitMeshes) {
@@ -79,10 +80,10 @@ export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
   net.on('chat', (msg) => showChat(msg.id, msg.text));
   net.on('states', (msg) => {
     const now = performance.now() / 1000;
-    for (const [id, x, y, z, ry] of msg.s) {
+    for (const [id, x, y, z, ry, , veh, vry] of msg.s) {
       const r = remotes.get(id);
       if (!r) continue;
-      r.buffer.push({ t: now, p: [x, y, z], ry });
+      r.buffer.push({ t: now, p: [x, y, z], ry, veh: veh ?? 0, vry: vry ?? 0 });
       if (r.buffer.length > 30) r.buffer.shift();
     }
   });
@@ -127,12 +128,29 @@ export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
       while (dry < -Math.PI) dry += Math.PI * 2;
       g.rotation.y = a.ry + dry * alpha;
 
-      // Animation de marche selon la vitesse réelle observée
+      // Voiture visible quand le joueur conduit (cabriolet fantôme)
+      const veh = (b.veh ?? a.veh ?? 0) === 1;
+      if (veh && !r.car) {
+        r.car = makeGhostCabrio(r.baseColor);
+        scene.add(r.car);
+      }
+      if (r.car) {
+        r.car.visible = veh;
+        if (veh) {
+          let dvry = (b.vry ?? 0) - (a.vry ?? 0);
+          while (dvry > Math.PI) dvry -= Math.PI * 2;
+          while (dvry < -Math.PI) dvry += Math.PI * 2;
+          r.car.position.copy(g.position);
+          r.car.rotation.y = (a.vry ?? 0) + dvry * alpha;
+        }
+      }
+
+      // Animation de marche selon la vitesse réelle observée (figée en voiture)
       const speed = frameDt > 0 ? g.position.distanceTo(r.prevPos) / frameDt : 0;
       r.prevPos.copy(g.position);
       r.animTime += frameDt * (3 + Math.min(speed, 12) * 0.9);
       r.human.group.userData.baseY = g.position.y;
-      r.human.animate(r.animTime, speed);
+      r.human.animate(r.animTime, veh ? 0 : speed);
     }
   }
 
@@ -140,6 +158,33 @@ export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
   function getPos(id) { return remotes.get(id)?.human.group.position ?? null; }
 
   return { update, count, showChat, getPos };
+}
+
+// Cabriolet fantôme affiché sous les joueurs distants qui conduisent —
+// teinté à la couleur du joueur, géométrie minimale.
+const GHOST_DARK = new THREE.MeshLambertMaterial({ color: 0x1c1e24 });
+function makeGhostCabrio(tint) {
+  const car = new THREE.Group();
+  const bodyMat = new THREE.MeshLambertMaterial({ color: tint.clone().multiplyScalar(0.85) });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.55, 4.1), bodyMat);
+  body.position.y = 0.62;
+  car.add(body);
+  const windshield = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.6, 0.6),
+    new THREE.MeshLambertMaterial({
+      color: 0x9fc4d8, transparent: true, opacity: 0.55, side: THREE.DoubleSide,
+    })
+  );
+  windshield.position.set(0, 1.25, -0.7);
+  windshield.rotation.x = -0.35;
+  car.add(windshield);
+  for (const off of [1.3, -1.3]) {
+    const axle = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.5, 0.6), GHOST_DARK);
+    axle.position.set(0, 0.26, off);
+    car.add(axle);
+  }
+  car.visible = false;
+  return car;
 }
 
 function makeChatBubble() {

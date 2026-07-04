@@ -71,6 +71,10 @@ export function setupWs(httpServer) {
         me.p = p;
         me.ry = ry;
         me.m = msg.m ? 1 : 0;
+        // Véhicule (optionnel) : relayé pour afficher la voiture chez les autres
+        me.veh = msg.veh ? 1 : 0;
+        const vry = Number(msg.vry);
+        me.vry = Number.isFinite(vry) ? vry : 0;
         me.dirty = true;
         return;
       }
@@ -192,7 +196,11 @@ export function setupWs(httpServer) {
     for (const [pid, entry] of players) {
       if (!entry.dirty) continue;
       entry.dirty = false;
-      states.push([pid, ...entry.p.map((v) => Math.round(v * 100) / 100), Math.round(entry.ry * 1000) / 1000, entry.m]);
+      states.push([
+        pid, ...entry.p.map((v) => Math.round(v * 100) / 100),
+        Math.round(entry.ry * 1000) / 1000, entry.m,
+        entry.veh ?? 0, Math.round((entry.vry ?? 0) * 1000) / 1000,
+      ]);
     }
     if (states.length > 0) broadcast({ t: 'states', s: states });
   }, TICK_MS);
