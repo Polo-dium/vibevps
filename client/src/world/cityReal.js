@@ -126,7 +126,14 @@ export function buildRealCity(ctx, data) {
     const path = gapPaths.get(band);
     let pts = null, width = null;
     if (path && path.length >= 3) {
-      pts = path.map(([z, x]) => [z, x]);
+      // Lissage (moyenne glissante) : le centre du couloir est quantifié par
+      // pas de 16 m → sans lissage le tracé fait des zigzags. On adoucit.
+      const WIN = 3;
+      pts = path.map((p, i) => {
+        let sx = 0, n = 0;
+        for (let j = Math.max(0, i - WIN); j <= Math.min(path.length - 1, i + WIN); j++) { sx += path[j][1]; n++; }
+        return [p[0], sx / n];
+      });
       const ws = path.map((p) => p[2]).sort((a, b) => a - b);
       width = ws[ws.length >> 1] - 16; // marge pour berges/quais dans le couloir
     } else if (Array.isArray(band.center) && band.center.length >= 2) {

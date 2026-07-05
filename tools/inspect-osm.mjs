@@ -39,50 +39,52 @@ for (const h of d.hills || []) {
 }
 console.log('poi.basilica', JSON.stringify(d.poi?.basilica), '| confluenceZ', d.confluenceZ);
 
-// --- Comparaison tranche par tranche (z) : couloir vide des bâtiments vs eau
-// Reproduit l'interpolation du client pour placer l'eau à un z donné.
-function makeCx(center, bound) {
-  if (!Array.isArray(center) || center.length < 2) return null;
-  const inMap = center.filter(([z, x]) => Math.abs(z) <= bound + 60 && Math.abs(x) <= bound + 60);
-  if (inMap.length < 2) return null;
-  const p = [...inMap].sort((a, b) => a[0] - b[0]);
-  return (z) => {
-    if (z <= p[0][0]) return p[0][1];
-    if (z >= p[p.length - 1][0]) return p[p.length - 1][1];
-    let lo = 0, hi = p.length - 1;
-    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (p[m][0] <= z) lo = m; else hi = m; }
-    const [z0, x0] = p[lo], [z1, x1] = p[hi];
-    return x0 + (x1 - x0) * ((z - z0) / (z1 - z0 || 1));
-  };
-}
-const cxFns = (d.water || []).map((w) => ({ name: w.name, w, cx: makeCx(w.center, d.bound) }));
-
-// bâtiments par (tranche z, tranche x) pour repérer le couloir vide à chaque z
-function gapsAtZ(zc, zw = 120) {
-  const bx = new Map();
-  for (const b of d.buildings || []) {
-    let sx = 0, sz = 0, n = 0;
-    for (let i = 0; i < b.p.length; i += 2) { sx += b.p[i]; sz += b.p[i + 1]; n++; }
-    if (Math.abs(sz / n - zc) > zw) continue;
-    bx.set(Math.round((sx / n) / 20), true);
+// --- Reproduit EXACTEMENT la logique du client (deriveRiverPaths) sur les
+// vraies données, pour voir où le jeu place chaque fleuve vs les couloirs.
+function refX(band, bound) {
+  if (Array.isArray(band.center) && band.center.length) {
+    const xs = band.center
+      .filter(([z, x]) => Math.abs(z) <= bound + 60 && Math.abs(x) <= bound + 60)
+      .map((p) => p[1]).sort((a, b) => a - b);
+    if (xs.length) return xs[xs.length >> 1];
   }
-  // trouve les runs vides (>= 3 tranches consécutives = ~60 m) dans [-bound,bound]
+  return (band.minX + band.maxX) / 2;
+}
+// gaps par tranche de z (mêmes paramètres que le client) + assignation
+const XB = 16, ZB = 64, MINRUN = 4, NEAR = 190;
+const occ = new Set(), zks = new Set();
+for (const b of d.buildings || []) {
+  let sx = 0, sz = 0, n = 0;
+  for (let i = 0; i < b.p.length; i += 2) { sx += b.p[i]; sz += b.p[i + 1]; n++; }
+  occ.add(Math.round((sz / n) / ZB) + ':' + Math.round((sx / n) / XB));
+  zks.add(Math.round((sz / n) / ZB));
+}
+const refs = (d.water || []).map((w) => refX(w, d.bound));
+function gapsAtZk(zk) {
   const gaps = [];
-  let start = null;
-  for (let k = Math.round(-d.bound / 20); k <= Math.round(d.bound / 20); k++) {
-    if (!bx.has(k)) { if (start === null) start = k; }
-    else { if (start !== null && k - start >= 3) gaps.push([start * 20, (k - 1) * 20]); start = null; }
+  let runStart = null, seen = false;
+  const xkMin = Math.round(-d.bound / XB), xkMax = Math.round(d.bound / XB);
+  for (let xk = xkMin; xk <= xkMax; xk++) {
+    if (occ.has(zk + ':' + xk)) {
+      if (runStart !== null && seen && xk - runStart >= MINRUN) gaps.push([runStart * XB, (xk - 1) * XB]);
+      runStart = null; seen = true;
+    } else if (runStart === null) runStart = xk;
   }
   return gaps;
 }
-console.log('\n=== ALIGNEMENT eau vs couloir bâtiments, par tranche de z ===');
-for (const zc of [-1000, -600, -200, 0, 200, 600, 1000]) {
-  const gaps = gapsAtZ(zc).map(([a, b]) => `[${a}..${b}]`).join(' ');
-  const waters = cxFns.filter((f) => f.cx).map((f) => {
-    const c = f.cx(zc), h = (f.w.w ?? (f.w.maxX - f.w.minX)) / 2;
-    return `${f.name}~${c.toFixed(0)}[${(c - h).toFixed(0)}..${(c + h).toFixed(0)}]`;
+console.log('\n=== ALIGNEMENT : couloirs vides vs fleuve choisi, par tranche de z ===');
+console.log('(ref = position connue du fleuve ; choisi = couloir retenu par le jeu)');
+console.log('refs:', (d.water || []).map((w, i) => `${w.name}=${refs[i].toFixed(0)}`).join(' '));
+for (const zc of [-1200, -800, -400, 0, 400, 800, 1200]) {
+  const zk = Math.round(zc / ZB);
+  const gaps = gapsAtZk(zk);
+  const gStr = gaps.map(([a, b]) => `[${a}..${b}]`).join(' ') || '(aucun)';
+  const chosen = (d.water || []).map((w, i) => {
+    let best = null, bd = Infinity;
+    for (const g of gaps) { const c = (g[0] + g[1]) / 2, dd = Math.abs(c - refs[i]); if (dd < bd) { bd = dd; best = g; } }
+    return `${w.name}=${best && bd < NEAR ? Math.round((best[0] + best[1]) / 2) : '—'}`;
   }).join(' ');
-  console.log(`z=${String(zc).padStart(6)} | couloirs bât ${gaps || '(aucun)'} | eau ${waters}`);
+  console.log(`z=${String(zc).padStart(5)} | couloirs ${gStr}\n          choisi: ${chosen}`);
 }
 
 // Histogramme des bâtiments par tranche de x : les creux = couloirs des fleuves
