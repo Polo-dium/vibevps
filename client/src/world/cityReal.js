@@ -107,6 +107,21 @@ export function buildRealCity(ctx, data) {
   const west = sorted[0];
   const east = sorted[sorted.length - 1];
 
+  // Recalage de Fourvière (mode complet) : les lon/lat codées en dur pour la
+  // colline et la basilique tombaient DANS la Presqu'île, à l'est de la Saône
+  // (la ville OSM ne s'aligne pas exactement sur ces coordonnées). On ancre
+  // le flanc EST de la colline sur la rive ouest de la Saône (le fleuve le
+  // plus à l'ouest) et on décale la basilique du même montant : Fourvière
+  // repasse ainsi côté Vieux Lyon, sous ses bâtiments, à l'ouest du fleuve.
+  if (full && data.hills.length) {
+    const fourviere = data.hills.reduce((a, b) => (b.cx < a.cx ? b : a));
+    const shift = west.minX - (fourviere.cx + fourviere.rx * 0.85);
+    if (shift < -20) {
+      fourviere.cx += shift;
+      if (Array.isArray(data.poi?.basilica)) data.poi.basilica[0] += shift;
+    }
+  }
+
   // Aucun bâtiment sur l'eau NI sur les avenues des quais (± 18 m)
   WATER_RECTS = data.water.map((w) => ({
     minX: w.minX - 18, maxX: w.maxX + 18, minZ: -bound - 200, maxZ: bound + 200,
