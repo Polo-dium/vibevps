@@ -51,50 +51,98 @@ function makeHillsFn(hills) {
   };
 }
 
+// Position de référence d'un fleuve : médiane de la ligne waterway (points
+// in-map), sinon centre de la boîte englobante. Sert à repérer le bon couloir.
+function refX(band, bound) {
+  if (Array.isArray(band.center) && band.center.length) {
+    const xs = band.center
+      .filter(([z, x]) => Math.abs(z) <= bound + 60 && Math.abs(x) <= bound + 60)
+      .map((p) => p[1]).sort((a, b) => a - b);
+    if (xs.length) return xs[xs.length >> 1];
+  }
+  return (band.minX + band.maxX) / 2;
+}
+
+// Déduit, pour chaque bande d'eau, le tracé du couloir vide entre les
+// bâtiments OSM (= le vrai lit du fleuve), tranche de z par tranche de z.
+// Renvoie une Map bande → [[z, xCentre, largeur], …].
+function deriveRiverPaths(data, bound) {
+  const XB = 16, ZB = 64, MINRUN = 4, NEAR = 190;
+  const occ = new Set();
+  const zks = new Set();
+  for (const b of data.buildings || []) {
+    let sx = 0, sz = 0, n = 0;
+    for (let i = 0; i < b.p.length; i += 2) { sx += b.p[i]; sz += b.p[i + 1]; n++; }
+    const zk = Math.round((sz / n) / ZB), xk = Math.round((sx / n) / XB);
+    occ.add(zk + ':' + xk); zks.add(zk);
+  }
+  const xkMin = Math.round(-bound / XB), xkMax = Math.round(bound / XB);
+  const paths = new Map(data.water.map((w) => [w, []]));
+  const refs = data.water.map((w) => refX(w, bound));
+  for (const zk of zks) {
+    // Couloirs vides bornés par des bâtiments des DEUX côtés (pas le bord de carte)
+    const gaps = [];
+    let runStart = null, seen = false;
+    for (let xk = xkMin; xk <= xkMax; xk++) {
+      if (occ.has(zk + ':' + xk)) {
+        if (runStart !== null && seen && xk - runStart >= MINRUN) {
+          gaps.push([runStart * XB, (xk - 1) * XB]);
+        }
+        runStart = null; seen = true;
+      } else if (runStart === null) runStart = xk;
+    }
+    // Chaque bande prend le couloir dont le centre est le plus proche de sa réf
+    data.water.forEach((w, i) => {
+      let best = null, bd = Infinity;
+      for (const g of gaps) {
+        const c = (g[0] + g[1]) / 2, dist = Math.abs(c - refs[i]);
+        if (dist < bd) { bd = dist; best = g; }
+      }
+      if (best && bd < NEAR) paths.get(w).push([zk * ZB, (best[0] + best[1]) / 2, best[1] - best[0]]);
+    });
+  }
+  for (const arr of paths.values()) arr.sort((a, b) => a[0] - b[0]);
+  return paths;
+}
+
 export function buildRealCity(ctx, data) {
   const bound = data.bound;
   ctx.worldBound = bound;
   ctx.waterBands = data.water;
   ctx.osmScale = data.scale ?? 0.5;
 
-  // Tracé courbe des fleuves (mode OSM) : si le JSON fournit une polyligne
-  // `center` [[z, x], …] (vraie rivière OSM), on l'attache comme méandre.
-  // Sans `center`, la bande reste droite (rétro-compat total, zéro régression).
-  //
-  // Garde-fou indispensable : une ancienne génération d'OSM pouvait inclure
-  // TOUT le cours du fleuve (des centaines de km, points à |z| énorme). On
-  // (1) jette d'abord les points hors carte, (2) ancre sur la médiane des
-  // points RESTÉS in-map, (3) borne l'écart et plafonne la largeur. Ainsi
-  // l'eau ne peut ni fuir hors des quais ni couvrir la carte, et une donnée
-  // déjà corrompue est rattrapée sans régénérer l'OSM.
-  // MAXDEV large : le VRAI fleuve serpente beaucoup (la Saône fait un grand
-  // coude). On ne veut PAS l'aplatir (sinon l'eau sort du couloir laissé par
-  // les bâtiments OSM) — la borne ne sert qu'à écarter un nœud franchement
-  // aberrant. Le clip hors-carte, lui, reste strict.
-  const MAXDEV = 160, HALF_CAP = 55;
-  const CLIP = bound + 60; // au-delà = amont/aval hors carte
+  // ALIGNER L'EAU SUR LA VILLE. Les couloirs vides entre les bâtiments OSM
+  // SONT les fleuves (aucun bâtiment ne se pose sur l'eau). On déduit donc le
+  // lit de chaque fleuve tranche de z par tranche de z, à partir de ces
+  // couloirs → l'eau tombe dans le couloir par construction, à toute
+  // profondeur (bien mieux que la ligne `waterway`, trop grossière et parfois
+  // désalignée). La position connue (médiane waterway, sinon centre de la
+  // boîte) ne sert qu'à repérer le BON couloir et à ignorer les vides de bord
+  // de carte. Repli sur la ligne waterway nettoyée si un fleuve n'a pas de
+  // couloir net (peu de bâtiments autour).
+  const HALF_CAP = 60;
+  const gapPaths = deriveRiverPaths(data, bound);
   for (const band of data.water) {
-    if (!Array.isArray(band.center) || band.center.length < 2) continue;
-    // (1) on ne garde que le tronçon dans l'emprise de la carte
-    const inMap = band.center.filter(
-      ([z, x]) => Math.abs(z) <= CLIP && Math.abs(x) <= CLIP
-    );
-    if (inMap.length < 2) { delete band.center; continue; }
-    // (2) médiane in-map = position de référence (juste pour borner les outliers)
-    const xs = inMap.map((p) => p[1]).sort((a, b) => a - b);
-    const medX = xs[xs.length >> 1];
-    // (3) on garde le vrai tracé, seulement débarrassé des points absurdes
-    const pts = inMap
-      .filter(([, x]) => Math.abs(x - medX) <= MAXDEV)
-      .sort((a, b) => a[0] - b[0]);
+    const path = gapPaths.get(band);
+    let pts = null, width = null;
+    if (path && path.length >= 3) {
+      pts = path.map(([z, x]) => [z, x]);
+      const ws = path.map((p) => p[2]).sort((a, b) => a - b);
+      width = ws[ws.length >> 1] - 16; // marge pour berges/quais dans le couloir
+    } else if (Array.isArray(band.center) && band.center.length >= 2) {
+      const inMap = band.center.filter(([z, x]) => Math.abs(z) <= bound + 60 && Math.abs(x) <= bound + 60);
+      if (inMap.length >= 2) {
+        const xs = inMap.map((p) => p[1]).sort((a, b) => a - b);
+        const m = xs[xs.length >> 1];
+        pts = inMap.filter(([, x]) => Math.abs(x - m) <= 160).sort((a, b) => a[0] - b[0]);
+      }
+    }
+    if (!pts) { delete band.center; continue; }
     const cx = makeCenterline(pts);
     if (!cx) { delete band.center; continue; }
     band.cx = cx;
-    // Largeur du ruban d'eau : fournie sinon boîte, toujours plafonnée
-    const w = band.w != null ? band.w : band.maxX - band.minX;
-    band.w = Math.min(Math.max(w, 12), HALF_CAP * 2);
-    // Boîte englobante réalignée sur le vrai tracé (exclusion des bâtiments
-    // = exactement le couloir du fleuve → eau et couloir alignés)
+    const w0 = width != null ? width : (band.w != null ? band.w : band.maxX - band.minX);
+    band.w = Math.min(Math.max(w0, 14), HALF_CAP * 2);
     let lo = Infinity, hi = -Infinity;
     for (const [, x] of pts) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
     band.minX = lo - band.w / 2;
