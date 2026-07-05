@@ -485,11 +485,12 @@ export function makeWaterTexture() {
   canvas.width = 64;
   canvas.height = 64;
   const g = canvas.getContext('2d');
-  // Vert-bleu profond du Rhône, avec de larges zones plus sombres
-  g.fillStyle = '#1a4f5c';
+  // Vert-bleu du Rhône, assez lumineux pour rester lisible comme de l'EAU
+  // (et pas du sol gris) même sous la brume et de loin
+  g.fillStyle = '#1f6d82';
   g.fillRect(0, 0, 64, 64);
   for (let i = 0; i < 8; i++) {
-    g.fillStyle = `rgba(10, 40, 52, ${0.1 + Math.random() * 0.12})`;
+    g.fillStyle = `rgba(14, 52, 66, ${0.1 + Math.random() * 0.12})`;
     g.beginPath();
     g.arc(Math.random() * 64, Math.random() * 64, 8 + Math.random() * 16, 0, Math.PI * 2);
     g.fill();
@@ -683,12 +684,18 @@ export function buildConfluence(ctx, {
   });
 
   // Au bout de la pointe : le JETPACK, posé sur son socle lumineux
-  const padZ = zTip - 6;
+  buildJetpackPad(ctx, cx, zTip - 6);
+}
+
+// Socle + modèle low-poly du jetpack + halo + interaction « Enfiler le jetpack ».
+// Réutilisable : à la Confluence (extérieur) comme dans la salle d'arcade.
+// `y` = hauteur du sol (0 par défaut ; le socle et le modèle s'y posent).
+export function buildJetpackPad(ctx, x, z, y = 0) {
   const pad = new THREE.Mesh(
     new THREE.CylinderGeometry(1.6, 1.8, 0.25, 10),
     new THREE.MeshLambertMaterial({ color: 0x2f3542, emissive: 0x101828 })
   );
-  pad.position.set(cx, 0.13, padZ);
+  pad.position.set(x, y + 0.13, z);
   ctx.scene.add(pad);
   // Modèle low-poly : dossard + deux bonbonnes + tuyères
   const jet = new THREE.Group();
@@ -705,7 +712,7 @@ export function buildConfluence(ctx, {
     nozzle.position.set(dx, 0.7, 0);
     jet.add(nozzle);
   }
-  jet.position.set(cx, 0.25, padZ);
+  jet.position.set(x, y + 0.25, z);
   ctx.scene.add(jet);
   // Halo pour le repérer de loin
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -713,14 +720,14 @@ export function buildConfluence(ctx, {
     opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false,
   }));
   halo.scale.set(5, 5, 1);
-  halo.position.set(cx, 1.6, padZ);
+  halo.position.set(x, y + 1.6, z);
   halo.userData.noShadow = true;
   ctx.scene.add(halo);
   ctx.updatables.push((dt) => {
     jet.rotation.y += dt * 0.8; // tourne doucement sur le socle
   });
   ctx.interactables.push({
-    x: cx, z: padZ, r: 3,
+    x, z, r: 3,
     label: 'E — Enfiler le jetpack 🚀',
     action: () => ctx.onJetpackPickup?.(),
   });

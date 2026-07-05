@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { addBox } from './utils.js';
 import { makeTextTexture } from './utils.js';
 import { ARCADE } from './layout.js';
+import { buildJetpackPad } from './city.js';
 
 const BODY_MAT = new THREE.MeshLambertMaterial({ color: 0x171e30 });
 const PANEL_MAT = new THREE.MeshLambertMaterial({ color: 0x2a3550 });
@@ -87,6 +88,10 @@ export function buildArcade(ctx, { onPlayGame, onOpenCreator }) {
     action: onOpenCreator,
     creator: true,
   });
+
+  // Jetpack posé dans la salle, près de l'entrée : on s'équipe et on décolle
+  // direct par la porte (plus besoin d'aller jusqu'à la Confluence)
+  buildJetpackPad(ctx, cx, south - 4.5);
 
   const placed = new Map(); // gameId -> true
   let nextSlot = 0;

@@ -209,11 +209,11 @@ async function boot() {
     buildRealCity(ctx, osmData);
     camera.far = Math.max(1400, ctx.worldBound * 3);
     camera.updateProjectionMatrix();
-    // Brouillard atmosphérique : un peu plus dense sur la ville complète
-    // (4× plus vaste) pour limiter ce qui est dessiné au loin
-    // Brume plus légère sur la ville complète : Fourvière et la Croix-Rousse
-    // dominent la ville, il faut les voir de loin
-    scene.fog = new THREE.FogExp2(skyColor, osmData.hills ? 0.0012 : 0.0011);
+    // Brume calée sur la TAILLE de la carte : sur le Grand Lyon (bound ~1556)
+    // une densité fixe noyait toute la ville (et les fleuves) dans le gris.
+    // On vise ~50 % de brume à une distance ≈ bound → on voit les deux rives,
+    // les fleuves et les collines, tout en bornant le rendu lointain.
+    scene.fog = new THREE.FogExp2(skyColor, Math.min(0.0011, 0.9 / (ctx.worldBound || 500)));
     ui.toast(osmData.hills
       ? 'Le GRAND Lyon chargé, de la Confluence à la Croix-Rousse — données © OpenStreetMap'
       : 'Vrai centre de Lyon chargé — données © OpenStreetMap');
