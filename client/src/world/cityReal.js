@@ -120,7 +120,7 @@ export function buildRealCity(ctx, data) {
   // boîte) ne sert qu'à repérer le BON couloir et à ignorer les vides de bord
   // de carte. Repli sur la ligne waterway nettoyée si un fleuve n'a pas de
   // couloir net (peu de bâtiments autour).
-  const HALF_CAP = 60;
+  const HALF_CAP = 82;
   const gapPaths = deriveRiverPaths(data, bound);
   for (const band of data.water) {
     const path = gapPaths.get(band);
@@ -135,7 +135,7 @@ export function buildRealCity(ctx, data) {
         return [p[0], sx / n];
       });
       const ws = path.map((p) => p[2]).sort((a, b) => a - b);
-      width = ws[ws.length >> 1] - 16; // marge pour berges/quais dans le couloir
+      width = ws[ws.length >> 1] - 12; // remplit le couloir (marge berges/quais)
     } else if (Array.isArray(band.center) && band.center.length >= 2) {
       const inMap = band.center.filter(([z, x]) => Math.abs(z) <= bound + 60 && Math.abs(x) <= bound + 60);
       if (inMap.length >= 2) {
