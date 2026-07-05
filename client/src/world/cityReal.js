@@ -373,6 +373,7 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
 
   const wallColor = new THREE.Color();
   const roofColor = new THREE.Color();
+  const roofProps = []; // superstructures de toit (cheminées, édicules)
   let kept = 0;
 
   for (let bi = 0; bi < data.buildings.length; bi++) {
@@ -469,7 +470,56 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
         });
       }
     }
+
+    // Plateforme de toit : on peut marcher / atterrir dessus (jetpack).
+    // Fine (0,7 m) juste sous le toit — les murs gèrent les côtés.
+    ctx.colliders.push({
+      minX, maxX, minZ, maxZ,
+      minY: y1 - 0.7, maxY: y1,
+    });
+
+    // Superstructures : cheminées / édicules d'ascenseur sur les grands toits
+    const foot = (maxX - minX) * (maxZ - minZ);
+    if (foot > 55 && rand() < 0.75) {
+      const s = Math.min(3.2, 1.1 + foot / 500);
+      roofProps.push({
+        x: cx + (rand() - 0.5) * (maxX - minX) * 0.4,
+        z: cz + (rand() - 0.5) * (maxZ - minZ) * 0.4,
+        y: y1, s, red: rand() < 0.35,
+      });
+    }
     kept += 1;
+  }
+
+  // Superstructures instanciées : 2 draw calls pour tous les toits
+  if (roofProps.length) {
+    const chimGeo = new THREE.BoxGeometry(1, 1, 1);
+    chimGeo.translate(0, 0.5, 0);
+    const edicules = new THREE.InstancedMesh(
+      chimGeo, new THREE.MeshLambertMaterial({ color: 0x8a8f98 }), roofProps.length
+    );
+    const chimneys = new THREE.InstancedMesh(
+      chimGeo, new THREE.MeshLambertMaterial({ color: 0xa8543c }), roofProps.length
+    );
+    const m = new THREE.Matrix4();
+    let ne = 0, nc = 0;
+    for (const p of roofProps) {
+      if (p.red) {
+        m.makeScale(0.6 * p.s, 1.5 * p.s, 0.6 * p.s);
+        m.setPosition(p.x, p.y, p.z);
+        chimneys.setMatrixAt(nc++, m);
+      } else {
+        m.makeScale(2 * p.s, 1.2 * p.s, 2 * p.s);
+        m.setPosition(p.x, p.y, p.z);
+        edicules.setMatrixAt(ne++, m);
+      }
+    }
+    edicules.count = ne;
+    chimneys.count = nc;
+    edicules.instanceMatrix.needsUpdate = true;
+    chimneys.instanceMatrix.needsUpdate = true;
+    if (ne) ctx.scene.add(edicules);
+    if (nc) ctx.scene.add(chimneys);
   }
 
   for (const t of tiles.values()) {
