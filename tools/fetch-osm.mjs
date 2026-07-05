@@ -125,9 +125,10 @@ const CLIP = {
   minZ: (LAT0 - B_N) * M_PER_LAT * SCALE,
   maxZ: (LAT0 - B_S) * M_PER_LAT * SCALE,
 };
-// Écart maxi du tracé autour de sa position médiane (mètres jeu) : borne la
-// courbure pour qu'un nœud aberrant ne fasse pas fuir le fleuve hors des quais.
-const RIVER_MAXDEV = 30;
+// Écart maxi autour de la médiane (mètres jeu) : NE PAS aplatir le vrai
+// méandre (le fleuve doit rester dans le couloir laissé par les bâtiments) —
+// cette borne large n'écarte qu'un nœud franchement aberrant.
+const RIVER_MAXDEV = 160;
 
 // Construit le tracé central [[z, x], …] de chaque fleuve à partir des lignes
 // `waterway=river` d'OSM, clippées à la carte. On regroupe les points par
@@ -161,18 +162,19 @@ function buildRiverCenters(elements, nodeMap) {
     // Position médiane réelle du fleuve (robuste aux valeurs aberrantes)
     const xs = pts.map((p) => p[0]).sort((a, b) => a - b);
     const medX = xs[xs.length >> 1];
-    // Tranches de z de 12 m, x moyen par tranche → courbe monotone en z,
-    // bornée à medX ± RIVER_MAXDEV pour rester réaliste et près des quais
+    // Tranches de z de 12 m, x moyen par tranche → vrai tracé courbe, monotone
+    // en z. On écarte seulement les nœuds franchement aberrants (> ±MAXDEV de
+    // la médiane) pour NE PAS aplatir le méandre réel.
     const BIN = 12, bins = new Map();
     for (const [x, z] of pts) {
+      if (Math.abs(x - medX) > RIVER_MAXDEV) continue;
       const k = Math.round(z / BIN);
       const b = bins.get(k) || [0, 0];
       b[0] += x; b[1] += 1;
       bins.set(k, b);
     }
-    const clamp = (x) => Math.max(medX - RIVER_MAXDEV, Math.min(medX + RIVER_MAXDEV, x));
     const center = [...bins.entries()]
-      .map(([k, [sx, n]]) => [r1(k * BIN), r1(clamp(sx / n))])
+      .map(([k, [sx, n]]) => [r1(k * BIN), r1(sx / n)])
       .sort((a, b) => a[0] - b[0]);
     if (center.length < 2) continue;
     w.center = center;

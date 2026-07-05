@@ -67,7 +67,11 @@ export function buildRealCity(ctx, data) {
   // points RESTÉS in-map, (3) borne l'écart et plafonne la largeur. Ainsi
   // l'eau ne peut ni fuir hors des quais ni couvrir la carte, et une donnée
   // déjà corrompue est rattrapée sans régénérer l'OSM.
-  const MAXDEV = 34, HALF_CAP = 55;
+  // MAXDEV large : le VRAI fleuve serpente beaucoup (la Saône fait un grand
+  // coude). On ne veut PAS l'aplatir (sinon l'eau sort du couloir laissé par
+  // les bâtiments OSM) — la borne ne sert qu'à écarter un nœud franchement
+  // aberrant. Le clip hors-carte, lui, reste strict.
+  const MAXDEV = 160, HALF_CAP = 55;
   const CLIP = bound + 60; // au-delà = amont/aval hors carte
   for (const band of data.water) {
     if (!Array.isArray(band.center) || band.center.length < 2) continue;
@@ -76,18 +80,21 @@ export function buildRealCity(ctx, data) {
       ([z, x]) => Math.abs(z) <= CLIP && Math.abs(x) <= CLIP
     );
     if (inMap.length < 2) { delete band.center; continue; }
-    // (2) position médiane du fleuve, robuste aux nœuds aberrants restants
+    // (2) médiane in-map = position de référence (juste pour borner les outliers)
     const xs = inMap.map((p) => p[1]).sort((a, b) => a - b);
     const medX = xs[xs.length >> 1];
-    // (3) tracé borné à medX ± MAXDEV
-    const pts = inMap.map(([z, x]) => [z, Math.max(medX - MAXDEV, Math.min(medX + MAXDEV, x))]);
+    // (3) on garde le vrai tracé, seulement débarrassé des points absurdes
+    const pts = inMap
+      .filter(([, x]) => Math.abs(x - medX) <= MAXDEV)
+      .sort((a, b) => a[0] - b[0]);
     const cx = makeCenterline(pts);
     if (!cx) { delete band.center; continue; }
     band.cx = cx;
     // Largeur du ruban d'eau : fournie sinon boîte, toujours plafonnée
     const w = band.w != null ? band.w : band.maxX - band.minX;
     band.w = Math.min(Math.max(w, 12), HALF_CAP * 2);
-    // Boîte englobante réalignée sur le tracé borné (exclusion des bâtiments)
+    // Boîte englobante réalignée sur le vrai tracé (exclusion des bâtiments
+    // = exactement le couloir du fleuve → eau et couloir alignés)
     let lo = Infinity, hi = -Infinity;
     for (const [, x] of pts) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
     band.minX = lo - band.w / 2;
