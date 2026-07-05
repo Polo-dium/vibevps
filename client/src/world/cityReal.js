@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { addInvisibleWall } from './utils.js';
-import { ARCADE, RANGE, MUR_PEINT, BELLECOUR, makeRand } from './layout.js';
+import {
+  ARCADE, RANGE, MUR_PEINT, BELLECOUR, makeRand,
+  makeCenterline, riverCx, riverHalf,
+} from './layout.js';
 import {
   makeSkylineTexture, buildBellecour,
   buildGrandeRoue, buildFountain, buildStreetFurniture, buildMurPeint,
@@ -53,6 +56,21 @@ export function buildRealCity(ctx, data) {
   ctx.worldBound = bound;
   ctx.waterBands = data.water;
   ctx.osmScale = data.scale ?? 0.5;
+
+  // Tracé courbe des fleuves (mode OSM) : si le JSON fournit une polyligne
+  // `center` [[z, x], …] (vraie rivière OSM), on l'attache comme méandre.
+  // Sans `center`, la bande reste droite (rétro-compat total, zéro régression).
+  for (const band of data.water) {
+    if (Array.isArray(band.center) && band.center.length >= 2) {
+      const cx = makeCenterline(band.center);
+      if (cx) {
+        band.cx = cx;
+        // Largeur fixe = largeur médiane de la boîte, pour que le ruban d'eau
+        // suive le méandre sans coller aux bords de la boîte englobante.
+        if (band.w == null) band.w = band.maxX - band.minX;
+      }
+    }
+  }
   const rand = makeRand(7);
   const full = Array.isArray(data.hills) && data.hills.length > 0;
 
@@ -325,15 +343,37 @@ function buildWater(ctx, bands, bound, zConf = null) {
       bridgesZ,
       parapetHalf: bound,
     });
-    const qLen = zMax - (-bound - 100);
-    for (const x of [band.minX - 2.5, band.maxX + 2.5]) {
-      const quay = new THREE.Mesh(
-        new THREE.PlaneGeometry(5, qLen),
-        new THREE.MeshLambertMaterial({ color: 0x8d8676 })
-      );
-      quay.rotation.x = -Math.PI / 2;
-      quay.position.set(x, 0.018, (zMax + (-bound - 100)) / 2);
-      ctx.scene.add(quay);
+    const zLo = -bound - 100;
+    const quayMat = new THREE.MeshLambertMaterial({ color: 0x8d8676, side: THREE.DoubleSide });
+    if (band.cx) {
+      // Fleuve courbe : trottoirs de quai en ruban qui suit le méandre.
+      // `side` = -1 (rive ouest) / +1 (rive est) ; largeur du trottoir 5 m.
+      const half = riverHalf(band);
+      for (const side of [-1, 1]) {
+        const STEP = 6, pos = [];
+        for (let z = zLo; z < zMax; z += STEP) {
+          const za = z, zb = Math.min(z + STEP, zMax);
+          const ia = riverCx(band, za) + side * half, ib = riverCx(band, zb) + side * half;
+          const oa = ia + side * 5, ob = ib + side * 5;
+          // ordre gauche→droite (x croissant) pour une normale vers le haut
+          const [la, ra] = side < 0 ? [oa, ia] : [ia, oa];
+          const [lb, rb] = side < 0 ? [ob, ib] : [ib, ob];
+          pos.push(la, 0.018, za, ra, 0.018, za, rb, 0.018, zb,
+                   la, 0.018, za, rb, 0.018, zb, lb, 0.018, zb);
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        geo.computeVertexNormals();
+        ctx.scene.add(new THREE.Mesh(geo, quayMat));
+      }
+    } else {
+      const qLen = zMax - zLo;
+      for (const x of [band.minX - 2.5, band.maxX + 2.5]) {
+        const quay = new THREE.Mesh(new THREE.PlaneGeometry(5, qLen), quayMat);
+        quay.rotation.x = -Math.PI / 2;
+        quay.position.set(x, 0.018, (zMax + zLo) / 2);
+        ctx.scene.add(quay);
+      }
     }
   }
 }

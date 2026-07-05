@@ -33,6 +33,7 @@ const QUERY = `
 (
   way["building"](${BBOX});
   way["highway"~"^(primary|secondary|tertiary|residential|pedestrian|living_street|unclassified|service)$"](${BBOX});
+  way["waterway"="river"](${BBOX});
 );
 out body;
 >;
@@ -92,19 +93,79 @@ function roadWidth(tags) {
   return 3;
 }
 
-// Fleuves : bandes nord-sud aux longitudes réelles (la donnée eau OSM est en
-// multipolygones complexes ; des bandes suffisent visuellement).
+// Fleuves : largeur réelle (bande de longitudes), mais tracé courbe récupéré
+// depuis les lignes `waterway=river` d'OSM (voir buildRiverCenters plus bas).
+// baseCx = longitude centrale, half = demi-largeur (mètres jeu).
 const WATER = [
-  { name: 'saone', lonW: 4.8249, lonE: 4.8269 },
-  { name: 'rhone', lonW: 4.8362, lonE: 4.8392 },
-].map(({ name, lonW, lonE }) => ({
-  name,
-  minX: r1((lonW - LON0) * M_PER_LON * SCALE),
-  maxX: r1((lonE - LON0) * M_PER_LON * SCALE),
-}));
+  { name: 'saone', lonW: 4.8249, lonE: 4.8269, match: /sa[oô]ne/i },
+  { name: 'rhone', lonW: 4.8362, lonE: 4.8392, match: /rh[oô]ne/i },
+].map(({ name, lonW, lonE, match }) => {
+  const minX0 = (lonW - LON0) * M_PER_LON * SCALE;
+  const maxX0 = (lonE - LON0) * M_PER_LON * SCALE;
+  return {
+    name, match,
+    baseCx: (minX0 + maxX0) / 2,
+    half: (maxX0 - minX0) / 2,
+    minX: r1(minX0), maxX: r1(maxX0), // recalculés si un tracé courbe existe
+  };
+});
 
 function inWater(x) {
   return WATER.some((w) => x > w.minX - 2 && x < w.maxX + 2);
+}
+
+// Construit le tracé central [[z, x], …] de chaque fleuve à partir des lignes
+// `waterway=river` d'OSM. On regroupe les points par tranches de z (nord-sud)
+// et on moyenne x : ça lisse les segments multiples en une seule courbe triée.
+function buildRiverCenters(elements, nodeMap) {
+  const pointsByRiver = new Map(WATER.map((w) => [w.name, []]));
+  for (const el of elements) {
+    if (el.type !== 'way' || el.tags?.waterway !== 'river' || !el.nodes) continue;
+    const nm = el.tags.name || '';
+    const pts = [];
+    for (const nid of el.nodes) {
+      const n = nodeMap.get(nid);
+      if (n) pts.push(toXZ(n[0], n[1]));
+    }
+    if (pts.length < 2) continue;
+    // Classe par nom si dispo, sinon par position moyenne (Saône = ouest)
+    const avgX = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+    let river = WATER.find((w) => w.match.test(nm));
+    if (!river) river = avgX < 0 ? WATER[0] : WATER[1];
+    pointsByRiver.get(river.name).push(...pts);
+  }
+  for (const w of WATER) {
+    const pts = pointsByRiver.get(w.name);
+    if (pts.length < 4) continue; // pas de données : on garde la bande droite
+    // Tranches de z de 12 m, x moyen par tranche → courbe monotone en z
+    const BIN = 12, bins = new Map();
+    for (const [x, z] of pts) {
+      const k = Math.round(z / BIN);
+      const b = bins.get(k) || [0, 0];
+      b[0] += x; b[1] += 1;
+      bins.set(k, b);
+    }
+    const center = [...bins.entries()]
+      .map(([k, [sx, n]]) => [r1(k * BIN), r1(sx / n)])
+      .sort((a, b) => a[0] - b[0]);
+    if (center.length < 2) continue;
+    w.center = center;
+    // Boîte englobante recalculée pour contenir le méandre + la largeur
+    let lo = Infinity, hi = -Infinity;
+    for (const [, x] of center) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
+    w.minX = r1(lo - w.half);
+    w.maxX = r1(hi + w.half);
+    console.log(`  ${w.name} : tracé courbe (${center.length} points)`);
+  }
+}
+
+// Nettoie les clés internes avant export (garde name/minX/maxX/center/w)
+function cleanWater() {
+  return WATER.map((w) => {
+    const o = { name: w.name, minX: w.minX, maxX: w.maxX, w: r1(w.half * 2) };
+    if (w.center) o.center = w.center;
+    return o;
+  });
 }
 
 // Collines réelles, à l'échelle : ellipsoïdes analytiques (cap = plateau).
@@ -166,6 +227,10 @@ for (const el of data.elements) {
   if (el.type === 'node') nodes.set(el.id, [el.lat, el.lon]);
 }
 
+// Tracé courbe des fleuves (met à jour WATER[].center + minX/maxX)
+console.log('Reconstruction du tracé des fleuves…');
+buildRiverCenters(data.elements, nodes);
+
 const buildings = [];
 const roads = [];
 let bound = 200;
@@ -212,7 +277,7 @@ const out = {
   attribution: '© les contributeurs OpenStreetMap (ODbL)',
   scale: SCALE,
   bound: Math.ceil(bound + 10),
-  water: WATER,
+  water: cleanWater(),
   hills: HILLS,
   confluenceZ: CONFLUENCE_Z,
   poi: { basilica: BASILICA },

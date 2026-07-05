@@ -35,10 +35,47 @@ export const RANGE = {
   counterZ: 96, targetsZ: 74, backZ: 68,
 };
 
-// Fleuves (bandes nord-sud)
-export const SAONE = { minX: -102, maxX: -78 };
-export const RHONE = { minX: 55, maxX: 85 };
-export const BRIDGE = { halfWidth: 5 }; // ponts à z = 0
+// Fleuves : chaque fleuve a une largeur fixe `w` et un tracé central `cx(z)`
+// (méandre). minX/maxX = boîte englobante (réservations, placements larges).
+// Un fleuve sans `cx` reste une bande droite (rétro-compat mode OSM).
+function meander(baseCx, amp, period, phase = 0) {
+  return (z) => baseCx + amp * Math.sin((z + phase) / period);
+}
+export const SAONE = {
+  minX: -118, maxX: -62, w: 24, cx: meander(-90, 14, 150, 30),
+};
+export const RHONE = {
+  minX: 44, maxX: 96, w: 30, cx: meander(70, 9, 200, -60),
+};
+export const BRIDGE = { halfWidth: 5 };
+
+// Centre / demi-largeur d'un fleuve à la profondeur z (courbe ou droit)
+export function riverCx(band, z) {
+  return band.cx ? band.cx(z) : (band.minX + band.maxX) / 2;
+}
+export function riverHalf(band) {
+  return band.w != null ? band.w / 2 : (band.maxX - band.minX) / 2;
+}
+
+// Interpolateur de tracé central à partir d'une polyligne [[z, x], …] triée
+// par z (issue des vraies rivières OSM) : cx(z) par interpolation linéaire,
+// bornée aux extrémités. Utilisé pour courber les fleuves du mode OSM.
+export function makeCenterline(pts) {
+  const p = [...pts].sort((a, b) => a[0] - b[0]);
+  if (p.length < 2) return null;
+  return (z) => {
+    if (z <= p[0][0]) return p[0][1];
+    if (z >= p[p.length - 1][0]) return p[p.length - 1][1];
+    let lo = 0, hi = p.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (p[mid][0] <= z) lo = mid; else hi = mid;
+    }
+    const [z0, x0] = p[lo], [z1, x1] = p[hi];
+    const t = (z - z0) / (z1 - z0 || 1);
+    return x0 + (x1 - x0) * t;
+  };
+}
 
 // Mur peint (style Croix-Rousse / mur des Canuts) — grande surface à taguer
 export const MUR_PEINT = { x: -45, z: -125, w: 34, h: 16 };

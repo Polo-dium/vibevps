@@ -58,13 +58,9 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit, onNpcAttack }) {
     const bound = Math.min(ctx.worldBound ?? 130, 200); // les PNJ restent au centre
     if (Math.abs(x) > bound || Math.abs(z) > bound) return true;
     // Les PNJ restent à plat : ni Fourvière (terrain haut), ni le lit des
-    // fleuves / plan d'eau de la Confluence (terrain en contrebas)
+    // fleuves courbes / plan d'eau de la Confluence (terrain en contrebas).
+    // terrainHeight suit déjà le tracé des fleuves (riverCx).
     if (Math.abs(ctx.terrainHeight?.(x, z) ?? 0) > 0.5) return true;
-    // Fleuves infranchissables (les ponts sont surélevés, les PNJ marchent à plat)
-    const water = ctx.waterBands ?? [SAONE, RHONE];
-    for (const r of water) {
-      if (x > r.minX - 1 && x < r.maxX + 1) return true;
-    }
     const boxes = ctx.colliders.nearby
       ? ctx.colliders.nearby(x, z, 1)
       : ctx.colliders;
