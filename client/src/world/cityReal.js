@@ -8,6 +8,7 @@ import {
   buildTraboules, buildRiverWorks, composeRiverTerrain, buildConfluence,
 } from './city.js';
 import { buildTraffic } from './traffic.js';
+import { buildRooftopBar } from './rooftops.js';
 
 // Construit le vrai Lyon à partir des empreintes OpenStreetMap
 // (client/public/lyon-osm.json, généré par tools/fetch-osm.mjs).
@@ -354,7 +355,16 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
   const reserved = reservedRects();
   const facadeTex = makeFacadeTexture();
   facadeTex.wrapS = facadeTex.wrapT = THREE.RepeatWrapping;
-  const wallMat = new THREE.MeshLambertMaterial({ map: facadeTex, vertexColors: true });
+  // Fenêtres émissives : allumées la nuit via emissiveIntensity animé
+  const emiTex = makeFacadeEmissive();
+  emiTex.wrapS = emiTex.wrapT = THREE.RepeatWrapping;
+  const wallMat = new THREE.MeshLambertMaterial({
+    map: facadeTex, vertexColors: true,
+    emissive: 0xffffff, emissiveMap: emiTex, emissiveIntensity: 0,
+  });
+  ctx.updatables.push(() => {
+    wallMat.emissiveIntensity = Math.max(0, (ctx.env?.night ?? 0) * 1.1 - 0.1) * 0.8;
+  });
   const roofMat = new THREE.MeshLambertMaterial({ vertexColors: true });
 
   // Accumulateurs par tuile spatiale (plus grandes sur la ville complète :
@@ -374,6 +384,8 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
   const wallColor = new THREE.Color();
   const roofColor = new THREE.Color();
   const roofProps = []; // superstructures de toit (cheminées, édicules)
+  const rooftopCandidates = []; // grands toits plats → rooftop bars
+  const acroCol = new THREE.Color(0xc9c3b4); // pierre claire de l'acrotère
   let kept = 0;
 
   for (let bi = 0; bi < data.buildings.length; bi++) {
@@ -449,6 +461,23 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       }
     } catch { /* empreinte dégénérée : murs seuls */ }
 
+    // Acrotère (rebord de toit en pierre) sur les immeubles : rendu dans le
+    // mesh de toit (couleur unie, pas de fenêtres). Réaliste + repère de bord.
+    const footA = (maxX - minX) * (maxZ - minZ);
+    if (footA > 50 && h > 7) {
+      const ah = 0.75;
+      for (let i = 0; i < pts.length; i++) {
+        const [x1, z1] = pts[i];
+        const [x2, z2] = pts[(i + 1) % pts.length];
+        if (Math.hypot(x2 - x1, z2 - z1) < 0.05) continue;
+        tile.rp.push(
+          x1, y1, z1, x2, y1, z2, x2, y1 + ah, z2,
+          x1, y1, z1, x2, y1 + ah, z2, x1, y1 + ah, z1
+        );
+        for (let k = 0; k < 6; k++) tile.rc.push(acroCol.r, acroCol.g, acroCol.b);
+      }
+    }
+
     // Collision : boîtes fines LE LONG DE CHAQUE MUR (découpé en tronçons de
     // 4 m) au lieu de la boîte englobante du bâtiment — les rues diagonales
     // entre les immeubles ne sont plus barrées par des murs invisibles.
@@ -488,22 +517,49 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
         y: y1, s, red: rand() < 0.35,
       });
     }
+
+    // Candidat rooftop bar : grand toit plat, accessible et assez rectangulaire
+    const realA = Math.abs(area) / 2;
+    if (foot > 210 && h >= 12 && h <= 46 && realA / foot > 0.72) {
+      rooftopCandidates.push({ cx, cz, y1, w: maxX - minX, d: maxZ - minZ });
+    }
     kept += 1;
   }
 
+  // Rooftop bars : on sème quelques terrasses festives sur les grands toits,
+  // bien espacées pour ne pas les avoir toutes au même endroit.
+  const chosen = [];
+  for (const c of rooftopCandidates) {
+    if (chosen.length >= 8) break;
+    if (chosen.every((o) => Math.hypot(o.cx - c.cx, o.cz - c.cz) > 90)) chosen.push(c);
+  }
+  ctx.rooftopBars = chosen.map((c) => ({ x: c.cx, z: c.cz, y: c.y1 }));
+  for (const c of chosen) {
+    const rt = buildRooftopBar(ctx, {
+      x: c.cx, z: c.cz, y: c.y1,
+      w: Math.min(c.w - 1.5, 22), d: Math.min(c.d - 1.5, 22),
+      rand,
+    });
+    ctx.updatables.push(rt);
+  }
+
+  // Pas de cheminée/édicule sous une terrasse rooftop (elle occupe le toit)
+  const props = roofProps.filter((p) =>
+    !chosen.some((c) => Math.abs(c.cx - p.x) < c.w / 2 && Math.abs(c.cz - p.z) < c.d / 2)
+  );
   // Superstructures instanciées : 2 draw calls pour tous les toits
-  if (roofProps.length) {
+  if (props.length) {
     const chimGeo = new THREE.BoxGeometry(1, 1, 1);
     chimGeo.translate(0, 0.5, 0);
     const edicules = new THREE.InstancedMesh(
-      chimGeo, new THREE.MeshLambertMaterial({ color: 0x8a8f98 }), roofProps.length
+      chimGeo, new THREE.MeshLambertMaterial({ color: 0x8a8f98 }), props.length
     );
     const chimneys = new THREE.InstancedMesh(
-      chimGeo, new THREE.MeshLambertMaterial({ color: 0xa8543c }), roofProps.length
+      chimGeo, new THREE.MeshLambertMaterial({ color: 0xa8543c }), props.length
     );
     const m = new THREE.Matrix4();
     let ne = 0, nc = 0;
-    for (const p of roofProps) {
+    for (const p of props) {
       if (p.red) {
         m.makeScale(0.6 * p.s, 1.5 * p.s, 0.6 * p.s);
         m.setPosition(p.x, p.y, p.z);
@@ -547,42 +603,61 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
 }
 
 function buildOsmRoads(ctx, data, full = false) {
-  const pos = [];
+  const pos = [];        // chaussée
+  const walk = [];       // trottoirs (rubans élargis clairs, sous la chaussée)
+  const zebra = [];      // passages piétons (quads rayés)
   // Sur la ville complète, les rubans de route épousent le terrain
   const yAt = full
     ? (x, z) => Math.max(0, ctx.terrainHeight?.(x, z) ?? 0) + 0.06
     : () => 0.045;
+  const ribbon = (arr, x1, z1, x2, z2, half, dy) => {
+    const dx = x2 - x1, dz = z2 - z1;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.1) return len;
+    const px = (-dz / len) * half, pz = (dx / len) * half;
+    const ya = yAt(x1, z1) + dy, yb = yAt(x2, z2) + dy;
+    arr.push(
+      x1 - px, ya, z1 - pz, x2 - px, yb, z2 - pz, x2 + px, yb, z2 + pz,
+      x1 - px, ya, z1 - pz, x2 + px, yb, z2 + pz, x1 + px, ya, z1 + pz
+    );
+    return len;
+  };
   for (const road of data.roads) {
     const half = road.w / 2;
+    let acc = 0;
     for (let i = 0; i + 3 < road.p.length; i += 2) {
       const x1 = road.p[i], z1 = road.p[i + 1];
       const x2 = road.p[i + 2], z2 = road.p[i + 3];
-      const dx = x2 - x1, dz = z2 - z1;
-      const len = Math.hypot(dx, dz);
-      if (len < 0.1) continue;
-      // Perpendiculaire au segment
-      const px = (-dz / len) * half, pz = (dx / len) * half;
-      const ya = yAt(x1, z1), yb = yAt(x2, z2);
-      // Deux triangles formant le ruban
-      pos.push(
-        x1 - px, ya, z1 - pz, x2 - px, yb, z2 - pz, x2 + px, yb, z2 + pz,
-        x1 - px, ya, z1 - pz, x2 + px, yb, z2 + pz, x1 + px, ya, z1 + pz
-      );
+      // Trottoir un peu plus large et 2 cm plus bas, chaussée par-dessus
+      ribbon(walk, x1, z1, x2, z2, half + 1.6, -0.02);
+      const len = ribbon(pos, x1, z1, x2, z2, half, 0);
+      // Passage piéton tous les ~35 m sur les grands axes
+      acc += len;
+      if (road.w >= 6 && acc > 35) {
+        acc = 0;
+        const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
+        ribbon(zebra, mx, mz, mx + (x2 - x1) / (len || 1) * 2.6, mz + (z2 - z1) / (len || 1) * 2.6, half, 0.02);
+      }
     }
   }
   if (pos.length === 0) return;
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(
-    geo,
-    new THREE.MeshLambertMaterial({
-      color: 0x343943,
-      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
-    })
-  );
-  mesh.userData.noShadow = true; // ne projette pas, reçoit via le sol
-  ctx.scene.add(mesh);
+  const addMesh = (arr, mat) => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.userData.noShadow = true;
+    ctx.scene.add(mesh);
+  };
+  addMesh(walk, new THREE.MeshLambertMaterial({ color: 0x7e828b })); // trottoirs
+  addMesh(pos, new THREE.MeshLambertMaterial({
+    color: 0x343943, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+  }));
+  if (zebra.length) {
+    addMesh(zebra, new THREE.MeshLambertMaterial({
+      color: 0xd7dccb, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    }));
+  }
 }
 
 function buildFarLandmarks(ctx, bound) {
@@ -766,6 +841,32 @@ function makeFacadeTexture() {
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
+  return tex;
+}
+
+// Carte émissive de façade : fond noir, la fenêtre rayonne en jaune chaud.
+// Multipliée par emissiveIntensity (0 le jour → ~0,8 la nuit) : toute la
+// ville s'illumine à la tombée du soir.
+function makeFacadeEmissive() {
+  const S = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = S;
+  canvas.height = S;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, S, S);
+  const wx = S * 0.27, ww = S * 0.46, wy = S * 0.12, wh = S * 0.6;
+  const grad = g.createLinearGradient(0, wy, 0, wy + wh);
+  grad.addColorStop(0, '#fff1c8');
+  grad.addColorStop(1, '#e6a94e');
+  g.fillStyle = grad;
+  g.fillRect(wx, wy, ww, wh);
+  // Croisée sombre (meneau + traverse) pour garder le dessin de la fenêtre
+  g.fillStyle = '#000';
+  g.fillRect(wx + ww / 2 - 1.5, wy, 3, wh);
+  g.fillRect(wx, wy + wh / 2 - 1.5, ww, 3);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
