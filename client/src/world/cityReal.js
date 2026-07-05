@@ -844,29 +844,40 @@ function makeFacadeTexture() {
   return tex;
 }
 
-// Carte émissive de façade : fond noir, la fenêtre rayonne en jaune chaud.
-// Multipliée par emissiveIntensity (0 le jour → ~0,8 la nuit) : toute la
-// ville s'illumine à la tombée du soir.
+// Carte émissive de façade : une grille de fenêtres, ~60 % allumées au
+// hasard (le reste noir), pour que la ville s'illumine la nuit SANS que
+// chaque fenêtre soit allumée — comme en vrai. La grille se répète toutes
+// les GRID fenêtres (repeat 1/GRID aligné sur les cellules de la façade).
+const EMI_GRID = 6;
 function makeFacadeEmissive() {
-  const S = 128;
+  const cell = 42;
+  const S = cell * EMI_GRID;
   const canvas = document.createElement('canvas');
   canvas.width = S;
   canvas.height = S;
   const g = canvas.getContext('2d');
   g.fillStyle = '#000';
   g.fillRect(0, 0, S, S);
-  const wx = S * 0.27, ww = S * 0.46, wy = S * 0.12, wh = S * 0.6;
-  const grad = g.createLinearGradient(0, wy, 0, wy + wh);
-  grad.addColorStop(0, '#fff1c8');
-  grad.addColorStop(1, '#e6a94e');
-  g.fillStyle = grad;
-  g.fillRect(wx, wy, ww, wh);
-  // Croisée sombre (meneau + traverse) pour garder le dessin de la fenêtre
-  g.fillStyle = '#000';
-  g.fillRect(wx + ww / 2 - 1.5, wy, 3, wh);
-  g.fillRect(wx, wy + wh / 2 - 1.5, ww, 3);
+  const wx = cell * 0.27, ww = cell * 0.46, wy = cell * 0.12, wh = cell * 0.6;
+  for (let gy = 0; gy < EMI_GRID; gy++) {
+    for (let gx = 0; gx < EMI_GRID; gx++) {
+      if (Math.random() > 0.6) continue; // ~60 % des fenêtres allumées
+      const ox = gx * cell, oy = gy * cell;
+      const grad = g.createLinearGradient(0, oy + wy, 0, oy + wy + wh);
+      grad.addColorStop(0, '#fff1c8');
+      grad.addColorStop(1, '#e6a94e');
+      g.fillStyle = grad;
+      g.fillRect(ox + wx, oy + wy, ww, wh);
+      // Croisée sombre pour garder le dessin de la fenêtre
+      g.fillStyle = '#000';
+      g.fillRect(ox + wx + ww / 2 - 1.2, oy + wy, 2.4, wh);
+      g.fillRect(ox + wx, oy + wy + wh / 2 - 1.2, ww, 2.4);
+    }
+  }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1 / EMI_GRID, 1 / EMI_GRID); // 1 cellule = 1 fenêtre de façade
   return tex;
 }
 
