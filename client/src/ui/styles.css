@@ -266,9 +266,16 @@ button.ghost {
   position: fixed;
   top: calc(10px + env(safe-area-inset-top));
   right: calc(12px + env(safe-area-inset-right));
-  display: flex; flex-direction: row; gap: 8px;
+  display: flex; flex-direction: row; align-items: flex-start; gap: 8px;
   pointer-events: none; z-index: 21;
 }
+/* Menu déroulant des boutons du haut (replié par défaut, dégage la vue) */
+#touch-menu {
+  display: flex; flex-direction: row; flex-wrap: wrap; justify-content: flex-end;
+  gap: 8px; max-width: 62vw;
+}
+#touch-menu.hidden { display: none; }
+#tb-menu { order: 2; } /* le ☰ reste à droite, le menu se déplie à sa gauche */
 /* Boutons d'action en bas à droite, en grille 2 colonnes (tient en paysage) */
 .touch-actions {
   position: fixed;

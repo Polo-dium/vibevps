@@ -8,15 +8,18 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
   root.innerHTML = `
     <div id="joy-base"><div id="joy-knob"></div></div>
     <div class="touch-top" id="touch-top">
-      <button class="tbtn tbtn-small" id="tb-fs">⛶</button>
-      <button class="tbtn tbtn-small" id="tb-gun">🔫</button>
-      <button class="tbtn tbtn-small" id="tb-tag">🎨</button>
-      <button class="tbtn tbtn-small" id="tb-color">🌈</button>
-      <button class="tbtn tbtn-small" id="tb-chat">💬</button>
-      <button class="tbtn tbtn-small" id="tb-mic">🎤</button>
-      <button class="tbtn tbtn-small" id="tb-photo">📸</button>
-      <button class="tbtn tbtn-small" id="tb-jet">🚀</button>
-      <button class="tbtn tbtn-small" id="tb-lb">🏆</button>
+      <button class="tbtn tbtn-small" id="tb-menu">☰</button>
+      <div id="touch-menu" class="hidden">
+        <button class="tbtn tbtn-small" id="tb-gun">🔫</button>
+        <button class="tbtn tbtn-small" id="tb-tag">🎨</button>
+        <button class="tbtn tbtn-small" id="tb-color">🌈</button>
+        <button class="tbtn tbtn-small" id="tb-chat">💬</button>
+        <button class="tbtn tbtn-small" id="tb-mic">🎤</button>
+        <button class="tbtn tbtn-small" id="tb-photo">📸</button>
+        <button class="tbtn tbtn-small" id="tb-jet">🚀</button>
+        <button class="tbtn tbtn-small" id="tb-lb">🏆</button>
+        <button class="tbtn tbtn-small" id="tb-fs">⛶</button>
+      </div>
     </div>
     <div class="touch-actions" id="touch-actions">
       <button class="tbtn" id="tb-emote">😜</button>
@@ -111,6 +114,10 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
       el.addEventListener('touchcancel', () => onUp(), { passive: true });
     }
   };
+
+  // Menu ☰ : replie/déplie la rangée de boutons du haut (dégage la vue)
+  const menu = root.querySelector('#touch-menu');
+  bind('#tb-menu', () => menu.classList.toggle('hidden'));
 
   let emoteIdx = 0;
   bind('#tb-emote', () => emote?.(emoteIdx++ % 3)); // fait défiler les emotes
