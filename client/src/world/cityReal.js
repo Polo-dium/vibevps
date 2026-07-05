@@ -60,14 +60,27 @@ export function buildRealCity(ctx, data) {
   // Tracé courbe des fleuves (mode OSM) : si le JSON fournit une polyligne
   // `center` [[z, x], …] (vraie rivière OSM), on l'attache comme méandre.
   // Sans `center`, la bande reste droite (rétro-compat total, zéro régression).
+  // Garde-fou : on ancre sur la médiane du tracé et on borne l'écart + la
+  // largeur, pour qu'une donnée aberrante (nœuds hors carte d'une ancienne
+  // génération) ne fasse jamais fuir l'eau hors des quais ni couvrir la carte.
+  const MAXDEV = 34, HALF_CAP = 55;
   for (const band of data.water) {
     if (Array.isArray(band.center) && band.center.length >= 2) {
-      const cx = makeCenterline(band.center);
+      const xs = band.center.map((p) => p[1]).sort((a, b) => a - b);
+      const medX = xs[xs.length >> 1];
+      const pts = band.center
+        .map(([z, x]) => [z, Math.max(medX - MAXDEV, Math.min(medX + MAXDEV, x))]);
+      const cx = makeCenterline(pts);
       if (cx) {
         band.cx = cx;
-        // Largeur fixe = largeur médiane de la boîte, pour que le ruban d'eau
-        // suive le méandre sans coller aux bords de la boîte englobante.
-        if (band.w == null) band.w = band.maxX - band.minX;
+        // Largeur du ruban d'eau : celle fournie, sinon la boîte, bornée.
+        const w = band.w != null ? band.w : band.maxX - band.minX;
+        band.w = Math.min(w, HALF_CAP * 2);
+        // Boîte englobante réalignée sur le tracé borné (exclusion bâtiments)
+        let lo = Infinity, hi = -Infinity;
+        for (const [, x] of pts) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
+        band.minX = lo - band.w / 2;
+        band.maxX = hi + band.w / 2;
       }
     }
   }

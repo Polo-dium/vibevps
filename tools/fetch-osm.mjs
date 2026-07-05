@@ -114,9 +114,25 @@ function inWater(x) {
   return WATER.some((w) => x > w.minX - 2 && x < w.maxX + 2);
 }
 
+// Emprise du bbox en coordonnées jeu : IMPORTANT, les lignes `waterway=river`
+// d'OSM sont d'immenses polylignes (la Saône/le Rhône font des centaines de
+// km) et la récursion `>;` en ramène TOUS les nœuds, très loin hors carte.
+// On clippe donc les points à cette boîte avant de reconstruire le tracé.
+const [B_S, B_W, B_N, B_E] = BBOX.split(',').map(Number);
+const CLIP = {
+  minX: (B_W - LON0) * M_PER_LON * SCALE,
+  maxX: (B_E - LON0) * M_PER_LON * SCALE,
+  minZ: (LAT0 - B_N) * M_PER_LAT * SCALE,
+  maxZ: (LAT0 - B_S) * M_PER_LAT * SCALE,
+};
+// Écart maxi du tracé autour de sa position médiane (mètres jeu) : borne la
+// courbure pour qu'un nœud aberrant ne fasse pas fuir le fleuve hors des quais.
+const RIVER_MAXDEV = 30;
+
 // Construit le tracé central [[z, x], …] de chaque fleuve à partir des lignes
-// `waterway=river` d'OSM. On regroupe les points par tranches de z (nord-sud)
-// et on moyenne x : ça lisse les segments multiples en une seule courbe triée.
+// `waterway=river` d'OSM, clippées à la carte. On regroupe les points par
+// tranches de z (nord-sud) et on moyenne x : ça lisse les segments multiples
+// en une seule courbe triée, ancrée sur la position médiane réelle du fleuve.
 function buildRiverCenters(elements, nodeMap) {
   const pointsByRiver = new Map(WATER.map((w) => [w.name, []]));
   for (const el of elements) {
@@ -125,7 +141,12 @@ function buildRiverCenters(elements, nodeMap) {
     const pts = [];
     for (const nid of el.nodes) {
       const n = nodeMap.get(nid);
-      if (n) pts.push(toXZ(n[0], n[1]));
+      if (!n) continue;
+      const [x, z] = toXZ(n[0], n[1]);
+      // Clip à l'emprise de la carte (± petite marge) : on jette l'amont/aval
+      if (x < CLIP.minX - 40 || x > CLIP.maxX + 40 ||
+          z < CLIP.minZ - 40 || z > CLIP.maxZ + 40) continue;
+      pts.push([x, z]);
     }
     if (pts.length < 2) continue;
     // Classe par nom si dispo, sinon par position moyenne (Saône = ouest)
@@ -136,8 +157,12 @@ function buildRiverCenters(elements, nodeMap) {
   }
   for (const w of WATER) {
     const pts = pointsByRiver.get(w.name);
-    if (pts.length < 4) continue; // pas de données : on garde la bande droite
-    // Tranches de z de 12 m, x moyen par tranche → courbe monotone en z
+    if (pts.length < 4) continue; // pas de données in-map : on garde la bande droite
+    // Position médiane réelle du fleuve (robuste aux valeurs aberrantes)
+    const xs = pts.map((p) => p[0]).sort((a, b) => a - b);
+    const medX = xs[xs.length >> 1];
+    // Tranches de z de 12 m, x moyen par tranche → courbe monotone en z,
+    // bornée à medX ± RIVER_MAXDEV pour rester réaliste et près des quais
     const BIN = 12, bins = new Map();
     for (const [x, z] of pts) {
       const k = Math.round(z / BIN);
@@ -145,17 +170,18 @@ function buildRiverCenters(elements, nodeMap) {
       b[0] += x; b[1] += 1;
       bins.set(k, b);
     }
+    const clamp = (x) => Math.max(medX - RIVER_MAXDEV, Math.min(medX + RIVER_MAXDEV, x));
     const center = [...bins.entries()]
-      .map(([k, [sx, n]]) => [r1(k * BIN), r1(sx / n)])
+      .map(([k, [sx, n]]) => [r1(k * BIN), r1(clamp(sx / n))])
       .sort((a, b) => a[0] - b[0]);
     if (center.length < 2) continue;
     w.center = center;
-    // Boîte englobante recalculée pour contenir le méandre + la largeur
+    // Fleuve repositionné sur son tracé réel : boîte englobante recalculée
     let lo = Infinity, hi = -Infinity;
     for (const [, x] of center) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
     w.minX = r1(lo - w.half);
     w.maxX = r1(hi + w.half);
-    console.log(`  ${w.name} : tracé courbe (${center.length} points)`);
+    console.log(`  ${w.name} : tracé courbe (${center.length} pts, médiane x=${r1(medX)})`);
   }
 }
 
