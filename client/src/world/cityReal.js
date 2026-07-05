@@ -60,29 +60,38 @@ export function buildRealCity(ctx, data) {
   // Tracé courbe des fleuves (mode OSM) : si le JSON fournit une polyligne
   // `center` [[z, x], …] (vraie rivière OSM), on l'attache comme méandre.
   // Sans `center`, la bande reste droite (rétro-compat total, zéro régression).
-  // Garde-fou : on ancre sur la médiane du tracé et on borne l'écart + la
-  // largeur, pour qu'une donnée aberrante (nœuds hors carte d'une ancienne
-  // génération) ne fasse jamais fuir l'eau hors des quais ni couvrir la carte.
+  //
+  // Garde-fou indispensable : une ancienne génération d'OSM pouvait inclure
+  // TOUT le cours du fleuve (des centaines de km, points à |z| énorme). On
+  // (1) jette d'abord les points hors carte, (2) ancre sur la médiane des
+  // points RESTÉS in-map, (3) borne l'écart et plafonne la largeur. Ainsi
+  // l'eau ne peut ni fuir hors des quais ni couvrir la carte, et une donnée
+  // déjà corrompue est rattrapée sans régénérer l'OSM.
   const MAXDEV = 34, HALF_CAP = 55;
+  const CLIP = bound + 60; // au-delà = amont/aval hors carte
   for (const band of data.water) {
-    if (Array.isArray(band.center) && band.center.length >= 2) {
-      const xs = band.center.map((p) => p[1]).sort((a, b) => a - b);
-      const medX = xs[xs.length >> 1];
-      const pts = band.center
-        .map(([z, x]) => [z, Math.max(medX - MAXDEV, Math.min(medX + MAXDEV, x))]);
-      const cx = makeCenterline(pts);
-      if (cx) {
-        band.cx = cx;
-        // Largeur du ruban d'eau : celle fournie, sinon la boîte, bornée.
-        const w = band.w != null ? band.w : band.maxX - band.minX;
-        band.w = Math.min(w, HALF_CAP * 2);
-        // Boîte englobante réalignée sur le tracé borné (exclusion bâtiments)
-        let lo = Infinity, hi = -Infinity;
-        for (const [, x] of pts) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
-        band.minX = lo - band.w / 2;
-        band.maxX = hi + band.w / 2;
-      }
-    }
+    if (!Array.isArray(band.center) || band.center.length < 2) continue;
+    // (1) on ne garde que le tronçon dans l'emprise de la carte
+    const inMap = band.center.filter(
+      ([z, x]) => Math.abs(z) <= CLIP && Math.abs(x) <= CLIP
+    );
+    if (inMap.length < 2) { delete band.center; continue; }
+    // (2) position médiane du fleuve, robuste aux nœuds aberrants restants
+    const xs = inMap.map((p) => p[1]).sort((a, b) => a - b);
+    const medX = xs[xs.length >> 1];
+    // (3) tracé borné à medX ± MAXDEV
+    const pts = inMap.map(([z, x]) => [z, Math.max(medX - MAXDEV, Math.min(medX + MAXDEV, x))]);
+    const cx = makeCenterline(pts);
+    if (!cx) { delete band.center; continue; }
+    band.cx = cx;
+    // Largeur du ruban d'eau : fournie sinon boîte, toujours plafonnée
+    const w = band.w != null ? band.w : band.maxX - band.minX;
+    band.w = Math.min(Math.max(w, 12), HALF_CAP * 2);
+    // Boîte englobante réalignée sur le tracé borné (exclusion des bâtiments)
+    let lo = Infinity, hi = -Infinity;
+    for (const [, x] of pts) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
+    band.minX = lo - band.w / 2;
+    band.maxX = hi + band.w / 2;
   }
   const rand = makeRand(7);
   const full = Array.isArray(data.hills) && data.hills.length > 0;
