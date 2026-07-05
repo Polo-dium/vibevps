@@ -66,29 +66,37 @@ export function buildRealCity(ctx, data) {
 
   let WEST = -(bound + 2);
   const EAST = bound + 2;
-  let zConf = null;
   let bas = null;
   let legacyHill = null;
+
+  // Confluence (les deux régimes) : la Presqu'île finit en pointe entre les
+  // deux fleuves, qui fusionnent au sud en un seul fleuve.
+  const zConf = full ? (data.confluenceZ ?? bound - 90) : bound - 70;
+  const CONF = {
+    xL: west.minX, xR: east.maxX,
+    x0: west.maxX, x1: east.minX,
+    zStart: zConf,
+    zTip: zConf + Math.min(130, (east.minX - west.maxX) * 0.7),
+    zEnd: bound + 120,
+  };
+  // Réserve bâtiments : toute la zone de confluence (eau + pointe + musée)
+  const CONF_RECT = { minX: west.minX, maxX: east.maxX, minZ: zConf - 30, maxZ: bound + 300 };
 
   if (full) {
     // --- VILLE COMPLÈTE : collines réelles + terrain continu -------------
     HILL_RECT = null;
     bas = data.poi?.basilica ?? [-369, -244];
-    zConf = data.confluenceZ ?? bound - 90;
     EXTRA_RECTS = [
       // Esplanade de la basilique (avec les gares de la ficelle)
       { minX: bas[0] - 26, maxX: bas[0] + 36, minZ: bas[1] - 22, maxZ: bas[1] + 40 },
-      // Pointe de la Confluence : plan d'eau + musée
-      { minX: west.maxX, maxX: east.minX, minZ: zConf - 34, maxZ: bound + 300 },
+      CONF_RECT,
     ];
     ctx.terrainHeight = makeHillsFn(data.hills);
-    composeRiverTerrain(ctx, data.water, [
-      { minX: west.maxX + 0.35, maxX: east.minX - 0.35, minZ: zConf, maxZ: bound + 120 },
-    ]);
+    composeRiverTerrain(ctx, data.water, [], CONF);
     buildTerrainMesh(ctx, bound);
   } else {
     // --- ANCIEN JSON : colline synthétique collée à l'ouest de la Saône --
-    EXTRA_RECTS = [];
+    EXTRA_RECTS = [CONF_RECT];
     legacyHill = {
       cx: (west ? west.minX : -bound) - 112,
       cz: -20, cy: -4, rx: 90, ry: 38.5, rz: 110,
@@ -134,16 +142,15 @@ export function buildRealCity(ctx, data) {
     );
     buildFunicular(ctx, A, B);
     buildTraboules(ctx, fullTraboules(ctx, bas, west));
-    buildConfluence(ctx, {
-      x0: west.maxX, x1: east.minX, zStart: zConf, zEnd: bound + 120,
-    });
+    buildConfluence(ctx, CONF);
     buildTraffic(ctx, data.water, zConf - 12);
   } else {
     buildFourviere(ctx, legacyHill);
-    // Le lit des fleuves devient le sol quand on tombe à l'eau
-    composeRiverTerrain(ctx, data.water);
+    // Pointe de terre = sol, le reste (fleuves + confluence) = eau
+    composeRiverTerrain(ctx, data.water, [], CONF);
     buildTraboules(ctx, osmTraboules(ctx, legacyHill));
-    buildTraffic(ctx, data.water);
+    buildConfluence(ctx, CONF);
+    buildTraffic(ctx, data.water, zConf - 12);
     // Crayon décoratif hors carte (dans la ville complète, le vrai y est)
     buildFarLandmarks(ctx, bound);
   }
@@ -309,18 +316,22 @@ function buildWater(ctx, bands, bound, zConf = null) {
     const bridgesZ = candidates.filter(
       (z) => Math.abs(z) < bound - 30 && (zConf == null || z < zConf - 30)
     );
+    // Les fleuves s'arrêtent à la Confluence (zMax) : ils fusionnent au sud
+    const zMax = zConf != null ? zConf : bound + 100;
     buildRiverWorks(ctx, band, {
       halfLength: bound + 100,
+      zMax,
       bridgesZ,
       parapetHalf: bound,
     });
+    const qLen = zMax - (-bound - 100);
     for (const x of [band.minX - 2.5, band.maxX + 2.5]) {
       const quay = new THREE.Mesh(
-        new THREE.PlaneGeometry(5, bound * 2 + 200),
+        new THREE.PlaneGeometry(5, qLen),
         new THREE.MeshLambertMaterial({ color: 0x8d8676 })
       );
       quay.rotation.x = -Math.PI / 2;
-      quay.position.set(x, 0.018, 0);
+      quay.position.set(x, 0.018, (zMax + (-bound - 100)) / 2);
       ctx.scene.add(quay);
     }
   }

@@ -28,6 +28,10 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   // ({ heading, speed, onHorn, onCrash } — la position reste `pos`)
   let vehicle = null;
   let bodyHalf = HALF_W; // s'élargit au volant
+  // Mode jetpack : vol libre, propulsion sur Espace
+  let flying = false;
+  let flyThrust = false; // poussée active cette frame (pour les particules)
+  let touchThrust = false; // bouton de poussée tactile
 
   if (!IS_TOUCH) {
     domElement.addEventListener('click', () => {
@@ -142,9 +146,9 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       // --- Conduite : W/S accélère et freine, A/D braque, Espace klaxonne
       const v = vehicle;
       const braking = fwd < 0 && v.speed > 0.5;
-      v.speed += fwd * (braking ? 16 : 9) * dt;
+      v.speed += fwd * (braking ? 32 : 18) * dt;
       v.speed *= 1 - 1.1 * dt; // frottements
-      v.speed = Math.max(-7, Math.min(19, v.speed));
+      v.speed = Math.max(-14, Math.min(38, v.speed));
       if (Math.abs(v.speed) < 0.04 && fwd === 0) v.speed = 0;
       // Braquage proportionnel à la vitesse (pas de rotation à l'arrêt)
       const grip = Math.min(1, Math.abs(v.speed) / 5);
@@ -183,6 +187,42 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         pos.y + 1.42,
         pos.z + Math.sin(v.heading) * 0.45
       );
+      camera.rotation.order = 'YXZ';
+      camera.rotation.set(pitch, yaw, 0);
+      return;
+    }
+
+    if (flying) {
+      // --- Jetpack : ZQSD vole dans la direction du regard, Espace pousse
+      // vers le haut, gravité douce sinon. Poussée = Espace maintenu.
+      const sinF = Math.sin(yaw), cosF = Math.cos(yaw);
+      let fx = (-sinF * fwd + cosF * strafe);
+      let fz = (-cosF * fwd - sinF * strafe);
+      const flen = Math.hypot(fx, fz);
+      if (flen > 1) { fx /= flen; fz /= flen; }
+      const FLY_SPEED = 16;
+      const kf = 1 - Math.exp(-8 * dt);
+      vel.x += (fx * FLY_SPEED - vel.x) * kf;
+      vel.z += (fz * FLY_SPEED - vel.z) * kf;
+
+      const thrusting = active && (keys.has('Space') || wantJump || touchThrust);
+      flyThrust = thrusting;
+      if (thrusting) {
+        vel.y += 26 * dt;
+        vel.y = Math.min(vel.y, 15);
+      }
+      vel.y -= 11 * dt; // gravité de vol, plus douce
+      vel.y = Math.max(vel.y, -14);
+      wantJump = false;
+
+      onGround = false;
+      resolveAxis('y', vel.y * dt);
+      const gLev = terrain ? terrain(pos.x, pos.z) : 0;
+      if (pos.y <= gLev) { pos.y = gLev; vel.y = 0; onGround = true; }
+      resolveAxis('x', vel.x * dt);
+      resolveAxis('z', vel.z * dt);
+
+      camera.position.set(pos.x, pos.y + EYE_HEIGHT, pos.z);
       camera.rotation.order = 'YXZ';
       camera.rotation.set(pitch, yaw, 0);
       return;
@@ -239,6 +279,14 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       if (v) yaw = v.heading; // on regarde d'abord la route
     },
     get vehicle() { return vehicle; },
+    // Jetpack
+    setFlying(on) {
+      flying = on;
+      if (!on) flyThrust = false;
+    },
+    get flying() { return flying; },
+    get flyThrust() { return flyThrust; },
+    setTouchThrust(on) { touchThrust = on; },
     teleport(x, y, z, ry) {
       pos.set(x, y, z);
       vel.set(0, 0, 0);

@@ -28,12 +28,14 @@ export function buildCity(ctx) {
   buildFountain(ctx);
   buildStreetFurniture(ctx);
   buildTraboules(ctx, proceduralTraboules());
-  buildTraffic(ctx, [SAONE, RHONE]);
-  buildConfluence(ctx);
-  // Le lit des fleuves (et le plan d'eau de la Confluence) devient le sol
-  composeRiverTerrain(ctx, [SAONE, RHONE], [
-    { minX: SAONE.maxX + 0.35, maxX: RHONE.minX - 0.35, minZ: CONFLUENCE_Z, maxZ: 280 },
-  ]);
+  buildTraffic(ctx, [SAONE, RHONE], CONFLUENCE_Z - 12);
+  const CONF = {
+    xL: SAONE.minX, xR: RHONE.maxX, x0: SAONE.maxX, x1: RHONE.minX,
+    zStart: CONFLUENCE_Z, zTip: CONFLUENCE_Z + 96, zEnd: 280,
+  };
+  buildConfluence(ctx, CONF);
+  // Pointe de terre = sol ; les deux fleuves convergent puis fusionnent
+  composeRiverTerrain(ctx, [SAONE, RHONE], [], CONF);
 
   // Limites du monde — étendues à l'ouest pour rendre Fourvière jouable
   const WEST = -330;
@@ -85,6 +87,7 @@ function buildGroundAndRivers(ctx) {
   for (const river of [SAONE, RHONE]) {
     buildRiverWorks(ctx, river, {
       halfLength: 280,
+      zMax: CONFLUENCE_Z, // les fleuves s'arrêtent à la Confluence
       bridgesZ: [0, 76, -88],
       withArcs: river === SAONE,
       parapetHalf: WORLD_BOUND,
@@ -109,10 +112,16 @@ function buildGroundAndRivers(ctx) {
 // sous lesquels passent les péniches. Partagé procédural / mode OSM.
 export function buildRiverWorks(ctx, band, {
   halfLength = 280, bridgesZ = [0], withArcs = false, parapetHalf = 134,
+  zMin = null, zMax = null,
 } = {}) {
   const w = band.maxX - band.minX;
   const cx = (band.minX + band.maxX) / 2;
-  const L = halfLength * 2;
+  // Un fleuve peut s'arrêter au sud (à la Confluence) : zMin/zMax bornent
+  // sa longueur, sinon il est centré sur 0 comme avant.
+  const z0 = zMin ?? -halfLength;
+  const z1 = zMax ?? halfLength;
+  const L = z1 - z0;
+  const zc = (z0 + z1) / 2;
 
   // Lit du fleuve (deviné par transparence)
   const bed = new THREE.Mesh(
@@ -120,7 +129,7 @@ export function buildRiverWorks(ctx, band, {
     new THREE.MeshLambertMaterial({ color: 0x27352b })
   );
   bed.rotation.x = -Math.PI / 2;
-  bed.position.set(cx, BED_Y + 0.01, 0);
+  bed.position.set(cx, BED_Y + 0.01, zc);
   ctx.scene.add(bed);
 
   // Eau animée : deux couches qui défilent + reflet spéculaire
@@ -138,7 +147,7 @@ export function buildRiverWorks(ctx, band, {
     })
   );
   water.rotation.x = -Math.PI / 2;
-  water.position.set(cx, WATER_Y, 0);
+  water.position.set(cx, WATER_Y, zc);
   ctx.scene.add(water);
   const shimmer = new THREE.Mesh(
     new THREE.PlaneGeometry(w, L),
@@ -148,7 +157,7 @@ export function buildRiverWorks(ctx, band, {
     })
   );
   shimmer.rotation.x = -Math.PI / 2;
-  shimmer.position.set(cx, WATER_Y + 0.03, 0);
+  shimmer.position.set(cx, WATER_Y + 0.03, zc);
   shimmer.userData.noShadow = true;
   ctx.scene.add(shimmer);
   ctx.updatables.push((dt) => {
@@ -161,16 +170,17 @@ export function buildRiverWorks(ctx, band, {
   const wallMat = new THREE.MeshLambertMaterial({ color: 0x8a8274 });
   for (const [edge, out] of [[band.minX, -1], [band.maxX, 1]]) {
     const wall = new THREE.Mesh(new THREE.BoxGeometry(0.7, -BED_Y + 0.05, L), wallMat);
-    wall.position.set(edge + out * 0.35, (BED_Y + 0.05) / 2, 0);
+    wall.position.set(edge + out * 0.35, (BED_Y + 0.05) / 2, zc);
     ctx.scene.add(wall);
     ctx.colliders.push({
       minX: edge + out * 0.35 - 0.35, maxX: edge + out * 0.35 + 0.35,
       minY: BED_Y - 0.1, maxY: 0.02,
-      minZ: -halfLength, maxZ: halfLength,
+      minZ: z0, maxZ: z1,
     });
 
     // Escaliers de quai : pour remonter quand on est tombé à l'eau
     for (const sz of [-56, 56]) {
+      if (sz < z0 + 4 || sz > z1 - 4) continue;
       for (let i = 0; i < 5; i++) {
         addBox(ctx, {
           x: edge - out * (0.9 + (4 - i) * 0.85),
@@ -186,16 +196,18 @@ export function buildRiverWorks(ctx, band, {
   // Parapets le long des berges, avec des trouées au droit de chaque pont
   const gaps = [...bridgesZ].sort((a, b) => a - b);
   const GAP = 6.2;
+  const pMin = Math.max(z0, -parapetHalf);
+  const pMax = Math.min(z1, parapetHalf);
   for (const x of [band.minX, band.maxX]) {
-    let z0 = -parapetHalf;
-    for (const gz of [...gaps, parapetHalf + GAP]) {
-      const z1 = Math.min(gz - GAP, parapetHalf);
-      if (z1 - z0 > 1.5) {
+    let za = pMin;
+    for (const gz of [...gaps, pMax + GAP]) {
+      const zb = Math.min(gz - GAP, pMax);
+      if (zb - za > 1.5) {
         addBox(ctx, {
-          x, z: (z0 + z1) / 2, w: 0.7, h: 1.05, d: z1 - z0, color: 0x9aa0a8,
+          x, z: (za + zb) / 2, w: 0.7, h: 1.05, d: zb - za, color: 0x9aa0a8,
         });
       }
-      z0 = gz + GAP;
+      za = gz + GAP;
     }
   }
 
@@ -262,11 +274,21 @@ export function buildRiverWorks(ctx, band, {
 }
 
 // Compose le terrain : lit des fleuves en contrebas + colline éventuelle
-// (+ rectangles d'eau supplémentaires, comme la Confluence).
+// (+ Confluence : pointe de terre entre les deux fleuves, puis fleuve unique).
 // À appeler après buildFourviere (qui pose ctx.terrainHeight = colline).
-export function composeRiverTerrain(ctx, bands, extraRects = []) {
+export function composeRiverTerrain(ctx, bands, extraRects = [], conf = null) {
   const prev = ctx.terrainHeight;
   ctx.terrainHeight = (x, z) => {
+    // Zone de Confluence : la pointe de terre est du sol, tout le reste (les
+    // deux fleuves qui convergent + le fleuve unique au sud) est de l'eau
+    if (conf && z >= conf.zStart && z <= conf.zEnd && x > conf.xL && x < conf.xR) {
+      const cxc = (conf.x0 + conf.x1) / 2;
+      if (z <= conf.zTip) {
+        const halfW = ((conf.x1 - conf.x0) / 2) * (conf.zTip - z) / (conf.zTip - conf.zStart);
+        if (Math.abs(x - cxc) < halfW - 0.4) return 0; // pointe de terre
+      }
+      return BED_Y;
+    }
     for (const b of bands) {
       if (x > b.minX + 0.35 && x < b.maxX - 0.35) return BED_Y;
     }
@@ -533,64 +555,92 @@ export function buildPeniches(ctx, bands = [SAONE, RHONE]) {
   }
 }
 
-// La Confluence : au sud, la Presqu'île se termine en pointe sur un grand
-// plan d'eau où Rhône et Saône se rejoignent — avec le Musée des Confluences
-// en cristal low-poly et, au bout, l'emplacement du futur jetpack.
+// La Confluence : la Presqu'île se termine en une vraie pointe de terre
+// entre le Rhône et la Saône, qui se rejoignent au bout pour continuer en un
+// seul fleuve vers le sud. Musée des Confluences en cristal + jetpack.
 // Paramétrée pour servir la ville procédurale ET le mode OSM.
 export function buildConfluence(ctx, {
-  x0 = SAONE.maxX, x1 = RHONE.minX, zStart = CONFLUENCE_Z, zEnd = 280,
+  xL = SAONE.minX, xR = RHONE.maxX,
+  x0 = SAONE.maxX, x1 = RHONE.minX,
+  zStart = CONFLUENCE_Z, zTip = CONFLUENCE_Z + 90, zEnd = 280,
 } = {}) {
-  const w = x1 - x0;
   const cx = (x0 + x1) / 2;
+  const W = xR - xL;      // largeur totale (fleuve unique au sud)
   const L = zEnd - zStart;
   const cz = zStart + L / 2;
 
-  // Lit + eau (raccordées au niveau des fleuves : continuité parfaite)
+  // Grand plan d'eau + lit sur toute la largeur : les deux fleuves fusionnent
   const bed = new THREE.Mesh(
-    new THREE.PlaneGeometry(w, L),
+    new THREE.PlaneGeometry(W, L),
     new THREE.MeshLambertMaterial({ color: 0x27352b })
   );
   bed.rotation.x = -Math.PI / 2;
-  bed.position.set(cx, BED_Y + 0.01, cz);
+  bed.position.set((xL + xR) / 2, BED_Y + 0.01, cz);
   ctx.scene.add(bed);
   const waterTex = makeWaterTexture();
   waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping;
-  waterTex.repeat.set(12, 18);
+  waterTex.repeat.set(18, 20);
   const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(w, L),
+    new THREE.PlaneGeometry(W, L),
     new THREE.MeshPhongMaterial({
       map: waterTex, transparent: true, opacity: 0.93,
       specular: 0xbdd9e2, shininess: 90,
     })
   );
   water.rotation.x = -Math.PI / 2;
-  water.position.set(cx, WATER_Y, cz);
+  water.position.set((xL + xR) / 2, WATER_Y, cz);
   ctx.scene.add(water);
   ctx.updatables.push((dt) => { waterTex.offset.y -= dt * 0.012; });
 
-  // Mur de quai de la pointe (face sud de la Presqu'île) + parapet troué
-  // au niveau de l'escalier de berge
-  const wallMat = new THREE.MeshLambertMaterial({ color: 0x8a8274 });
-  const wall = new THREE.Mesh(new THREE.BoxGeometry(w, -BED_Y + 0.05, 0.7), wallMat);
-  wall.position.set(cx, (BED_Y + 0.05) / 2, zStart + 0.35);
-  ctx.scene.add(wall);
-  ctx.colliders.push({
-    minX: x0, maxX: x1, minY: BED_Y - 0.1, maxY: 0.02,
-    minZ: zStart, maxZ: zStart + 0.7,
-  });
-  for (const [px, len] of [[cx - w / 4 - 3, w / 2 - 8], [cx + w / 4 + 3, w / 2 - 8]]) {
-    addBox(ctx, { x: px, z: zStart, w: len, h: 1.05, d: 0.7, color: 0x9aa0a8 });
-  }
-  // Escalier de berge au milieu de la pointe
-  for (let i = 0; i < 5; i++) {
-    addBox(ctx, {
-      x: cx, y: BED_Y, z: zStart + 0.9 + (4 - i) * 0.85,
-      w: 2.4, h: 0.52 * (i + 1), d: 1.1, color: 0x9a9284,
-    });
+  // --- Pointe de terre (langue de la Presqu'île) : triangle engazonné -----
+  const tipGeo = new THREE.BufferGeometry();
+  tipGeo.setAttribute('position', new THREE.Float32BufferAttribute([
+    x0, 0.03, zStart, x1, 0.03, zStart, cx, 0.03, zTip,
+  ], 3));
+  tipGeo.setIndex([0, 1, 2]);
+  tipGeo.computeVertexNormals();
+  if (tipGeo.attributes.normal.getY(0) < 0) tipGeo.setIndex([0, 2, 1]);
+  tipGeo.computeVertexNormals();
+  const tip = new THREE.Mesh(
+    tipGeo,
+    new THREE.MeshLambertMaterial({ color: 0x5c7d4a }) // parc de la Confluence
+  );
+  ctx.scene.add(tip);
+
+  // Parc de la Confluence : quelques arbres le long de la pointe
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x6b5138 });
+  const leafMat = new THREE.MeshLambertMaterial({ color: 0x4a7038, flatShading: true });
+  for (let i = 0; i < 7; i++) {
+    const t = (i + 1) / 9;
+    const zz = zStart + (zTip - zStart) * t;
+    const halfW = ((x1 - x0) / 2) * (1 - t);
+    const xx = cx + (i % 2 ? 1 : -1) * halfW * 0.55;
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.24, 2.2, 6), trunkMat);
+    trunk.position.set(xx, 1.1, zz);
+    const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(1.4, 0), leafMat);
+    crown.position.set(xx, 3, zz);
+    ctx.scene.add(trunk, crown);
   }
 
-  // Musée des Confluences : le « nuage de cristal » déconstructiviste
-  const mx = cx, mz = zStart - 13;
+  // Berges en pierre le long des deux flancs diagonaux de la pointe
+  const wallMat = new THREE.MeshLambertMaterial({ color: 0x8a8274 });
+  for (const sx of [x0, x1]) {
+    const dx = cx - sx, dz = zTip - zStart;
+    const len = Math.hypot(dx, dz);
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(0.7, -BED_Y + 0.05, len), wallMat);
+    wall.position.set((sx + cx) / 2, (BED_Y + 0.05) / 2, (zStart + zTip) / 2);
+    wall.rotation.y = -Math.atan2(dx, dz);
+    ctx.scene.add(wall);
+    // Parapet bas au-dessus de la berge
+    const par = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.0, len), new THREE.MeshLambertMaterial({ color: 0x9aa0a8 }));
+    par.position.set((sx + cx) / 2, 0.5, (zStart + zTip) / 2);
+    par.rotation.y = -Math.atan2(dx, dz);
+    ctx.scene.add(par);
+  }
+
+  // Musée des Confluences : le « nuage de cristal » déconstructiviste,
+  // posé vers la base de la pointe (là où elle est large)
+  const mx = cx, mz = zStart + 22;
   const glassMat = new THREE.MeshPhongMaterial({
     color: 0xaec9d8, specular: 0xe8f4fa, shininess: 80,
     transparent: true, opacity: 0.85,
@@ -629,17 +679,47 @@ export function buildConfluence(ctx, {
     action: () => ctx.notify?.('🏛️ Le nuage de cristal, posé là où la Saône embrasse le Rhône.'),
   });
 
-  // Au bout de la pointe : l'emplacement du futur JETPACK
+  // Au bout de la pointe : le JETPACK, posé sur son socle lumineux
+  const padZ = zTip - 6;
   const pad = new THREE.Mesh(
     new THREE.CylinderGeometry(1.6, 1.8, 0.25, 10),
     new THREE.MeshLambertMaterial({ color: 0x2f3542, emissive: 0x101828 })
   );
-  pad.position.set(cx, 0.13, zStart - 2.6);
+  pad.position.set(cx, 0.13, padZ);
   ctx.scene.add(pad);
+  // Modèle low-poly : dossard + deux bonbonnes + tuyères
+  const jet = new THREE.Group();
+  const metal = new THREE.MeshLambertMaterial({ color: 0xd23b3b });
+  const dark = new THREE.MeshLambertMaterial({ color: 0x2a2e36 });
+  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.3), dark);
+  pack.position.y = 1.2;
+  jet.add(pack);
+  for (const dx of [-0.42, 0.42]) {
+    const tank = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, 0.7, 5, 8), metal);
+    tank.position.set(dx, 1.2, 0);
+    jet.add(tank);
+    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 0.25, 6), dark);
+    nozzle.position.set(dx, 0.7, 0);
+    jet.add(nozzle);
+  }
+  jet.position.set(cx, 0.25, padZ);
+  ctx.scene.add(jet);
+  // Halo pour le repérer de loin
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: makeLampHaloTexture(), color: 0x66aaff, transparent: true,
+    opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  halo.scale.set(5, 5, 1);
+  halo.position.set(cx, 1.6, padZ);
+  halo.userData.noShadow = true;
+  ctx.scene.add(halo);
+  ctx.updatables.push((dt) => {
+    jet.rotation.y += dt * 0.8; // tourne doucement sur le socle
+  });
   ctx.interactables.push({
-    x: cx, z: zStart - 2.6, r: 2.6,
-    label: 'E — ??? (prototype)',
-    action: () => ctx.notify?.('🚀 Un prototype de jetpack dort ici… Reviens bientôt, gone.'),
+    x: cx, z: padZ, r: 3,
+    label: 'E — Enfiler le jetpack 🚀',
+    action: () => ctx.onJetpackPickup?.(),
   });
 }
 

@@ -15,6 +15,8 @@ export const state = {
   xp: 0, // progression du joueur (source de vérité : serveur)
   level: 1,
   driving: false, // au volant d'une décapotable
+  hasJetpack: false, // jetpack ramassé à la Confluence
+  flying: false, // jetpack en cours d'utilisation
 };
 
 export async function apiFetch(path, options = {}) {

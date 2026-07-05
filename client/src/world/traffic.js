@@ -149,18 +149,19 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
   });
 
   // --- Décapotables conduisibles ------------------------------------------
-  // Garées aux extrémités des avenues, côté ville : toujours sur la chaussée
-  // qu'on vient de créer, donc jamais dans un bâtiment (les deux modes).
+  // Garées le long des accotements côté quai (jamais dans un bâtiment) :
+  // plusieurs par avenue, réparties sur la longueur.
   const spots = [];
+  const zParks = [-64, -20, 24, 68]; // 4 emplacements le long de chaque avenue
   for (const av of avenues) {
     const sx = av.x - av.side * (AVENUE_W / 2 + 1.1); // accotement côté quai
-    spots.push({ x: sx, z: 24, ry: 0 });
-    if (spots.length < CABRIO_COLORS.length) {
-      spots.push({ x: sx, z: -32, ry: Math.PI });
+    for (let k = 0; k < zParks.length; k++) {
+      const z = zParks[k];
+      if (Math.abs(z) > L - 4) continue; // pas au-delà du bout de l'avenue
+      spots.push({ x: sx, z, ry: k % 2 ? Math.PI : 0 });
     }
   }
-  spots.length = Math.min(spots.length, CABRIO_COLORS.length);
-  spots.forEach((s, i) => buildCabrio(ctx, s, CABRIO_COLORS[i]));
+  spots.forEach((s, i) => buildCabrio(ctx, s, CABRIO_COLORS[i % CABRIO_COLORS.length]));
 }
 
 function buildCabrio(ctx, spot, color) {

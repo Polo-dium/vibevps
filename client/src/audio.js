@@ -187,6 +187,37 @@ export const audio = {
     osc2.stop(ctx.currentTime + 0.3);
   },
 
+  // Jetpack : souffle de réacteur en boucle, module par la poussée
+  _jet: null,
+  jetStart() {
+    ensure();
+    if (this._jet) return;
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer;
+    src.loop = true;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 1100;
+    filter.Q.value = 0.7;
+    const g = ctx.createGain();
+    g.gain.value = 0.0001;
+    src.connect(filter).connect(g).connect(master);
+    src.start();
+    this._jet = { src, g, filter };
+  },
+  jetThrust(on) {
+    if (!this._jet || !ctx) return;
+    this._jet.g.gain.setTargetAtTime(on ? 0.16 : 0.04, ctx.currentTime, 0.06);
+    this._jet.filter.frequency.setTargetAtTime(on ? 1500 : 900, ctx.currentTime, 0.08);
+  },
+  jetStop() {
+    if (!this._jet || !ctx) return;
+    const { src, g } = this._jet;
+    this._jet = null;
+    g.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.08);
+    src.stop(ctx.currentTime + 0.3);
+  },
+
   // Klaxon deux tons, très français
   horn() {
     if (!ctx) return;

@@ -162,6 +162,16 @@ async function boot() {
       net.send({ t: 'ouch', dmg: 15, by: 'un chauffard lyonnais' });
       navigator.vibrate?.(60);
     },
+    // Jetpack ramassé à la Confluence : débloqué en permanence
+    onJetpackPickup: () => {
+      if (!state.hasJetpack) {
+        state.hasJetpack = true;
+        ui.toast('🚀 Jetpack enfilé ! Appuie sur J pour décoller, Espace pour monter.');
+        ui.spawnConfetti(20);
+      } else {
+        toggleJetpack();
+      }
+    },
     // Conduite des décapotables (voir world/traffic.js)
     startDrive: (car, group) => {
       controls.teleport(group.position.x, group.position.y, group.position.z);
@@ -201,7 +211,9 @@ async function boot() {
     camera.updateProjectionMatrix();
     // Brouillard atmosphérique : un peu plus dense sur la ville complète
     // (4× plus vaste) pour limiter ce qui est dessiné au loin
-    scene.fog = new THREE.FogExp2(skyColor, osmData.hills ? 0.0017 : 0.0011);
+    // Brume plus légère sur la ville complète : Fourvière et la Croix-Rousse
+    // dominent la ville, il faut les voir de loin
+    scene.fog = new THREE.FogExp2(skyColor, osmData.hills ? 0.0012 : 0.0011);
     ui.toast(osmData.hills
       ? 'Le GRAND Lyon chargé, de la Confluence à la Croix-Rousse — données © OpenStreetMap'
       : 'Vrai centre de Lyon chargé — données © OpenStreetMap');
@@ -316,6 +328,10 @@ async function boot() {
     camera, renderer.domElement, ctx.colliders,
     (x, z) => ctx.terrainHeight?.(x, z) ?? 0
   );
+  // Hook de debug (derrière ?debug) : téléportation/inspection pour les tests
+  if (new URLSearchParams(location.search).has('debug')) {
+    window.__game = { controls, ctx, state, camera };
+  }
   const weapon = createWeapon(camera, scene, ctx.shootables, {
     onAmmoChange: (ammo, reloading) => ui.setAmmo(ammo, reloading, state.weaponEquipped),
     onShot: (a, b) => net.send({ t: 'shot', a, b }),
@@ -393,6 +409,49 @@ async function boot() {
     navigator.vibrate?.(10);
   }
 
+  // --- Jetpack : touche J (une fois ramassé à la Confluence). Particules de
+  // propulsion mutualisées, son de réacteur modulé par la poussée.
+  const jetGeo = new THREE.SphereGeometry(0.12, 5, 5);
+  const jetMat = new THREE.MeshBasicMaterial({
+    color: 0xffb347, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const jetParticles = []; // { mesh, vel, life, maxLife }
+  function toggleJetpack() {
+    if (!state.hasJetpack) {
+      ui.toast('🚀 Va chercher le jetpack à la pointe de la Confluence !');
+      return;
+    }
+    if (state.driving) return;
+    const on = !controls.flying;
+    controls.setFlying(on);
+    state.flying = on;
+    if (on) { audio.jetStart(); ui.toast('🚀 Décollage ! Espace pour monter, J pour couper.'); }
+    else audio.jetStop();
+  }
+  function spawnJetParticles() {
+    const p = controls.position;
+    for (let i = 0; i < 2; i++) {
+      if (jetParticles.length > 60) break;
+      const m = new THREE.Mesh(jetGeo, jetMat);
+      m.position.set(p.x + (Math.random() - 0.5) * 0.5, p.y + 0.2, p.z + (Math.random() - 0.5) * 0.5);
+      scene.add(m);
+      jetParticles.push({
+        mesh: m,
+        vel: new THREE.Vector3((Math.random() - 0.5) * 1.5, -3 - Math.random() * 3, (Math.random() - 0.5) * 1.5),
+        life: 0.35, maxLife: 0.35,
+      });
+    }
+  }
+  function updateJetParticles(dt) {
+    for (let i = jetParticles.length - 1; i >= 0; i--) {
+      const s = jetParticles[i];
+      s.life -= dt;
+      s.mesh.position.addScaledVector(s.vel, dt);
+      s.mesh.scale.setScalar(Math.max(0.01, s.life / s.maxLife));
+      if (s.life <= 0) { scene.remove(s.mesh); jetParticles.splice(i, 1); }
+    }
+  }
+
   // Active les ombres sur tout le monde statique déjà construit
   if (SHADOWS) {
     scene.traverse((o) => {
@@ -446,6 +505,12 @@ async function boot() {
         controls.setVehicle(null);
         state.driving = false;
         audio.engineStop();
+      }
+      // Mort en vol : on coupe le jetpack (mais on le garde en poche)
+      if (controls.flying) {
+        controls.setFlying(false);
+        state.flying = false;
+        audio.jetStop();
       }
       npcs.calm(); // la Garde a eu sa vengeance
       controls.teleport(sp.x, sp.y, sp.z, sp.ry);
@@ -512,6 +577,7 @@ async function boot() {
     if (e.code === 'Enter') { ui.openChat(); return; }
     if (e.code === 'KeyE' && nearestInteractable) nearestInteractable.action();
     if (e.code === 'KeyC') capture.take();
+    if (e.code === 'KeyJ') toggleJetpack();
     if (e.code === 'Digit3') emote(0);
     if (e.code === 'Digit4') emote(1);
     if (e.code === 'Digit5') emote(2);
@@ -532,6 +598,7 @@ async function boot() {
   if (IS_TOUCH) {
     createTouchControls({
       controls, weapon, spray, tagEditor, ui, voice, capture, emote,
+      jetpack: () => toggleJetpack(),
       interact: () => nearestInteractable?.action(),
     });
     // Le prompt « ▶ JOUER » est lui-même tactile : plus besoin de viser le bouton E.
@@ -609,8 +676,15 @@ async function boot() {
 
     // Moteur de la décapotable : la hauteur suit la vitesse
     if (state.driving) {
-      audio.engineUpdate(Math.min(1, Math.abs(controls.vehicle?.speed ?? 0) / 19));
+      audio.engineUpdate(Math.min(1, Math.abs(controls.vehicle?.speed ?? 0) / 38));
     }
+
+    // Jetpack : poussée sonore + gerbe de particules sous les pieds
+    if (controls.flying) {
+      audio.jetThrust(controls.flyThrust);
+      if (controls.flyThrust) spawnJetParticles();
+    }
+    updateJetParticles(dt);
 
     // Tombé dans le fleuve : petit message (la vraie nage viendra plus tard)
     if (controls.position.y < -1.2 && !state.driving && infoTimer <= 0 && !wetToastAt) {
