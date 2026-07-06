@@ -16,6 +16,20 @@ app.use(express.json({ limit: '1mb' }));
 app.use('/api', api);
 
 const distDir = path.join(__dirname, '..', '..', 'client', 'dist');
+const publicOsm = path.join(__dirname, '..', '..', 'client', 'public', 'lyon-osm.json');
+
+// IMPORTANT : la carte OSM est servie EN PRIORITÉ depuis client/public (là où
+// `node tools/fetch-osm.mjs` l'écrit), pas depuis le build. Ainsi, régénérer
+// l'OSM prend effet tout de suite (au prochain redémarrage), sans avoir à
+// relancer un build complet — sinon on continue de servir l'ancienne carte.
+app.get('/lyon-osm.json', (req, res) => {
+  const distOsm = path.join(distDir, 'lyon-osm.json');
+  const file = fs.existsSync(publicOsm) ? publicOsm : distOsm;
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  if (fs.existsSync(file)) res.sendFile(file);
+  else res.status(404).end();
+});
+
 if (fs.existsSync(distDir)) {
   // Les assets JS/CSS ont un hash dans leur nom → cache long OK. Mais
   // index.html et lyon-osm.json NE DOIVENT PAS être mis en cache par le
