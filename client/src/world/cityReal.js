@@ -197,20 +197,30 @@ function riversFromPolys(polys, bound) {
       else merged.push([iv[0], iv[1]]);
     }
     const cur = merged.filter((m) => m[1] - m[0] >= 14).map((m) => ({ x: (m[0] + m[1]) / 2, w: m[1] - m[0] }));
-    // chaînage nord→sud (tolérance large pour suivre les grands coudes)
-    const used = new Set();
-    for (const iv of cur) {
-      let best = -1, bd = 1e9;
-      for (let ci = 0; ci < active.length; ci++) {
-        if (used.has(ci)) continue;
-        const d = Math.abs(active[ci].lastX - iv.x);
-        if (d < bd && d < 140) { bd = d; best = ci; }
-      }
-      if (best >= 0) { const c = active[best]; c.pts.push([z, iv.x, iv.w]); c.lastX = iv.x; c.gap = 0; used.add(best); }
-      else active.push({ pts: [[z, iv.x, iv.w]], lastX: iv.x, gap: 0 });
+    // Chaînage nord→sud AVEC MOMENTUM : chaque fleuve prédit sa position
+    // suivante (position + vitesse) et prend l'intervalle le plus proche de
+    // cette PRÉDICTION → à une bifurcation (île, bras mort), il continue dans
+    // sa direction (ex. la Saône qui part vers l'ouest) au lieu de sauter sur
+    // le bras qui remonte.
+    const usedIv = new Set(), usedCh = new Set();
+    const cand = [];
+    for (let ci = 0; ci < active.length; ci++) {
+      const pred = active[ci].lastX + (active[ci].vel || 0);
+      for (let k = 0; k < cur.length; k++) cand.push({ ci, k, d: Math.abs(cur[k].x - pred) });
+    }
+    cand.sort((a, b) => a.d - b.d);
+    for (const { ci, k, d } of cand) {
+      if (usedCh.has(ci) || usedIv.has(k) || d >= 150) continue;
+      const c = active[ci], iv = cur[k];
+      c.vel = 0.6 * (c.vel || 0) + 0.4 * (iv.x - c.lastX);
+      c.pts.push([z, iv.x, iv.w]); c.lastX = iv.x; c.gap = 0;
+      usedCh.add(ci); usedIv.add(k);
     }
     for (let ci = active.length - 1; ci >= 0; ci--) {
-      if (!used.has(ci) && ++active[ci].gap > 3) { done.push(active[ci]); active.splice(ci, 1); }
+      if (!usedCh.has(ci) && ++active[ci].gap > 3) { done.push(active[ci]); active.splice(ci, 1); }
+    }
+    for (let k = 0; k < cur.length; k++) {
+      if (!usedIv.has(k)) active.push({ pts: [[z, cur[k].x, cur[k].w]], lastX: cur[k].x, vel: 0, gap: 0 });
     }
   }
   done.push(...active);
@@ -261,6 +271,11 @@ export function buildRealCity(ctx, data) {
     for (const [, x] of pts) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
     band.minX = lo - band.w / 2;
     band.maxX = hi + band.w / 2;
+    // Étendue réelle du fleuve (z) : l'eau et les quais ne débordent plus en
+    // ligne droite au-delà (fini les « restes de quais » qui prolongeaient
+    // le fleuve là où il n'y en a plus).
+    band.zMin = pts[0][0];
+    band.zMax = pts[pts.length - 1][0];
   });
   const rand = makeRand(7);
   const full = Array.isArray(data.hills) && data.hills.length > 0;
@@ -269,20 +284,10 @@ export function buildRealCity(ctx, data) {
   const west = sorted[0];
   const east = sorted[sorted.length - 1];
 
-  // Recalage de Fourvière (mode complet) : les lon/lat codées en dur pour la
-  // colline et la basilique tombaient DANS la Presqu'île, à l'est de la Saône
-  // (la ville OSM ne s'aligne pas exactement sur ces coordonnées). On ancre
-  // le flanc EST de la colline sur la rive ouest de la Saône (le fleuve le
-  // plus à l'ouest) et on décale la basilique du même montant : Fourvière
-  // repasse ainsi côté Vieux Lyon, sous ses bâtiments, à l'ouest du fleuve.
-  if (full && data.hills.length) {
-    const fourviere = data.hills.reduce((a, b) => (b.cx < a.cx ? b : a));
-    const shift = west.minX - (fourviere.cx + fourviere.rx * 0.85);
-    if (shift < -20) {
-      fourviere.cx += shift;
-      if (Array.isArray(data.poi?.basilica)) data.poi.basilica[0] += shift;
-    }
-  }
+  // (Plus de recalage de Fourvière : il compensait des fleuves mal placés.
+  // Maintenant que l'eau vient de la vraie géométrie OSM, les collines codées
+  // en dur — issues des mêmes coordonnées OSM — retombent naturellement à leur
+  // place par rapport aux fleuves.)
 
   // Plus de boîte englobante pour l'eau : avec des fleuves courbes qui
   // convergent à la Confluence, une boîte raserait la Presqu'île. L'exclusion
@@ -535,23 +540,21 @@ function buildGround(ctx, bound, bands) {
 
 function buildWater(ctx, bands, bound, zConf = null) {
   for (const band of bands) {
-    // Ponts sur la zone plate du centre (jamais dans les collines) ;
-    // en ville complète on en met cinq, tous au nord de la Confluence
-    const candidates = zConf != null
-      ? [0, 170, -170, 340, -340]
-      : [0, Math.round(bound * 0.55), -Math.round(bound * 0.55)];
-    const bridgesZ = candidates.filter(
-      (z) => Math.abs(z) < bound - 30 && (zConf == null || z < zConf - 30)
+    // Le fleuve ne s'étend qu'à son emprise réelle (band.zMin/zMax issus de la
+    // géométrie OSM) ; à défaut, on borne à la Confluence au sud comme avant.
+    const zMax = band.zMax != null ? band.zMax : (zConf != null ? zConf : bound + 100);
+    const zLo = band.zMin != null ? band.zMin : -bound - 100;
+    // Ponts répartis dans l'emprise du fleuve (jamais au-delà)
+    const bridgesZ = [0, 170, -170, 340, -340].filter(
+      (z) => z > zLo + 40 && z < zMax - 40 && Math.abs(z) < bound - 30
     );
-    // Les fleuves s'arrêtent à la Confluence (zMax) : ils fusionnent au sud
-    const zMax = zConf != null ? zConf : bound + 100;
     buildRiverWorks(ctx, band, {
       halfLength: bound + 100,
+      zMin: zLo,
       zMax,
       bridgesZ,
       parapetHalf: bound,
     });
-    const zLo = -bound - 100;
     const quayMat = new THREE.MeshLambertMaterial({ color: 0x8d8676, side: THREE.DoubleSide });
     if (band.cx) {
       // Fleuve courbe : trottoirs de quai en ruban qui suit le méandre.
