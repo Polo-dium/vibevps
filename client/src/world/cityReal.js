@@ -34,6 +34,26 @@ let HILL_RECT = null;
 let WATER_RECTS = [];
 let EXTRA_RECTS = [];
 
+// Tracés RÉELS des fleuves relevés en jeu par le joueur (coordonnées monde
+// [z, x], du nord au sud). Ils PRIMENT sur toute détection auto : la Saône
+// et le Rhône descendent puis se rejoignent à la Confluence au sud. Stables
+// tant que la projection OSM (LON0 / échelle / bbox) ne change pas.
+const RIVER_OVERRIDES = {
+  saone: { w: 92, pts: [[-1600, -560], [-515, -558], [527, -556], [1075, -337], [1378, -392]] },
+  rhone: { w: 108, pts: [[-1600, 133], [234, 134], [315, 126], [1248, -391], [1378, -392]] },
+};
+
+// Un point est-il dans (ou au bord de) l'eau, à la profondeur z ? Test par
+// distance au tracé central → fonctionne même quand les fleuves se courbent
+// et convergent (contrairement à une boîte englobante qui raserait la
+// Presqu'île à la Confluence).
+function nearRiver(bands, x, z, margin = 0) {
+  for (const b of bands) {
+    if (b.cx && Math.abs(x - riverCx(b, z)) < riverHalf(b) + margin) return true;
+  }
+  return false;
+}
+
 // Collines réelles : max d'ellipsoïdes analytiques (cap = plateau)
 function makeHillsFn(hills) {
   return (x, z) => {
@@ -123,6 +143,17 @@ export function buildRealCity(ctx, data) {
   const HALF_CAP = 82;
   const gapPaths = deriveRiverPaths(data, bound);
   for (const band of data.water) {
+    // 1) Tracé RELEVÉ PAR LE JOUEUR (prioritaire) : on fige la courbe réelle
+    const ov = RIVER_OVERRIDES[band.name];
+    if (ov) {
+      band.cx = makeCenterline(ov.pts);
+      band.w = ov.w;
+      let lo = Infinity, hi = -Infinity;
+      for (const [, x] of ov.pts) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
+      band.minX = lo - ov.w / 2; band.maxX = hi + ov.w / 2;
+      continue;
+    }
+    // 2) Sinon, déduction auto depuis les couloirs entre bâtiments
     const path = gapPaths.get(band);
     let pts = null, width = null;
     if (path && path.length >= 3) {
@@ -177,10 +208,10 @@ export function buildRealCity(ctx, data) {
     }
   }
 
-  // Aucun bâtiment sur l'eau NI sur les avenues des quais (± 18 m)
-  WATER_RECTS = data.water.map((w) => ({
-    minX: w.minX - 18, maxX: w.maxX + 18, minZ: -bound - 200, maxZ: bound + 200,
-  }));
+  // Plus de boîte englobante pour l'eau : avec des fleuves courbes qui
+  // convergent à la Confluence, une boîte raserait la Presqu'île. L'exclusion
+  // des bâtiments/arbres se fait par distance au tracé (nearRiver), par z.
+  WATER_RECTS = [];
 
   let WEST = -(bound + 2);
   const EAST = bound + 2;
@@ -361,7 +392,7 @@ function lampSpotsOsm(ctx, data, full = false, zConf = null) {
     const x = BELLECOUR.minX + 6 + i * 8.2;
     spots.push([x, BELLECOUR.minZ + 1.5], [x, BELLECOUR.maxZ - 1.5]);
   }
-  const inWater = (x) => data.water.some((w) => x > w.minX - 4 && x < w.maxX + 4);
+  const inWater = (x, z) => nearRiver(data.water, x, z, 4);
   const cap = full ? 700 : 220;
   let done = false;
   for (const road of data.roads) {
@@ -369,7 +400,7 @@ function lampSpotsOsm(ctx, data, full = false, zConf = null) {
     if (road.w < 6) continue; // seulement les grands axes
     for (let i = 0; i + 1 < road.p.length; i += 20) {
       const x = road.p[i], z = road.p[i + 1];
-      if (inWater(x) || Math.abs(x) > ctx.worldBound - 6 || Math.abs(z) > ctx.worldBound - 6) continue;
+      if (inWater(x, z) || Math.abs(x) > ctx.worldBound - 6 || Math.abs(z) > ctx.worldBound - 6) continue;
       const gy = full ? Math.max(0, ctx.terrainHeight?.(x, z) ?? 0) : 0;
       spots.push([x + road.w / 2 + 1.5, z, gy]);
       if (spots.length > cap) { done = true; break; }
@@ -546,6 +577,8 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     if (reserved.some((r) => maxX > r.minX && minX < r.maxX && maxZ > r.minZ && minZ < r.maxZ)) {
       continue;
     }
+    // Pas de bâtiment sur l'eau ni sur l'avenue de quai (distance au tracé, par z)
+    if (nearRiver(data.water, cx, cz, 14)) continue;
 
     // Sens horaire (vu de dessus) pour des normales de murs vers l'extérieur
     let area = 0;
@@ -836,14 +869,16 @@ function buildGreenery(ctx, data, rand, full = false) {
   const inReserved = (x, z) => reserved.some(
     (r) => x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ
   );
-  const inWater = (x) => data.water.some((w) => x > w.minX - 4 && x < w.maxX + 4);
+  const inWater = (x, z) => nearRiver(data.water, x, z, 4);
 
-  // Alignements le long des deux rives
+  // Alignements le long des deux rives : on suit le tracé courbe du fleuve
   for (const band of data.water) {
-    for (const x of [band.minX - 4.5, band.maxX + 4.5]) {
+    if (!band.cx) continue;
+    const half = riverHalf(band);
+    for (const side of [-1, 1]) {
       for (let z = -ctx.worldBound + 10; z < ctx.worldBound - 10; z += 9) {
         if (Math.abs(z) < 6) continue; // dégage les ponts
-        spots.push([x, z + (rand() - 0.5) * 2]);
+        spots.push([riverCx(band, z) + side * (half + 4.5), z + (rand() - 0.5) * 2]);
       }
     }
   }
@@ -862,7 +897,7 @@ function buildGreenery(ctx, data, rand, full = false) {
   // Filtre : pas dans l'eau, pas dans une zone de jeu, pas dans un bâtiment
   const valid = [];
   for (const [x, z] of spots) {
-    if (inWater(x) || inReserved(x, z)) continue;
+    if (inWater(x, z) || inReserved(x, z)) continue;
     const ty = full ? (ctx.terrainHeight?.(x, z) ?? 0) : 0;
     if (ty < -0.5) continue; // pas dans les lits des fleuves
     const near = ctx.colliders.nearby ? ctx.colliders.nearby(x, z, 1.5) : [];
