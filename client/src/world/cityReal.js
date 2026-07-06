@@ -34,15 +34,6 @@ let HILL_RECT = null;
 let WATER_RECTS = [];
 let EXTRA_RECTS = [];
 
-// Tracés RÉELS des fleuves relevés en jeu par le joueur (coordonnées monde
-// [z, x], du nord au sud). Ils PRIMENT sur toute détection auto : la Saône
-// et le Rhône descendent puis se rejoignent à la Confluence au sud. Stables
-// tant que la projection OSM (LON0 / échelle / bbox) ne change pas.
-const RIVER_OVERRIDES = {
-  saone: { w: 92, pts: [[-1600, -560], [-515, -558], [527, -556], [1075, -337], [1378, -392]] },
-  rhone: { w: 108, pts: [[-1600, 133], [234, 134], [315, 126], [1248, -391], [1378, -392]] },
-};
-
 // Un point est-il dans (ou au bord de) l'eau, à la profondeur z ? Test par
 // distance au tracé central → fonctionne même quand les fleuves se courbent
 // et convergent (contrairement à une boîte englobante qui raserait la
@@ -71,58 +62,88 @@ function makeHillsFn(hills) {
   };
 }
 
-// Position de référence d'un fleuve : médiane de la ligne waterway (points
-// in-map), sinon centre de la boîte englobante. Sert à repérer le bon couloir.
-function refX(band, bound) {
-  if (Array.isArray(band.center) && band.center.length) {
-    const xs = band.center
-      .filter(([z, x]) => Math.abs(z) <= bound + 60 && Math.abs(x) <= bound + 60)
-      .map((p) => p[1]).sort((a, b) => a - b);
-    if (xs.length) return xs[xs.length >> 1];
-  }
-  return (band.minX + band.maxX) / 2;
-}
-
-// Déduit, pour chaque bande d'eau, le tracé du couloir vide entre les
-// bâtiments OSM (= le vrai lit du fleuve), tranche de z par tranche de z.
-// Renvoie une Map bande → [[z, xCentre, largeur], …].
-function deriveRiverPaths(data, bound) {
-  const XB = 16, ZB = 64, MINRUN = 4, NEAR = 190;
-  const occ = new Set();
-  const zks = new Set();
+// DÉTECTION DES FLEUVES par l'espace libre. Idée : dans une ville OSM, tout
+// est bâti SAUF l'eau. Les fleuves sont donc les couloirs vides nettement plus
+// larges qu'une avenue, ET qui traversent la carte du nord au sud. On repère
+// ces couloirs par tranche de z, on les relie en chaînes continues, et on
+// garde les deux plus longues = la Saône (ouest) et le Rhône (est).
+// Renvoie [{pts:[[z,xCentre,largeur],…], avgX}] trié ouest→est (0, 1 ou 2).
+function detectRivers(data, bound) {
+  const ZB = 36, XB = 6, AVENUE = 50; // > 50 m de vide = plus large qu'une avenue
+  const nz = Math.max(1, Math.ceil((2 * bound) / ZB));
+  const xkMin = Math.floor(-bound / XB), xkMax = Math.ceil(bound / XB);
+  const nx = xkMax - xkMin + 1;
+  const occ = Array.from({ length: nz }, () => new Uint8Array(nx));
+  const sliceOf = (z) => Math.min(nz - 1, Math.max(0, Math.floor((z + bound) / ZB)));
   for (const b of data.buildings || []) {
-    let sx = 0, sz = 0, n = 0;
-    for (let i = 0; i < b.p.length; i += 2) { sx += b.p[i]; sz += b.p[i + 1]; n++; }
-    const zk = Math.round((sz / n) / ZB), xk = Math.round((sx / n) / XB);
-    occ.add(zk + ':' + xk); zks.add(zk);
-  }
-  const xkMin = Math.round(-bound / XB), xkMax = Math.round(bound / XB);
-  const paths = new Map(data.water.map((w) => [w, []]));
-  const refs = data.water.map((w) => refX(w, bound));
-  for (const zk of zks) {
-    // Couloirs vides bornés par des bâtiments des DEUX côtés (pas le bord de carte)
-    const gaps = [];
-    let runStart = null, seen = false;
-    for (let xk = xkMin; xk <= xkMax; xk++) {
-      if (occ.has(zk + ':' + xk)) {
-        if (runStart !== null && seen && xk - runStart >= MINRUN) {
-          gaps.push([runStart * XB, (xk - 1) * XB]);
-        }
-        runStart = null; seen = true;
-      } else if (runStart === null) runStart = xk;
+    let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
+    for (let i = 0; i < b.p.length; i += 2) {
+      const x = b.p[i], z = b.p[i + 1];
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
     }
-    // Chaque bande prend le couloir dont le centre est le plus proche de sa réf
-    data.water.forEach((w, i) => {
-      let best = null, bd = Infinity;
-      for (const g of gaps) {
-        const c = (g[0] + g[1]) / 2, dist = Math.abs(c - refs[i]);
-        if (dist < bd) { bd = dist; best = g; }
-      }
-      if (best && bd < NEAR) paths.get(w).push([zk * ZB, (best[0] + best[1]) / 2, best[1] - best[0]]);
-    });
+    const s0 = sliceOf(minZ), s1 = sliceOf(maxZ);
+    const gx0 = Math.max(0, Math.floor(minX / XB) - xkMin);
+    const gx1 = Math.min(nx - 1, Math.ceil(maxX / XB) - xkMin);
+    for (let s = s0; s <= s1; s++) { const row = occ[s]; for (let gx = gx0; gx <= gx1; gx++) row[gx] = 1; }
   }
-  for (const arr of paths.values()) arr.sort((a, b) => a[0] - b[0]);
-  return paths;
+  // Couloirs vides larges par tranche (bornés par du bâti des DEUX côtés)
+  const runsPer = [];
+  for (let s = 0; s < nz; s++) {
+    const row = occ[s], runs = [];
+    let start = -1, seen = false;
+    for (let gx = 0; gx < nx; gx++) {
+      if (row[gx]) {
+        if (start >= 0 && seen) {
+          const w = (gx - start) * XB;
+          if (w >= AVENUE) runs.push({ x: ((start + gx - 1) / 2 + xkMin) * XB, w });
+        }
+        start = -1; seen = true;
+      } else if (start < 0) start = gx;
+    }
+    runsPer.push(runs);
+  }
+  // Chaînage nord→sud : on prolonge une chaîne tant qu'un couloir proche existe
+  // (tolère 2 tranches de trou : ponts, place traversante)
+  const active = [], done = [];
+  for (let s = 0; s < nz; s++) {
+    const z = s * ZB - bound + ZB / 2;
+    const used = new Set();
+    for (const r of runsPer[s]) {
+      let best = -1, bd = 1e9;
+      for (let ci = 0; ci < active.length; ci++) {
+        if (used.has(ci)) continue;
+        const d = Math.abs(active[ci].lastX - r.x);
+        if (d < bd && d < 80) { bd = d; best = ci; }
+      }
+      if (best >= 0) {
+        const c = active[best];
+        c.pts.push([z, r.x, r.w]); c.lastX = r.x; c.gap = 0; used.add(best);
+      } else {
+        active.push({ pts: [[z, r.x, r.w]], lastX: r.x, gap: 0 });
+      }
+    }
+    for (let ci = active.length - 1; ci >= 0; ci--) {
+      if (!used.has(ci) && ++active[ci].gap > 2) { done.push(active[ci]); active.splice(ci, 1); }
+    }
+  }
+  done.push(...active);
+  // On garde les chaînes qui traversent une grande partie de la carte (fleuves,
+  // pas places ni parcs compacts), les 2 plus longues, triées ouest→est.
+  const minSpan = 2 * bound * 0.4;
+  return done
+    .map((c) => {
+      const zs = c.pts.map((p) => p[0]);
+      return {
+        pts: c.pts,
+        span: Math.max(...zs) - Math.min(...zs),
+        avgX: c.pts.reduce((a, p) => a + p[1], 0) / c.pts.length,
+      };
+    })
+    .filter((c) => c.span >= minSpan)
+    .sort((a, b) => b.span - a.span)
+    .slice(0, 2)
+    .sort((a, b) => a.avgX - b.avgX);
 }
 
 export function buildRealCity(ctx, data) {
@@ -131,61 +152,32 @@ export function buildRealCity(ctx, data) {
   ctx.waterBands = data.water;
   ctx.osmScale = data.scale ?? 0.5;
 
-  // ALIGNER L'EAU SUR LA VILLE. Les couloirs vides entre les bâtiments OSM
-  // SONT les fleuves (aucun bâtiment ne se pose sur l'eau). On déduit donc le
-  // lit de chaque fleuve tranche de z par tranche de z, à partir de ces
-  // couloirs → l'eau tombe dans le couloir par construction, à toute
-  // profondeur (bien mieux que la ligne `waterway`, trop grossière et parfois
-  // désalignée). La position connue (médiane waterway, sinon centre de la
-  // boîte) ne sert qu'à repérer le BON couloir et à ignorer les vides de bord
-  // de carte. Repli sur la ligne waterway nettoyée si un fleuve n'a pas de
-  // couloir net (peu de bâtiments autour).
+  // ALIGNER L'EAU SUR LA VILLE. Tout est bâti sauf l'eau : on détecte les
+  // couloirs vides plus larges qu'une avenue qui traversent la carte → ce sont
+  // la Saône (ouest) et le Rhône (est). On les colle sur ces couloirs, à toute
+  // profondeur, courbes comprises. (Voir detectRivers.)
   const HALF_CAP = 82;
-  const gapPaths = deriveRiverPaths(data, bound);
-  for (const band of data.water) {
-    // 1) Tracé RELEVÉ PAR LE JOUEUR (prioritaire) : on fige la courbe réelle
-    const ov = RIVER_OVERRIDES[band.name];
-    if (ov) {
-      band.cx = makeCenterline(ov.pts);
-      band.w = ov.w;
-      let lo = Infinity, hi = -Infinity;
-      for (const [, x] of ov.pts) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
-      band.minX = lo - ov.w / 2; band.maxX = hi + ov.w / 2;
-      continue;
-    }
-    // 2) Sinon, déduction auto depuis les couloirs entre bâtiments
-    const path = gapPaths.get(band);
-    let pts = null, width = null;
-    if (path && path.length >= 3) {
-      // Lissage (moyenne glissante) : le centre du couloir est quantifié par
-      // pas de 16 m → sans lissage le tracé fait des zigzags. On adoucit.
-      const WIN = 3;
-      pts = path.map((p, i) => {
-        let sx = 0, n = 0;
-        for (let j = Math.max(0, i - WIN); j <= Math.min(path.length - 1, i + WIN); j++) { sx += path[j][1]; n++; }
-        return [p[0], sx / n];
-      });
-      const ws = path.map((p) => p[2]).sort((a, b) => a - b);
-      width = ws[ws.length >> 1] - 12; // remplit le couloir (marge berges/quais)
-    } else if (Array.isArray(band.center) && band.center.length >= 2) {
-      const inMap = band.center.filter(([z, x]) => Math.abs(z) <= bound + 60 && Math.abs(x) <= bound + 60);
-      if (inMap.length >= 2) {
-        const xs = inMap.map((p) => p[1]).sort((a, b) => a - b);
-        const m = xs[xs.length >> 1];
-        pts = inMap.filter(([, x]) => Math.abs(x - m) <= 160).sort((a, b) => a[0] - b[0]);
-      }
-    }
-    if (!pts) { delete band.center; continue; }
-    const cx = makeCenterline(pts);
-    if (!cx) { delete band.center; continue; }
-    band.cx = cx;
-    const w0 = width != null ? width : (band.w != null ? band.w : band.maxX - band.minX);
-    band.w = Math.min(Math.max(w0, 14), HALF_CAP * 2);
+  const rivers = detectRivers(data, bound);
+  // Ordre des bandes d'eau ouest→est pour l'appariement avec les fleuves détectés
+  const bandsWE = [...data.water].sort((a, b) => (a.minX + a.maxX) - (b.minX + b.maxX));
+  bandsWE.forEach((band, i) => {
+    const r = rivers[i];
+    if (!r || r.pts.length < 3) { delete band.center; return; }
+    // Lissage du tracé (moyenne glissante) pour un lit fluide
+    const WIN = 2, src = r.pts;
+    const pts = src.map((p, k) => {
+      let sx = 0, n = 0;
+      for (let j = Math.max(0, k - WIN); j <= Math.min(src.length - 1, k + WIN); j++) { sx += src[j][1]; n++; }
+      return [p[0], sx / n];
+    });
+    band.cx = makeCenterline(pts);
+    const ws = src.map((p) => p[2]).sort((a, b) => a - b);
+    band.w = Math.min(Math.max(ws[ws.length >> 1] - 14, 24), HALF_CAP * 2);
     let lo = Infinity, hi = -Infinity;
     for (const [, x] of pts) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
     band.minX = lo - band.w / 2;
     band.maxX = hi + band.w / 2;
-  }
+  });
   const rand = makeRand(7);
   const full = Array.isArray(data.hills) && data.hills.length > 0;
 
