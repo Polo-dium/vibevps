@@ -256,7 +256,11 @@ async function boot() {
     // Lumières
     hemi.color.copy(ENV_NIGHT.hemiSky).lerp(ENV_DAY.hemiSky, daylight);
     hemi.groundColor.copy(ENV_NIGHT.hemiGround).lerp(ENV_DAY.hemiGround, daylight);
-    hemi.intensity = HEMI_MAX * (0.45 + 0.55 * daylight);
+    // Plancher relevé : depuis que la brume est plus légère, les façades à
+    // contre-jour (aube/crépuscule) n'étaient plus adoucies par la brume et
+    // viraient au noir. Un peu plus de lumière du ciel les garde lisibles ;
+    // midi (daylight=1) reste inchangé.
+    hemi.intensity = HEMI_MAX * (0.6 + 0.4 * daylight);
     sun.intensity = SUN_MAX * daylight + 0.3 * env.night; // clair de lune la nuit
     sun.color.copy(ENV_DAY.sun).lerp(DUSK_TINT, dusk * 0.7)
       .lerp(ENV_NIGHT.sun, env.night);
