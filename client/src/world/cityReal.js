@@ -9,6 +9,7 @@ import {
   buildGrandeRoue, buildFountain, buildStreetFurniture, buildMurPeint,
   buildPeniches, buildSilure, buildFourviere, buildFunicular, buildLamps,
   buildTraboules, buildRiverWorks, composeRiverTerrain, buildConfluence,
+  buildJetpackPad,
 } from './city.js';
 import { buildTraffic } from './traffic.js';
 import { buildRooftopBar } from './rooftops.js';
@@ -129,9 +130,9 @@ function detectRivers(data, bound) {
   }
   done.push(...active);
   // On garde les chaînes qui traversent une grande partie de la carte (fleuves,
-  // pas places ni parcs compacts), les 2 plus longues, triées ouest→est.
+  // pas places ni parcs compacts).
   const minSpan = 2 * bound * 0.4;
-  return done
+  const spanning = done
     .map((c) => {
       const zs = c.pts.map((p) => p[0]);
       return {
@@ -140,10 +141,21 @@ function detectRivers(data, bound) {
         avgX: c.pts.reduce((a, p) => a + p[1], 0) / c.pts.length,
       };
     })
-    .filter((c) => c.span >= minSpan)
-    .sort((a, b) => b.span - a.span)
-    .slice(0, 2)
-    .sort((a, b) => a.avgX - b.avgX);
+    .filter((c) => c.span >= minSpan);
+  // La Presqu'île (avec Bellecour à x≈0) est ENTRE les deux fleuves : on prend
+  // donc le couloir traversant le plus proche du centre de CHAQUE côté (Saône
+  // à l'ouest, Rhône à l'est) — et non les deux plus larges, qui pouvaient
+  // tomber sur un parc ou une périphérie loin du fleuve.
+  const west = spanning.filter((c) => c.avgX < 0).sort((a, b) => b.avgX - a.avgX)[0];
+  const east = spanning.filter((c) => c.avgX >= 0).sort((a, b) => a.avgX - b.avgX)[0];
+  // Repli : s'il n'y a rien d'un côté, on complète avec les plus longues
+  const picked = [west, east].filter(Boolean);
+  if (picked.length < 2) {
+    for (const c of spanning.sort((a, b) => b.span - a.span)) {
+      if (!picked.includes(c)) { picked.push(c); if (picked.length === 2) break; }
+    }
+  }
+  return picked.sort((a, b) => a.avgX - b.avgX);
 }
 
 export function buildRealCity(ctx, data) {
@@ -257,6 +269,8 @@ export function buildRealCity(ctx, data) {
 
   // Lieux de gameplay (zones déjà déblayées des bâtiments OSM)
   buildBellecour(ctx);
+  // Jetpack disponible sur la place Bellecour (à l'écart du cercle de spawn)
+  buildJetpackPad(ctx, BELLECOUR.maxX - 8, BELLECOUR.maxZ - 8);
   buildMurPeint(ctx);
   buildGrandeRoue(ctx);
   buildFountain(ctx);
