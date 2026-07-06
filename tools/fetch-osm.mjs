@@ -34,6 +34,10 @@ const QUERY = `
   way["building"](${BBOX});
   way["highway"~"^(primary|secondary|tertiary|residential|pedestrian|living_street|unclassified|service)$"](${BBOX});
   way["waterway"="river"](${BBOX});
+  way["natural"="water"](${BBOX});
+  way["waterway"="riverbank"](${BBOX});
+  relation["natural"="water"](${BBOX});
+  relation["waterway"="riverbank"](${BBOX});
 );
 out body;
 >;
@@ -196,6 +200,101 @@ function cleanWater() {
   });
 }
 
+// --- Surfaces d'eau réelles (natural=water / waterway=riverbank) --------------
+// C'est la source LA PLUS FIABLE pour placer les fleuves : on lit la vraie
+// géométrie de l'eau (pas un trou deviné entre bâtiments). On assemble les
+// anneaux (ways fermées + relations multipolygones), on les projette, on les
+// coupe à l'emprise de la carte et on exporte data.waterPolys.
+function interpX(a, b, x) { const t = (x - a[0]) / ((b[0] - a[0]) || 1e-9); return [x, a[1] + (b[1] - a[1]) * t]; }
+function interpZ(a, b, z) { const t = (z - a[1]) / ((b[1] - a[1]) || 1e-9); return [a[0] + (b[0] - a[0]) * t, z]; }
+function clipPolyToBox(poly, box) {
+  const M = 40; // petite marge autour du bbox
+  const clips = [
+    { in: (q) => q[0] >= box.minX - M, at: (a, b) => interpX(a, b, box.minX - M) },
+    { in: (q) => q[0] <= box.maxX + M, at: (a, b) => interpX(a, b, box.maxX + M) },
+    { in: (q) => q[1] >= box.minZ - M, at: (a, b) => interpZ(a, b, box.minZ - M) },
+    { in: (q) => q[1] <= box.maxZ + M, at: (a, b) => interpZ(a, b, box.maxZ + M) },
+  ];
+  let p = poly;
+  for (const c of clips) {
+    if (p.length < 3) return [];
+    const res = [];
+    for (let i = 0; i < p.length; i++) {
+      const cur = p[i], prev = p[(i + p.length - 1) % p.length];
+      const ci = c.in(cur), pi = c.in(prev);
+      if (ci) { if (!pi) res.push(c.at(prev, cur)); res.push(cur); }
+      else if (pi) res.push(c.at(prev, cur));
+    }
+    p = res;
+  }
+  return p;
+}
+function simplifyPoly(poly, eps) {
+  const res = [];
+  for (const pt of poly) {
+    const last = res[res.length - 1];
+    if (!last || Math.hypot(pt[0] - last[0], pt[1] - last[1]) > eps) res.push(pt);
+  }
+  return res;
+}
+function polyArea(poly) {
+  let a = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const [x1, z1] = poly[i], [x2, z2] = poly[(i + 1) % poly.length];
+    a += x1 * z2 - x2 * z1;
+  }
+  return a / 2;
+}
+function buildWaterPolys(elements, nodeMap) {
+  const wayNodes = new Map();
+  for (const el of elements) if (el.type === 'way' && el.nodes) wayNodes.set(el.id, el.nodes);
+  const isWater = (t) => t && (t.natural === 'water' || t.waterway === 'riverbank');
+  const project = (nids) => {
+    const p = [];
+    for (const nid of nids) { const n = nodeMap.get(nid); if (n) p.push(toXZ(n[0], n[1])); }
+    return p;
+  };
+  const ringsNodeIds = [];
+  // ways fermées taguées eau
+  for (const el of elements) {
+    if (el.type === 'way' && el.nodes && isWater(el.tags) &&
+        el.nodes.length >= 4 && el.nodes[0] === el.nodes[el.nodes.length - 1]) {
+      ringsNodeIds.push(el.nodes);
+    }
+  }
+  // relations multipolygones : on recolle les membres « outer » bout à bout
+  for (const el of elements) {
+    if (el.type !== 'relation' || !isWater(el.tags) || !el.members) continue;
+    const segs = el.members
+      .filter((m) => m.type === 'way' && (m.role === 'outer' || m.role === '') && wayNodes.has(m.ref))
+      .map((m) => wayNodes.get(m.ref).slice());
+    while (segs.length) {
+      let ring = segs.shift();
+      let changed = true, guard = 0;
+      while (changed && ring[0] !== ring[ring.length - 1] && guard++ < 5000) {
+        changed = false;
+        for (let i = 0; i < segs.length; i++) {
+          const w = segs[i], a = ring[ring.length - 1], b = ring[0];
+          if (w[0] === a) { ring = ring.concat(w.slice(1)); segs.splice(i, 1); changed = true; break; }
+          if (w[w.length - 1] === a) { ring = ring.concat(w.slice().reverse().slice(1)); segs.splice(i, 1); changed = true; break; }
+          if (w[w.length - 1] === b) { ring = w.slice(0, -1).concat(ring); segs.splice(i, 1); changed = true; break; }
+          if (w[0] === b) { ring = w.slice().reverse().slice(0, -1).concat(ring); segs.splice(i, 1); changed = true; break; }
+        }
+      }
+      if (ring.length >= 4) ringsNodeIds.push(ring);
+    }
+  }
+  const polys = [];
+  for (const nids of ringsNodeIds) {
+    let poly = clipPolyToBox(project(nids), CLIP);
+    if (poly.length < 4) continue;
+    poly = simplifyPoly(poly, 2.5);
+    if (poly.length < 4 || Math.abs(polyArea(poly)) < 400) continue; // vire les mares
+    polys.push(poly.map(([x, z]) => [r1(x), r1(z)]));
+  }
+  return polys;
+}
+
 // Collines réelles, à l'échelle : ellipsoïdes analytiques (cap = plateau).
 // Hauteurs en unités jeu (relief réel × H_SCALE).
 function hillDef(lonC, latC, rLon, rLat, ry, cap = null) {
@@ -259,6 +358,11 @@ for (const el of data.elements) {
 console.log('Reconstruction du tracé des fleuves…');
 buildRiverCenters(data.elements, nodes);
 
+// Vraies surfaces d'eau OSM (source fiable pour placer les fleuves)
+console.log('Extraction des surfaces d’eau (natural=water / riverbank)…');
+const waterPolys = buildWaterPolys(data.elements, nodes);
+console.log(`  ${waterPolys.length} surface(s) d’eau extraite(s).`);
+
 const buildings = [];
 const roads = [];
 let bound = 200;
@@ -306,6 +410,7 @@ const out = {
   scale: SCALE,
   bound: Math.ceil(bound + 10),
   water: cleanWater(),
+  waterPolys,
   hills: HILLS,
   confluenceZ: CONFLUENCE_Z,
   poi: { basilica: BASILICA },

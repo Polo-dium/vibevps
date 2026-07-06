@@ -158,6 +158,74 @@ function detectRivers(data, bound) {
   return picked.sort((a, b) => a.avgX - b.avgX);
 }
 
+// Fleuves à partir de la VRAIE géométrie d'eau OSM (data.waterPolys : anneaux
+// [[x,z],…] des surfaces natural=water / riverbank). Bien plus fiable que les
+// couloirs entre bâtiments (les quais/ponts bouchent le trou du fleuve). Pour
+// chaque tranche de z, on coupe les polygones (scanline) → intervalles d'eau,
+// qu'on relie en chaînes = fleuves. Même format de sortie que detectRivers.
+function riversFromPolys(polys, bound) {
+  if (!Array.isArray(polys) || !polys.length) return [];
+  const ZB = 36;
+  const nz = Math.max(1, Math.ceil((2 * bound) / ZB));
+  const active = [], done = [];
+  for (let s = 0; s < nz; s++) {
+    const z = s * ZB - bound + ZB / 2;
+    // intersections des bords de polygones avec la ligne z = const
+    const xs = [];
+    for (const ring of polys) {
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i], b = ring[(i + 1) % ring.length];
+        const za = a[1], zb = b[1];
+        if ((za <= z && zb > z) || (zb <= z && za > z)) {
+          xs.push(a[0] + (b[0] - a[0]) * (z - za) / (zb - za));
+        }
+      }
+    }
+    xs.sort((p, q) => p - q);
+    // paires = intervalles d'eau ; on fusionne ceux qui se touchent
+    let ivs = [];
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      const lo = xs[i], hi = xs[i + 1];
+      if (hi - lo >= 14) ivs.push({ x: (lo + hi) / 2, w: hi - lo, lo, hi });
+    }
+    ivs.sort((p, q) => p.lo - q.lo);
+    const merged = [];
+    for (const iv of ivs) {
+      const last = merged[merged.length - 1];
+      if (last && iv.lo <= last.hi + 24) { last.hi = Math.max(last.hi, iv.hi); }
+      else merged.push({ lo: iv.lo, hi: iv.hi });
+    }
+    const cur = merged.map((m) => ({ x: (m.lo + m.hi) / 2, w: m.hi - m.lo }));
+    // chaînage nord→sud
+    const used = new Set();
+    for (const iv of cur) {
+      let best = -1, bd = 1e9;
+      for (let ci = 0; ci < active.length; ci++) {
+        if (used.has(ci)) continue;
+        const d = Math.abs(active[ci].lastX - iv.x);
+        if (d < bd && d < 90) { bd = d; best = ci; }
+      }
+      if (best >= 0) { const c = active[best]; c.pts.push([z, iv.x, iv.w]); c.lastX = iv.x; c.gap = 0; used.add(best); }
+      else active.push({ pts: [[z, iv.x, iv.w]], lastX: iv.x, gap: 0 });
+    }
+    for (let ci = active.length - 1; ci >= 0; ci--) {
+      if (!used.has(ci) && ++active[ci].gap > 2) { done.push(active[ci]); active.splice(ci, 1); }
+    }
+  }
+  done.push(...active);
+  const minSpan = 2 * bound * 0.3;
+  return done
+    .map((c) => ({
+      pts: c.pts,
+      span: Math.max(...c.pts.map((p) => p[0])) - Math.min(...c.pts.map((p) => p[0])),
+      avgX: c.pts.reduce((a, p) => a + p[1], 0) / c.pts.length,
+    }))
+    .filter((c) => c.span >= minSpan && c.pts.length >= 3)
+    .sort((a, b) => b.span - a.span)
+    .slice(0, 2)
+    .sort((a, b) => a.avgX - b.avgX);
+}
+
 export function buildRealCity(ctx, data) {
   const bound = data.bound;
   ctx.worldBound = bound;
@@ -169,7 +237,10 @@ export function buildRealCity(ctx, data) {
   // la Saône (ouest) et le Rhône (est). On les colle sur ces couloirs, à toute
   // profondeur, courbes comprises. (Voir detectRivers.)
   const HALF_CAP = 82;
-  const rivers = detectRivers(data, bound);
+  // Priorité à la VRAIE forme d'eau OSM si le JSON la fournit (data.waterPolys),
+  // sinon repli sur la détection par couloirs entre bâtiments.
+  const polyRivers = riversFromPolys(data.waterPolys, bound);
+  const rivers = polyRivers.length ? polyRivers : detectRivers(data, bound);
   // Ordre des bandes d'eau ouest→est pour l'appariement avec les fleuves détectés
   const bandsWE = [...data.water].sort((a, b) => (a.minX + a.maxX) - (b.minX + b.maxX));
   bandsWE.forEach((band, i) => {
