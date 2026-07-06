@@ -170,9 +170,13 @@ function riversFromPolys(polys, bound) {
   const active = [], done = [];
   for (let s = 0; s < nz; s++) {
     const z = s * ZB - bound + ZB / 2;
-    // intersections des bords de polygones avec la ligne z = const
-    const xs = [];
+    // Intervalles d'eau calculés PAR polygone (even-odd correct à l'intérieur
+    // d'un anneau), puis UNION. Crucial : les surfaces OSM se DOUBLONNENT et se
+    // CHEVAUCHENT (natural=water + riverbank sur le même fleuve). En poolant
+    // tous les bords, les doublons s'annulaient (le Rhône disparaissait).
+    let ivs = [];
     for (const ring of polys) {
+      const xs = [];
       for (let i = 0; i < ring.length; i++) {
         const a = ring[i], b = ring[(i + 1) % ring.length];
         const za = a[1], zb = b[1];
@@ -180,36 +184,33 @@ function riversFromPolys(polys, bound) {
           xs.push(a[0] + (b[0] - a[0]) * (z - za) / (zb - za));
         }
       }
+      xs.sort((p, q) => p - q);
+      for (let i = 0; i + 1 < xs.length; i += 2) {
+        if (xs[i + 1] - xs[i] >= 6) ivs.push([xs[i], xs[i + 1]]);
+      }
     }
-    xs.sort((p, q) => p - q);
-    // paires = intervalles d'eau ; on fusionne ceux qui se touchent
-    let ivs = [];
-    for (let i = 0; i + 1 < xs.length; i += 2) {
-      const lo = xs[i], hi = xs[i + 1];
-      if (hi - lo >= 14) ivs.push({ x: (lo + hi) / 2, w: hi - lo, lo, hi });
-    }
-    ivs.sort((p, q) => p.lo - q.lo);
+    ivs.sort((p, q) => p[0] - q[0]);
     const merged = [];
     for (const iv of ivs) {
       const last = merged[merged.length - 1];
-      if (last && iv.lo <= last.hi + 24) { last.hi = Math.max(last.hi, iv.hi); }
-      else merged.push({ lo: iv.lo, hi: iv.hi });
+      if (last && iv[0] <= last[1] + 20) last[1] = Math.max(last[1], iv[1]);
+      else merged.push([iv[0], iv[1]]);
     }
-    const cur = merged.map((m) => ({ x: (m.lo + m.hi) / 2, w: m.hi - m.lo }));
-    // chaînage nord→sud
+    const cur = merged.filter((m) => m[1] - m[0] >= 14).map((m) => ({ x: (m[0] + m[1]) / 2, w: m[1] - m[0] }));
+    // chaînage nord→sud (tolérance large pour suivre les grands coudes)
     const used = new Set();
     for (const iv of cur) {
       let best = -1, bd = 1e9;
       for (let ci = 0; ci < active.length; ci++) {
         if (used.has(ci)) continue;
         const d = Math.abs(active[ci].lastX - iv.x);
-        if (d < bd && d < 90) { bd = d; best = ci; }
+        if (d < bd && d < 140) { bd = d; best = ci; }
       }
       if (best >= 0) { const c = active[best]; c.pts.push([z, iv.x, iv.w]); c.lastX = iv.x; c.gap = 0; used.add(best); }
       else active.push({ pts: [[z, iv.x, iv.w]], lastX: iv.x, gap: 0 });
     }
     for (let ci = active.length - 1; ci >= 0; ci--) {
-      if (!used.has(ci) && ++active[ci].gap > 2) { done.push(active[ci]); active.splice(ci, 1); }
+      if (!used.has(ci) && ++active[ci].gap > 3) { done.push(active[ci]); active.splice(ci, 1); }
     }
   }
   done.push(...active);
