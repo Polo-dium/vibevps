@@ -39,6 +39,40 @@ for (const h of d.hills || []) {
 }
 console.log('poi.basilica', JSON.stringify(d.poi?.basilica), '| confluenceZ', d.confluenceZ);
 
+// --- Surfaces d'eau réelles OSM (data.waterPolys) : ce qui sert à placer les
+// fleuves. On liste chacune (boîte, aire, étendue z) et on marque celles qui
+// traversent le plus la carte = les fleuves retenus.
+console.log('\n=== SURFACES D’EAU OSM (waterPolys) ===');
+const polys = d.waterPolys || [];
+console.log('nombre:', polys.length);
+const infos = polys.map((p, i) => {
+  const xs = p.map((q) => q[0]), zs = p.map((q) => q[1]);
+  let a = 0;
+  for (let k = 0; k < p.length; k++) { const [x1, z1] = p[k], [x2, z2] = p[(k + 1) % p.length]; a += x1 * z2 - x2 * z1; }
+  return { i, n: p.length, minX: Math.min(...xs), maxX: Math.max(...xs),
+    minZ: Math.min(...zs), maxZ: Math.max(...zs), area: Math.abs(a / 2),
+    zspan: Math.max(...zs) - Math.min(...zs) };
+}).sort((a, b) => b.zspan - a.zspan);
+for (const f of infos) {
+  const river = f.zspan >= d.bound * 0.6 ? '  <<< FLEUVE (traverse)' : '';
+  console.log(`#${f.i} pts${String(f.n).padStart(4)} | x[${f.minX.toFixed(0)}..${f.maxX.toFixed(0)}] z[${f.minZ.toFixed(0)}..${f.maxZ.toFixed(0)}] | aire ${Math.round(f.area)} | zspan ${f.zspan.toFixed(0)}${river}`);
+}
+// Position en x des surfaces traversantes à quelques profondeurs (scanline)
+const rivers = infos.filter((f) => f.zspan >= d.bound * 0.6);
+console.log('\n  -- x des surfaces traversantes par tranche de z --');
+for (const zc of [-800, -300, 0, 300, 800]) {
+  const row = rivers.map((f) => {
+    const p = polys[f.i], xs = [];
+    for (let k = 0; k < p.length; k++) {
+      const a = p[k], b = p[(k + 1) % p.length];
+      if ((a[1] <= zc && b[1] > zc) || (b[1] <= zc && a[1] > zc)) xs.push(a[0] + (b[0] - a[0]) * (zc - a[1]) / (b[1] - a[1]));
+    }
+    xs.sort((u, v) => u - v);
+    return `#${f.i}:${xs.length ? '[' + xs.map((x) => x.toFixed(0)).join(',') + ']' : '—'}`;
+  }).join('  ');
+  console.log(`  z=${String(zc).padStart(5)} | ${row}`);
+}
+
 // --- Reproduit EXACTEMENT la logique du client (deriveRiverPaths) sur les
 // vraies données, pour voir où le jeu place chaque fleuve vs les couloirs.
 function refX(band, bound) {
