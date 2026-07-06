@@ -152,7 +152,9 @@ export function buildRiverWorks(ctx, band, {
   const waterTex2 = makeWaterTexture();
   waterTex2.wrapS = waterTex2.wrapT = THREE.RepeatWrapping;
   const water = new THREE.Mesh(flatRibbon(WATER_Y), new THREE.MeshPhongMaterial({
-    map: waterTex, transparent: true, opacity: 0.93, specular: 0xbdd9e2, shininess: 90,
+    // spéculaire discret (sinon l'eau reflète le ciel gris vue d'en haut et se
+    // confond avec le sol) → le bleu du fleuve ressort enfin
+    map: waterTex, transparent: true, opacity: 0.97, specular: 0x3f6b78, shininess: 60,
   }));
   ctx.scene.add(water);
   const shimmer = new THREE.Mesh(flatRibbon(WATER_Y + 0.03), new THREE.MeshPhongMaterial({
@@ -485,12 +487,12 @@ export function makeWaterTexture() {
   canvas.width = 64;
   canvas.height = 64;
   const g = canvas.getContext('2d');
-  // Vert-bleu du Rhône, assez lumineux pour rester lisible comme de l'EAU
-  // (et pas du sol gris) même sous la brume et de loin
-  g.fillStyle = '#1f6d82';
+  // Bleu franc du Rhône : nettement plus saturé/lumineux que le sol gris,
+  // pour qu'on repère les fleuves d'un coup d'œil, même de loin et d'en haut
+  g.fillStyle = '#1a86c4';
   g.fillRect(0, 0, 64, 64);
   for (let i = 0; i < 8; i++) {
-    g.fillStyle = `rgba(14, 52, 66, ${0.1 + Math.random() * 0.12})`;
+    g.fillStyle = `rgba(20, 70, 120, ${0.1 + Math.random() * 0.12})`;
     g.beginPath();
     g.arc(Math.random() * 64, Math.random() * 64, 8 + Math.random() * 16, 0, Math.PI * 2);
     g.fill();
