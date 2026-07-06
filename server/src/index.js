@@ -17,8 +17,21 @@ app.use('/api', api);
 
 const distDir = path.join(__dirname, '..', '..', 'client', 'dist');
 if (fs.existsSync(distDir)) {
-  app.use(express.static(distDir));
+  // Les assets JS/CSS ont un hash dans leur nom → cache long OK. Mais
+  // index.html et lyon-osm.json NE DOIVENT PAS être mis en cache par le
+  // navigateur, sinon on continue de charger l'ancien bundle après un
+  // déploiement (symptôme : « c'est toujours pareil » malgré les mises à jour).
+  app.use(express.static(distDir, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('index.html') || filePath.endsWith('lyon-osm.json')) {
+        res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+      } else {
+        res.setHeader('Cache-Control', 'public, max-age=604800');
+      }
+    },
+  }));
   app.get(/^\/(?!api|ws).*/, (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, must-revalidate');
     res.sendFile(path.join(distDir, 'index.html'));
   });
 } else {
