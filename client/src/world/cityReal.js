@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { addInvisibleWall } from './utils.js';
+import { addInvisibleWall, addBox } from './utils.js';
+import { state } from '../state.js';
 import {
   ARCADE, RANGE, MUR_PEINT, BELLECOUR, makeRand,
   makeCenterline, riverCx, riverHalf,
@@ -41,7 +42,13 @@ let EXTRA_RECTS = [];
 // Presqu'île à la Confluence).
 function nearRiver(bands, x, z, margin = 0) {
   for (const b of bands) {
-    if (b.cx && Math.abs(x - riverCx(b, z)) < riverHalf(b) + margin) return true;
+    if (!b.cx) continue;
+    // IMPORTANT : ne rien exclure au-delà de l'emprise réelle du fleuve.
+    // Sans cette borne, le tracé clampé se prolonge en « fleuve fantôme »
+    // (bande vide de bâtiments à travers la Croix-Rousse, au nord du vrai
+    // bout de la Saône).
+    if (b.zMin != null && (z < b.zMin - 30 || z > b.zMax + 30)) continue;
+    if (Math.abs(x - riverCx(b, z)) < riverHalf(b) + margin) return true;
   }
   return false;
 }
@@ -316,6 +323,118 @@ function buildWaterSurfaces(ctx, polys) {
   ctx.updatables.push((dt) => { tex.offset.y -= dt * 0.012; });
 }
 
+// Basilique Notre-Dame de Fourvière : à sa vraie place sur la colline, à
+// l'échelle, et VISITABLE — nef creuse avec colonnes, abside dorée, vitraux.
+// À l'intérieur : zone sanctuaire, ni tag ni tir (state.sanctuary, consommé
+// par weapon.js et spray.js). v1 stylisée ; l'intérieur photoréaliste
+// (panorama 360°) pourra remplacer la nef plus tard.
+function buildBasilica(ctx, bx, bz, by) {
+  const W = 46, D = 22, H = 14, T = 1.2; // nef est-ouest, façade à l'est
+  const stone = 0xf2ead8;
+  // Parvis : plateforme qui rattrape la pente de la colline
+  addBox(ctx, { x: bx, y: by - 8, z: bz, w: W + 22, h: 8, d: D + 20, color: 0xcfc7b2 });
+  // Murs (porte sur la façade est, face à la ville)
+  addBox(ctx, { x: bx, y: by, z: bz - D / 2, w: W, h: H, d: T, color: stone });
+  addBox(ctx, { x: bx, y: by, z: bz + D / 2, w: W, h: H, d: T, color: stone });
+  addBox(ctx, { x: bx - W / 2, y: by, z: bz, w: T, h: H, d: D, color: stone });
+  const DOOR = 5;
+  for (const s of [-1, 1]) {
+    addBox(ctx, {
+      x: bx + W / 2, y: by, z: bz + s * (DOOR / 2 + (D - DOOR) / 4),
+      w: T, h: H, d: (D - DOOR) / 2, color: stone,
+    });
+  }
+  addBox(ctx, { x: bx + W / 2, y: by + 4.4, z: bz, w: T, h: H - 4.4, d: DOOR + 0.4, color: stone });
+  // Toit à faîtage + croix
+  addBox(ctx, { x: bx, y: by + H, z: bz, w: W + 1.6, h: 1, d: D + 1.6, color: 0x9aa3ad, collider: false });
+  addBox(ctx, { x: bx, y: by + H + 1, z: bz, w: W - 6, h: 2.2, d: D - 9, color: 0xa9b2bc, collider: false });
+  addBox(ctx, { x: bx - W / 2 + 3, y: by + H + 3.2, z: bz, w: 0.5, h: 4, d: 0.5, color: 0xd9c98a, collider: false });
+  addBox(ctx, { x: bx - W / 2 + 3, y: by + H + 5.6, z: bz, w: 2.2, h: 0.5, d: 0.5, color: 0xd9c98a, collider: false });
+  // Quatre tours octogonales d'angle, coiffées en pointe
+  const towerMat = new THREE.MeshLambertMaterial({ color: stone });
+  const capMat = new THREE.MeshLambertMaterial({ color: 0x8d96a2 });
+  for (const [tx, tz] of [
+    [bx - W / 2, bz - D / 2], [bx + W / 2, bz - D / 2],
+    [bx - W / 2, bz + D / 2], [bx + W / 2, bz + D / 2],
+  ]) {
+    const tower = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.9, 22, 8), towerMat);
+    tower.position.set(tx, by + 11, tz);
+    ctx.scene.add(tower);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(2.9, 5.5, 8), capMat);
+    cap.position.set(tx, by + 24.7, tz);
+    ctx.scene.add(cap);
+    ctx.colliders.push({ minX: tx - 2.9, maxX: tx + 2.9, minY: by, maxY: by + 22, minZ: tz - 2.9, maxZ: tz + 2.9 });
+  }
+  // Tour de la Vierge dorée (chapelle Saint-Thomas, au sud-est)
+  const vx = bx + W / 2 + 9, vz = bz + D / 2 + 6;
+  addBox(ctx, { x: vx, y: by, z: vz, w: 6, h: 16, d: 6, color: 0xe8dfc9 });
+  const gold = new THREE.MeshLambertMaterial({ color: 0xd4af37, emissive: 0x6b520f });
+  const vierge = new THREE.Mesh(new THREE.CapsuleGeometry(1, 3.4, 4, 8), gold);
+  vierge.position.set(vx, by + 18.6, vz);
+  ctx.scene.add(vierge);
+  // Intérieur : sol, colonnes, abside dorée, autel, vitraux émissifs
+  addBox(ctx, { x: bx, y: by, z: bz, w: W - 2, h: 0.12, d: D - 2, color: 0xded5c0, collider: false });
+  const colMat = new THREE.MeshLambertMaterial({ color: 0xe9e0cc });
+  for (let i = 0; i < 5; i++) {
+    const cxp = bx - W / 2 + 8 + i * ((W - 14) / 4);
+    for (const s of [-1, 1]) {
+      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.8, H - 1.2, 8), colMat);
+      col.position.set(cxp, by + (H - 1.2) / 2, bz + s * 4.6);
+      ctx.scene.add(col);
+      ctx.colliders.push({ minX: cxp - 0.8, maxX: cxp + 0.8, minY: by, maxY: by + H, minZ: bz + s * 4.6 - 0.8, maxZ: bz + s * 4.6 + 0.8 });
+    }
+  }
+  const apse = new THREE.Mesh(
+    new THREE.SphereGeometry(6.5, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+    new THREE.MeshLambertMaterial({ color: 0xc9a227, emissive: 0x8a6d1a })
+  );
+  apse.position.set(bx - W / 2 + 2, by + 3, bz);
+  apse.rotation.z = -Math.PI / 2;
+  ctx.scene.add(apse);
+  addBox(ctx, { x: bx - W / 2 + 5, y: by + 0.1, z: bz, w: 3, h: 1.1, d: 1.6, color: 0xf5f0e4 });
+  // Vitraux : panneaux colorés émissifs le long des murs
+  const VITRAIL_COLORS = [0x3d6fd4, 0xc23b4e, 0xd4a017, 0x3d9970];
+  for (let i = 0; i < 6; i++) {
+    const wx = bx - W / 2 + 6 + i * ((W - 12) / 5);
+    for (const s of [-1, 1]) {
+      const v = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.2, 5),
+        new THREE.MeshLambertMaterial({
+          color: VITRAIL_COLORS[(i + (s > 0 ? 2 : 0)) % 4],
+          emissive: VITRAIL_COLORS[(i + (s > 0 ? 2 : 0)) % 4],
+          emissiveIntensity: 0.55, side: THREE.DoubleSide,
+        })
+      );
+      v.position.set(wx, by + 7.5, bz + s * (D / 2 - T / 2 - 0.05));
+      ctx.scene.add(v);
+    }
+  }
+  // Lumière chaude intérieure
+  const holy = new THREE.PointLight(0xffe2b0, 22, 40, 1.6);
+  holy.position.set(bx, by + H - 3, bz);
+  ctx.scene.add(holy);
+
+  // Sanctuaire : ni tag ni tir à l'intérieur (consommé par weapon/spray)
+  const zone = { minX: bx - W / 2, maxX: bx + W / 2, minY: by - 1, maxY: by + H, minZ: bz - D / 2, maxZ: bz + D / 2 };
+  let wasIn = false;
+  ctx.updatables.push(() => {
+    const p = ctx.playerPos?.();
+    if (!p) return;
+    const inside = p.x > zone.minX && p.x < zone.maxX && p.z > zone.minZ && p.z < zone.maxZ &&
+      p.y > zone.minY && p.y < zone.maxY;
+    if (inside !== wasIn) {
+      wasIn = inside;
+      state.sanctuary = inside;
+      if (inside) ctx.notify?.('⛪ Basilique de Fourvière — ici on ne tague pas et on ne tire pas, gone.');
+    }
+  });
+  ctx.interactables.push({
+    x: bx + W / 2 + 3, z: bz, r: 6,
+    label: 'E — Entrer dans la basilique',
+    action: () => ctx.notify?.('🙏 La basilique veille sur Lyon depuis 1872. Admire les vitraux !'),
+  });
+}
+
 export function buildRealCity(ctx, data) {
   const bound = data.bound;
   ctx.worldBound = bound;
@@ -398,16 +517,32 @@ export function buildRealCity(ctx, data) {
     // (Fourvière, Croix-Rousse — mêmes coordonnées OSM que le reste) posent
     // le relief partout où il n'y a pas d'eau. Aucune zone rasée.
     HILL_RECT = null;
-    EXTRA_RECTS = [];
+    // Esplanade de la basilique : petite zone dégagée des bâtiments OSM
+    const basPos = data.poi?.basilica ?? [-369, -244.5];
+    EXTRA_RECTS = [{
+      minX: basPos[0] - 42, maxX: basPos[0] + 42,
+      minZ: basPos[1] - 30, maxZ: basPos[1] + 30,
+    }];
     const mask = buildWaterMask(data.waterPolys, bound);
     ctx.waterMask = mask;
     const hillsBase = Array.isArray(data.hills) && data.hills.length
       ? makeHillsFn(data.hills) : () => 0;
+    // Esplanade en plateau : la pente de la colline est écrêtée à la hauteur
+    // de la basilique (sinon elle ressort à travers le sol de la nef)
+    const ESPL = EXTRA_RECTS[0];
+    const basY0 = hillsBase(basPos[0], basPos[1]);
+    const ground = (x, z) => {
+      let h = hillsBase(x, z);
+      if (x > ESPL.minX && x < ESPL.maxX && z > ESPL.minZ && z < ESPL.maxZ) {
+        h = Math.min(h, basY0);
+      }
+      return h;
+    };
     if (mask) {
-      ctx.terrainHeight = (x, z) => (mask.isWater(x, z) ? BED_Y : hillsBase(x, z));
+      ctx.terrainHeight = (x, z) => (mask.isWater(x, z) ? BED_Y : ground(x, z));
       buildWaterSurfaces(ctx, data.waterPolys);
     } else {
-      ctx.terrainHeight = hillsBase;
+      ctx.terrainHeight = ground;
       composeRiverTerrain(ctx, data.water, [], null);
     }
     buildTerrainMesh(ctx, bound);
@@ -445,9 +580,12 @@ export function buildRealCity(ctx, data) {
   if (widest) buildSilure(ctx, widest);
 
   if (full) {
-    // Carte à plat : le trafic suit les vrais quais courbes. La ficelle, les
-    // traboules et la pointe de la Confluence reviendront avec le relief.
+    // Trafic sur les vrais quais courbes ; basilique de Fourvière à sa vraie
+    // place sur la colline. (Ficelle et traboules reviendront ensuite.)
     buildTraffic(ctx, data.water, bound - 8);
+    const basP = data.poi?.basilica ?? [-369, -244.5];
+    const basY = Math.max(0, ctx.terrainHeight(basP[0], basP[1]));
+    buildBasilica(ctx, basP[0], basP[1], basY);
   } else {
     buildFourviere(ctx, legacyHill);
     // Pointe de terre = sol, le reste (fleuves + confluence) = eau

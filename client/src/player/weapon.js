@@ -254,7 +254,7 @@ export function createWeapon(camera, scene, shootables, { onAmmoChange, onShot, 
     cooldown -= dt;
     const inputOk = IS_TOUCH || state.pointerLocked;
     const canShoot =
-      inputOk && !state.overlayOpen && !state.tagMode &&
+      inputOk && !state.overlayOpen && !state.tagMode && !state.sanctuary &&
       triggerDown && cooldown <= 0 && reloading <= 0 && ammo > 0;
     if (canShoot) shoot();
 

@@ -166,6 +166,8 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange, o
   }
 
   function setPaint(down) {
+    // Sanctuaire (basilique) : la bombe reste dans le sac
+    if (down && state.sanctuary) return;
     painting = down;
     if (!down) {
       audio.hissStop();
@@ -329,6 +331,10 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange, o
   // --- Pose du tag « image » de la bibliothèque (ancien comportement) ---
   async function stampTag() {
     if (stamping) return;
+    if (state.sanctuary) {
+      onToast('⛪ Pas de tag dans la basilique, gone.');
+      return;
+    }
     if (!state.activeTagImage) {
       onToast('Aucun tag équipé — appuie sur T pour en créer un.');
       return;
