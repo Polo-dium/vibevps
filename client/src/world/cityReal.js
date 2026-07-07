@@ -7,7 +7,7 @@ import {
 import {
   makeSkylineTexture, buildBellecour,
   buildGrandeRoue, buildFountain, buildStreetFurniture, buildMurPeint,
-  buildPeniches, buildSilure, buildFourviere, buildFunicular, buildLamps,
+  buildPeniches, buildSilure, buildFourviere, buildLamps,
   buildTraboules, buildRiverWorks, composeRiverTerrain, buildConfluence,
   buildJetpackPad,
 } from './city.js';
@@ -296,7 +296,6 @@ export function buildRealCity(ctx, data) {
 
   let WEST = -(bound + 2);
   const EAST = bound + 2;
-  let bas = null;
   let legacyHill = null;
 
   // Confluence (les deux régimes) : la Presqu'île finit en pointe entre les
@@ -313,16 +312,15 @@ export function buildRealCity(ctx, data) {
   const CONF_RECT = { minX: west.minX, maxX: east.maxX, minZ: zConf - 30, maxZ: bound + 300 };
 
   if (full) {
-    // --- VILLE COMPLÈTE : collines réelles + terrain continu -------------
+    // --- VILLE COMPLÈTE, CARTE PROPRE À PLAT : le vrai Lyon OSM tel quel
+    // (tous les bâtiments + fleuves posés sur la vraie géométrie d'eau).
+    // Pas de collines ni de Confluence synthétique pour l'instant : le relief
+    // reviendra plus tard, correctement calé sur les fleuves. Aucune zone
+    // rasée — la ville est complète partout, comme sur la Presqu'île.
     HILL_RECT = null;
-    bas = data.poi?.basilica ?? [-369, -244];
-    EXTRA_RECTS = [
-      // Esplanade de la basilique (avec les gares de la ficelle)
-      { minX: bas[0] - 26, maxX: bas[0] + 36, minZ: bas[1] - 22, maxZ: bas[1] + 40 },
-      CONF_RECT,
-    ];
-    ctx.terrainHeight = makeHillsFn(data.hills);
-    composeRiverTerrain(ctx, data.water, [], CONF);
+    EXTRA_RECTS = [];
+    ctx.terrainHeight = () => 0;
+    composeRiverTerrain(ctx, data.water, [], null);
     buildTerrainMesh(ctx, bound);
   } else {
     // --- ANCIEN JSON : colline synthétique collée à l'ouest de la Saône --
@@ -358,24 +356,9 @@ export function buildRealCity(ctx, data) {
   if (widest) buildSilure(ctx, widest);
 
   if (full) {
-    // Esplanade, ficelle et traboule ancrées sur la VRAIE basilique ;
-    // Confluence en pointe au sud, comme en ville procédurale
-    const t = ctx.terrainHeight;
-    ctx.interactables.push({
-      x: bas[0] + 16, z: bas[1] + 22, r: 8,
-      label: 'E — Admirer Lyon depuis Fourvière',
-      action: () => ctx.notify?.('🌇 Tout Lyon à tes pieds, gone. La plus belle vue du monde, et c’est pas négociable.'),
-    });
-    const A = new THREE.Vector3(west.minX - 22, 0.7, bas[1] + 12);
-    const B = new THREE.Vector3(
-      bas[0] + 20,
-      Math.max(0, t(bas[0] + 20, bas[1] + 26)) + 0.3,
-      bas[1] + 26
-    );
-    buildFunicular(ctx, A, B);
-    buildTraboules(ctx, fullTraboules(ctx, bas, west));
-    buildConfluence(ctx, CONF);
-    buildTraffic(ctx, data.water, zConf - 12);
+    // Carte à plat : le trafic suit les vrais quais courbes. La ficelle, les
+    // traboules et la pointe de la Confluence reviendront avec le relief.
+    buildTraffic(ctx, data.water, bound - 8);
   } else {
     buildFourviere(ctx, legacyHill);
     // Pointe de terre = sol, le reste (fleuves + confluence) = eau
@@ -432,42 +415,18 @@ function buildTerrainMesh(ctx, bound) {
   ctx.scene.add(mesh);
 }
 
-// Traboules de la ville complète : ancrées sur la vraie basilique
-function fullTraboules(ctx, bas, west) {
-  const hx = bas[0] + 24, hz = bas[1] + 32;
-  const hy = Math.max(0, ctx.terrainHeight?.(hx, hz) ?? 0);
-  return [
-    {
-      a: { x: -38, z: 6, ry: Math.PI / 2 },
-      b: { x: -30, z: -118, ry: 0 },
-      loreAB: '🚪 Tu as traboulé jusqu’aux pentes ! Les canuts passaient par là.',
-      loreBA: '🚪 Retour à Bellecour par la traboule des canuts.',
-    },
-    {
-      a: { x: west.minX - 20, z: bas[1] + 30, ry: Math.PI / 2 },
-      b: { x: hx, z: hz, ry: Math.PI / 2, y: hy },
-      loreAB: '🚪 La ficelle des pauvres : cette traboule grimpe à Fourvière !',
-      loreBA: '🚪 Descente express : te voilà au pied de la colline.',
-    },
-    {
-      a: { x: 52, z: 100, ry: Math.PI },
-      b: { x: 13, z: -70, ry: Math.PI / 2 },
-      loreAB: '🚪 Raccourci de gone : du stand de tir à la salle d’arcade.',
-      loreBA: '🚪 Sortie secrète de l’arcade, côté stand de tir.',
-    },
-  ];
-}
-
-// Lampadaires du mode OSM : quais des deux fleuves, tour de Bellecour, et un
-// échantillon des grands axes routiers (posés sur les collines si besoin).
+// Lampadaires du mode OSM : quais des deux fleuves (le long du tracé courbe
+// réel), tour de Bellecour, et un échantillon des grands axes routiers.
 function lampSpotsOsm(ctx, data, full = false, zConf = null) {
   const spots = [];
-  const zEdge = zConf != null ? zConf - 6 : ctx.worldBound - 12;
   for (const band of data.water) {
-    for (const x of [band.minX - 6.5, band.maxX + 6.5]) {
-      for (let z = -ctx.worldBound + 12; z < zEdge; z += 24) {
+    const half = riverHalf(band);
+    const zLo = Math.max(band.zMin ?? (-ctx.worldBound + 12), -ctx.worldBound + 12);
+    const zHi = Math.min(band.zMax ?? (zConf != null ? zConf - 6 : ctx.worldBound - 12), ctx.worldBound - 12);
+    for (const side of [-1, 1]) {
+      for (let z = zLo + 6; z < zHi; z += 24) {
         if (Math.abs(z) < 6) continue;
-        spots.push([x, z]);
+        spots.push([riverCx(band, z) + side * (half + 6.5), z]);
       }
     }
   }

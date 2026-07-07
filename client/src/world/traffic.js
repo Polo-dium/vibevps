@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { audio } from '../audio.js';
-import { makeRand } from './layout.js';
+import { makeRand, riverCx, riverHalf } from './layout.js';
 
-// Circulation des quais : avenues le long des berges, trafic de voitures
-// low-poly (tout en InstancedMesh : 3 draw calls pour l'ensemble), voitures
-// garées déterministes, et des décapotables qu'on peut vraiment conduire.
+// Circulation des quais : avenues le long des berges — qui SUIVENT le tracé
+// courbe des fleuves —, trafic de voitures low-poly (tout en InstancedMesh :
+// 3 draw calls pour l'ensemble), voitures garées déterministes, et des
+// décapotables qu'on peut vraiment conduire.
 //
 // La conduite passe par ctx.startDrive / ctx.stopDrive (branchés dans
 // main.js sur controls.setVehicle). Les voitures ne sont pas synchronisées
@@ -18,49 +19,72 @@ const AVENUE_W = 7;
 
 export function buildTraffic(ctx, bands, maxHalf = 110) {
   const rand = makeRand(4242);
-  // Longueur des avenues : bornée par le monde et la Confluence
   const L = Math.min((ctx.worldBound ?? 134) - 6, maxHalf);
 
-  // --- Avenues : une chaussée de chaque côté de chaque fleuve -------------
-  // side = côté immeubles (pour y ranger les voitures garées)
+  // --- Avenues : une chaussée de chaque côté de chaque fleuve, qui épouse
+  // le méandre (x = centre du fleuve à ce z ± demi-largeur + retrait).
+  // side = côté immeubles (pour y ranger les voitures garées).
   const avenues = [];
   for (const band of bands) {
-    avenues.push({ x: band.minX - 11.5, side: -1 }, { x: band.maxX + 11.5, side: 1 });
+    const half = riverHalf(band);
+    const zLo = Math.max(band.zMin ?? -L, -L);
+    const zHi = Math.min(band.zMax ?? L, L);
+    if (zHi - zLo < 60) continue;
+    for (const side of [-1, 1]) {
+      avenues.push({
+        side,
+        zLo, zHi,
+        ax: (z) => riverCx(band, z) + side * (half + 11.5),
+      });
+    }
   }
   const roadTex = makeAvenueTexture();
-  roadTex.repeat.set(1, Math.round((L * 2) / 14));
   const roadMat = new THREE.MeshLambertMaterial({ map: roadTex });
   for (const av of avenues) {
-    const strip = new THREE.Mesh(new THREE.PlaneGeometry(AVENUE_W, L * 2), roadMat);
-    strip.rotation.x = -Math.PI / 2;
-    strip.position.set(av.x, 0.019, 0);
+    // Ruban de chaussée tessellé le long de la courbe
+    const STEP = 8, pos = [], uv = [];
+    for (let z = av.zLo; z < av.zHi; z += STEP) {
+      const za = z, zb = Math.min(z + STEP, av.zHi);
+      const xa = av.ax(za), xb = av.ax(zb);
+      pos.push(
+        xa - AVENUE_W / 2, 0.019, za, xa + AVENUE_W / 2, 0.019, za, xb + AVENUE_W / 2, 0.019, zb,
+        xa - AVENUE_W / 2, 0.019, za, xb + AVENUE_W / 2, 0.019, zb, xb - AVENUE_W / 2, 0.019, zb
+      );
+      const va = za / 14, vb = zb / 14;
+      uv.push(0, va, 1, va, 1, vb, 0, va, 1, vb, 0, vb);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.computeVertexNormals();
+    const strip = new THREE.Mesh(geo, roadMat);
     strip.userData.noShadow = true;
     ctx.scene.add(strip);
   }
 
   // --- Flotte instanciée : carrosseries, cabines, essieux -----------------
   // (trafic roulant + voitures garées dans les mêmes InstancedMesh)
-  const moving = []; // { i, x, z, dir, speed, lastHitAt }
+  const moving = []; // { i, av, z, dir, speed }
   const parked = []; // { i, x, z, ry }
 
-  // Densité de trafic proportionnelle à la longueur d'avenue
-  const perLane = Math.max(2, Math.min(8, Math.round(L / 55)));
   for (const av of avenues) {
+    const len = av.zHi - av.zLo;
+    // Densité de trafic proportionnelle à la longueur d'avenue
+    const perLane = Math.max(2, Math.min(8, Math.round(len / 110)));
     for (const dir of [1, -1]) {
       for (let k = 0; k < perLane; k++) {
         moving.push({
-          x: av.x + LANE * dir, // conduite à droite
-          z: -L + rand() * L * 2,
+          av,
+          z: av.zLo + rand() * len,
           dir,
           speed: 8 + rand() * 4,
-          lastHitAt: 0,
         });
       }
     }
     // Stationnement le long du bord extérieur (côté immeubles)
-    const px = av.x + av.side * (AVENUE_W / 2 + 1.1);
-    for (let z = -L + 8; z < L - 8; z += 13) {
+    for (let z = av.zLo + 8; z < av.zHi - 8; z += 13) {
       if (Math.abs(z) < 9 || rand() < 0.4) continue; // ponts + trous
+      const px = av.ax(z) + av.side * (AVENUE_W / 2 + 1.1);
       parked.push({ x: px, z: z + (rand() - 0.5) * 2, ry: rand() < 0.1 ? 0.2 : 0 });
       // Les voitures garées sont solides
       ctx.colliders.push({
@@ -107,11 +131,20 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
     }
   }
 
+  // Position/orientation d'une voiture de trafic sur son avenue courbe :
+  // x = chaussée à ce z + déport de voie ; cap = tangente de la courbe.
+  function placeCar(car) {
+    car.x = car.av.ax(car.z) + LANE * car.dir;
+    const ahead = car.av.ax(car.z + car.dir * 4) + LANE * car.dir;
+    car.ry = Math.atan2(ahead - car.x, car.dir * 4) + Math.PI;
+  }
+
   moving.forEach((car, idx) => {
     car.i = idx;
+    placeCar(car);
     _c.setHex(CAR_COLORS[Math.floor(rand() * CAR_COLORS.length)]);
     bodies.setColorAt(idx, _c);
-    setCar(idx, car.x, car.z, car.dir > 0 ? Math.PI : 0);
+    setCar(idx, car.x, car.z, car.ry);
   });
   parked.forEach((car, k) => {
     const idx = moving.length + k;
@@ -128,9 +161,10 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
     runOverCd -= dt;
     for (const car of moving) {
       car.z += car.dir * car.speed * dt;
-      if (car.z > L + 2) car.z = -L - 2;
-      if (car.z < -L - 2) car.z = L + 2;
-      setCar(car.i, car.x, car.z, car.dir > 0 ? Math.PI : 0);
+      if (car.z > car.av.zHi + 2) car.z = car.av.zLo - 2;
+      if (car.z < car.av.zLo - 2) car.z = car.av.zHi + 2;
+      placeCar(car);
+      setCar(car.i, car.x, car.z, car.ry);
 
       // Écrasé par un chauffard : dégâts (validés côté serveur) + klaxon
       const p = ctx.playerPos?.();
@@ -150,14 +184,13 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
 
   // --- Décapotables conduisibles ------------------------------------------
   // Garées le long des accotements côté quai (jamais dans un bâtiment) :
-  // plusieurs par avenue, réparties sur la longueur.
+  // plusieurs par avenue, réparties sur la longueur de la courbe.
   const spots = [];
-  const zParks = [-64, -20, 24, 68]; // 4 emplacements le long de chaque avenue
   for (const av of avenues) {
-    const sx = av.x - av.side * (AVENUE_W / 2 + 1.1); // accotement côté quai
-    for (let k = 0; k < zParks.length; k++) {
-      const z = zParks[k];
-      if (Math.abs(z) > L - 4) continue; // pas au-delà du bout de l'avenue
+    const len = av.zHi - av.zLo;
+    for (let k = 1; k <= 4; k++) {
+      const z = av.zLo + (len * k) / 5 + 3; // décalé des ponts
+      const sx = av.ax(z) - av.side * (AVENUE_W / 2 + 1.1); // accotement côté quai
       spots.push({ x: sx, z, ry: k % 2 ? Math.PI : 0 });
     }
   }
