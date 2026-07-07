@@ -324,27 +324,71 @@ function buildWaterSurfaces(ctx, polys) {
 }
 
 // Basilique Notre-Dame de Fourvière : à sa vraie place sur la colline, à
-// l'échelle, et VISITABLE — nef creuse avec colonnes, abside dorée, vitraux.
-// À l'intérieur : zone sanctuaire, ni tag ni tir (state.sanctuary, consommé
-// par weapon.js et spray.js). v1 stylisée ; l'intérieur photoréaliste
-// (panorama 360°) pourra remplacer la nef plus tard.
+// l'échelle, et VISITABLE. Entrée par la GRANDE PORTE EN BOIS côté ouest
+// (place de Fourvière), comme en vrai ; l'abside regarde la ville à l'est.
+// À l'intérieur : sanctuaire (ni tag ni tir) + visite immersive 360°
+// (photo réelle chargée à la demande depuis /pano/fourviere.jpg).
 function buildBasilica(ctx, bx, bz, by) {
-  const W = 46, D = 22, H = 14, T = 1.2; // nef est-ouest, façade à l'est
+  const W = 46, D = 22, H = 14, T = 1.2; // nef est-ouest, portail à l'OUEST
   const stone = 0xf2ead8;
   // Parvis : plateforme qui rattrape la pente de la colline
   addBox(ctx, { x: bx, y: by - 8, z: bz, w: W + 22, h: 8, d: D + 20, color: 0xcfc7b2 });
-  // Murs (porte sur la façade est, face à la ville)
+  // Murs (portail sur la façade ouest, mur plein côté ville à l'est)
   addBox(ctx, { x: bx, y: by, z: bz - D / 2, w: W, h: H, d: T, color: stone });
   addBox(ctx, { x: bx, y: by, z: bz + D / 2, w: W, h: H, d: T, color: stone });
-  addBox(ctx, { x: bx - W / 2, y: by, z: bz, w: T, h: H, d: D, color: stone });
-  const DOOR = 5;
+  addBox(ctx, { x: bx + W / 2, y: by, z: bz, w: T, h: H, d: D, color: stone });
+  const DOOR = 6;
   for (const s of [-1, 1]) {
     addBox(ctx, {
-      x: bx + W / 2, y: by, z: bz + s * (DOOR / 2 + (D - DOOR) / 4),
+      x: bx - W / 2, y: by, z: bz + s * (DOOR / 2 + (D - DOOR) / 4),
       w: T, h: H, d: (D - DOOR) / 2, color: stone,
     });
   }
-  addBox(ctx, { x: bx + W / 2, y: by + 4.4, z: bz, w: T, h: H - 4.4, d: DOOR + 0.4, color: stone });
+  addBox(ctx, { x: bx - W / 2, y: by + 4.6, z: bz, w: T, h: H - 4.6, d: DOOR + 0.4, color: stone });
+  // Grande porte en bois à double battant (entrouverte vers l'intérieur)
+  const woodMat = new THREE.MeshLambertMaterial({ color: 0x6b4a2a });
+  for (const s of [-1, 1]) {
+    const battant = new THREE.Mesh(new THREE.BoxGeometry(0.25, 4.5, 2.9), woodMat);
+    battant.position.set(bx - W / 2 + 1.3, by + 2.25, bz + s * (DOOR / 2 - 1.2));
+    battant.rotation.y = s * 0.55;
+    ctx.scene.add(battant);
+  }
+  // Marches du parvis devant le portail + rosace + fronton triangulaire
+  for (let i = 0; i < 3; i++) {
+    addBox(ctx, {
+      x: bx - W / 2 - 1.2 - i * 1.1, y: by - 0.3 * (i + 1), z: bz,
+      w: 1.2, h: 0.3 * (i + 1), d: DOOR + 4 + i * 1.6, color: 0xd8d0bc,
+    });
+  }
+  const rosace = new THREE.Mesh(
+    new THREE.CircleGeometry(1.9, 20),
+    new THREE.MeshLambertMaterial({ color: 0x2c4a9e, emissive: 0x1b2f6e, emissiveIntensity: 0.5 })
+  );
+  rosace.position.set(bx - W / 2 - 0.66, by + 9.6, bz);
+  rosace.rotation.y = -Math.PI / 2;
+  ctx.scene.add(rosace);
+  const fronton = new THREE.Mesh(
+    new THREE.CylinderGeometry(5.6, 5.6, 1.4, 3),
+    new THREE.MeshLambertMaterial({ color: stone })
+  );
+  fronton.rotation.z = Math.PI / 2; // axe le long de x (prisme triangulaire)
+  fronton.position.set(bx - W / 2, by + H + 1.8, bz);
+  ctx.scene.add(fronton);
+  // Pilastres, corniche et fenêtres hautes sur les longs murs (décor extérieur)
+  const winMat = new THREE.MeshLambertMaterial({ color: 0x39435a });
+  for (const s of [-1, 1]) {
+    addBox(ctx, { x: bx, y: by + H - 0.7, z: bz + s * (D / 2 + 0.25), w: W + 1.4, h: 0.7, d: 0.5, color: 0xe0d7c2, collider: false });
+    for (let i = 0; i < 7; i++) {
+      const px = bx - W / 2 + 3 + i * ((W - 6) / 6);
+      addBox(ctx, { x: px, y: by, z: bz + s * (D / 2 + 0.15), w: 0.9, h: H - 0.4, d: 0.4, color: 0xe8dfca, collider: false });
+      if (i < 6) {
+        const win = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 3.8), winMat);
+        win.position.set(px + (W - 6) / 12, by + 8.4, bz + s * (D / 2 + 0.65));
+        if (s < 0) win.rotation.y = Math.PI;
+        ctx.scene.add(win);
+      }
+    }
+  }
   // Toit à faîtage + croix
   addBox(ctx, { x: bx, y: by + H, z: bz, w: W + 1.6, h: 1, d: D + 1.6, color: 0x9aa3ad, collider: false });
   addBox(ctx, { x: bx, y: by + H + 1, z: bz, w: W - 6, h: 2.2, d: D - 9, color: 0xa9b2bc, collider: false });
@@ -384,14 +428,15 @@ function buildBasilica(ctx, bx, bz, by) {
       ctx.colliders.push({ minX: cxp - 0.8, maxX: cxp + 0.8, minY: by, maxY: by + H, minZ: bz + s * 4.6 - 0.8, maxZ: bz + s * 4.6 + 0.8 });
     }
   }
+  // Abside dorée et autel à l'EST (vers la ville), face au portail
   const apse = new THREE.Mesh(
     new THREE.SphereGeometry(6.5, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
     new THREE.MeshLambertMaterial({ color: 0xc9a227, emissive: 0x8a6d1a })
   );
-  apse.position.set(bx - W / 2 + 2, by + 3, bz);
-  apse.rotation.z = -Math.PI / 2;
+  apse.position.set(bx + W / 2 - 2, by + 3, bz);
+  apse.rotation.z = Math.PI / 2;
   ctx.scene.add(apse);
-  addBox(ctx, { x: bx - W / 2 + 5, y: by + 0.1, z: bz, w: 3, h: 1.1, d: 1.6, color: 0xf5f0e4 });
+  addBox(ctx, { x: bx + W / 2 - 5, y: by + 0.1, z: bz, w: 3, h: 1.1, d: 1.6, color: 0xf5f0e4 });
   // Vitraux : panneaux colorés émissifs le long des murs
   const VITRAIL_COLORS = [0x3d6fd4, 0xc23b4e, 0xd4a017, 0x3d9970];
   for (let i = 0; i < 6; i++) {
@@ -414,7 +459,51 @@ function buildBasilica(ctx, bx, bz, by) {
   holy.position.set(bx, by + H - 3, bz);
   ctx.scene.add(holy);
 
-  // Sanctuaire : ni tag ni tir à l'intérieur (consommé par weapon/spray)
+  // VISITE IMMERSIVE 360° : une vraie photo panoramique de l'intérieur,
+  // chargée uniquement à la demande (micro-chargement, zéro impact au boot).
+  // Le fichier est servi depuis client/public/pano/fourviere.jpg — s'il
+  // manque, on reste dans la nef stylisée avec un message explicite.
+  let pano = null, panoOn = false, panoLoading = false;
+  const panoGate = {
+    x: bx, z: bz, r: 7,
+    label: 'E — Visite immersive 360° (photo réelle)',
+    action: () => {
+      if (panoOn) {
+        pano.visible = false; panoOn = false;
+        panoGate.label = 'E — Visite immersive 360° (photo réelle)';
+        return;
+      }
+      if (pano) {
+        pano.visible = true; panoOn = true;
+        panoGate.label = 'E — Quitter la visite 360°';
+        return;
+      }
+      if (panoLoading) return;
+      panoLoading = true;
+      ctx.notify?.('📷 Chargement du panorama…');
+      new THREE.TextureLoader().load('/pano/fourviere.jpg', (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        const sphere = new THREE.Mesh(
+          new THREE.SphereGeometry(20, 48, 32),
+          new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, depthTest: false, depthWrite: false })
+        );
+        sphere.renderOrder = 9990; // dessiné par-dessus tout : immersion totale
+        sphere.rotation.y = Math.PI;
+        sphere.position.set(bx, by + 1.7, bz);
+        ctx.scene.add(sphere);
+        pano = sphere; panoOn = true; panoLoading = false;
+        panoGate.label = 'E — Quitter la visite 360°';
+        ctx.notify?.('🌐 Bienvenue dans la vraie basilique — regarde autour de toi ! (E pour sortir)');
+      }, undefined, () => {
+        panoLoading = false;
+        ctx.notify?.('📷 Panorama pas encore installé (client/public/pano/fourviere.jpg sur le serveur).');
+      });
+    },
+  };
+  ctx.interactables.push(panoGate);
+
+  // Sanctuaire : ni tag ni tir à l'intérieur (consommé par weapon/spray).
+  // Sortir de la nef referme aussi la visite 360°.
   const zone = { minX: bx - W / 2, maxX: bx + W / 2, minY: by - 1, maxY: by + H, minZ: bz - D / 2, maxZ: bz + D / 2 };
   let wasIn = false;
   ctx.updatables.push(() => {
@@ -426,13 +515,28 @@ function buildBasilica(ctx, bx, bz, by) {
       wasIn = inside;
       state.sanctuary = inside;
       if (inside) ctx.notify?.('⛪ Basilique de Fourvière — ici on ne tague pas et on ne tire pas, gone.');
+      else if (panoOn) { pano.visible = false; panoOn = false; panoGate.label = 'E — Visite immersive 360° (photo réelle)'; }
     }
   });
   ctx.interactables.push({
-    x: bx + W / 2 + 3, z: bz, r: 6,
-    label: 'E — Entrer dans la basilique',
-    action: () => ctx.notify?.('🙏 La basilique veille sur Lyon depuis 1872. Admire les vitraux !'),
+    x: bx - W / 2 - 4, z: bz, r: 6,
+    label: 'E — Pousser la grande porte',
+    action: () => ctx.notify?.('🙏 La basilique veille sur Lyon depuis 1872. Admire les vitraux, gone.'),
   });
+}
+
+// Parc du Rosaire : le jardin qui descend de la basilique vers Saint-Jean —
+// chemin en lacets posé sur la pente. (Les arbres viennent de buildGreenery,
+// via ctx.parkRects ; le terrain y est coloré en herbe.)
+function buildParcRosaire(ctx, x0, z0, x1, z1) {
+  const N = 34;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const x = x0 + (x1 - x0) * t;
+    const z = z0 + (z1 - z0) * t + Math.sin(t * Math.PI * 3) * 26; // lacets
+    const y = Math.max(0, ctx.terrainHeight?.(x, z) ?? 0);
+    addBox(ctx, { x, y, z, w: 4, h: 0.14, d: 5.5, color: 0xcfc4a5, collider: false });
+  }
 }
 
 export function buildRealCity(ctx, data) {
@@ -517,20 +621,22 @@ export function buildRealCity(ctx, data) {
     // (Fourvière, Croix-Rousse — mêmes coordonnées OSM que le reste) posent
     // le relief partout où il n'y a pas d'eau. Aucune zone rasée.
     HILL_RECT = null;
-    // Esplanade de la basilique : petite zone dégagée des bâtiments OSM
+    // Basilique RECULÉE de 18 m vers le cœur de la colline (elle débordait
+    // dans le vide au bord de la pente) ; esplanade dégagée autour, et parc
+    // du Rosaire qui descend vers Saint-Jean (sans bâtiments, planté d'arbres).
     const basPos = data.poi?.basilica ?? [-369, -244.5];
-    EXTRA_RECTS = [{
-      minX: basPos[0] - 42, maxX: basPos[0] + 42,
-      minZ: basPos[1] - 30, maxZ: basPos[1] + 30,
-    }];
+    const basX = basPos[0] - 18, basZ = basPos[1];
+    const ESPL = { minX: basX - 44, maxX: basX + 40, minZ: basZ - 32, maxZ: basZ + 32 };
+    const PARC = { minX: basX + 40, maxX: -212, minZ: -292, maxZ: -142 };
+    EXTRA_RECTS = [ESPL, PARC];
+    ctx.parkRects = [PARC];
     const mask = buildWaterMask(data.waterPolys, bound);
     ctx.waterMask = mask;
     const hillsBase = Array.isArray(data.hills) && data.hills.length
       ? makeHillsFn(data.hills) : () => 0;
     // Esplanade en plateau : la pente de la colline est écrêtée à la hauteur
     // de la basilique (sinon elle ressort à travers le sol de la nef)
-    const ESPL = EXTRA_RECTS[0];
-    const basY0 = hillsBase(basPos[0], basPos[1]);
+    const basY0 = hillsBase(basX, basZ);
     const ground = (x, z) => {
       let h = hillsBase(x, z);
       if (x > ESPL.minX && x < ESPL.maxX && z > ESPL.minZ && z < ESPL.maxZ) {
@@ -580,12 +686,14 @@ export function buildRealCity(ctx, data) {
   if (widest) buildSilure(ctx, widest);
 
   if (full) {
-    // Trafic sur les vrais quais courbes ; basilique de Fourvière à sa vraie
-    // place sur la colline. (Ficelle et traboules reviendront ensuite.)
+    // Trafic sur les vrais quais courbes ; basilique de Fourvière (reculée
+    // sur la colline) + parc du Rosaire qui descend vers Saint-Jean.
     buildTraffic(ctx, data.water, bound - 8);
     const basP = data.poi?.basilica ?? [-369, -244.5];
-    const basY = Math.max(0, ctx.terrainHeight(basP[0], basP[1]));
-    buildBasilica(ctx, basP[0], basP[1], basY);
+    const bX = basP[0] - 18, bZ = basP[1];
+    const basY = Math.max(0, ctx.terrainHeight(bX, bZ));
+    buildBasilica(ctx, bX, bZ, basY);
+    buildParcRosaire(ctx, bX + 42, bZ, -215, -152);
   } else {
     buildFourviere(ctx, legacyHill);
     // Pointe de terre = sol, le reste (fleuves + confluence) = eau
@@ -622,11 +730,14 @@ function buildTerrainMesh(ctx, bound) {
   const grass = new THREE.Color(0x4d6b43);
   const forest = new THREE.Color(0x36512e);
   const bedC = new THREE.Color(0x27352b);
+  const parks = ctx.parkRects ?? [];
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
     const h = ctx.terrainHeight(x, z);
     pos.setY(i, h);
+    const inPark = parks.some((r) => x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ);
     if (h < -0.5) c.copy(bedC);
+    else if (inPark) c.copy(grass).lerp(forest, 0.25); // parcs toujours en herbe
     else if (h < 1.4) c.copy(asphalt);
     else c.copy(grass).lerp(forest, Math.min(1, (h - 1.4) / 32));
     colors[i * 3] = c.r;
@@ -1184,6 +1295,18 @@ function buildGreenery(ctx, data, rand, full = false) {
       if (x > b.minX - 1 && x < b.maxX + 1 && z > b.minZ - 1 && z < b.maxZ + 1) { hit = true; break; }
     }
     if (!hit) valid.push([x, z, 0.85 + rand() * 0.5, Math.max(0, ty)]);
+  }
+  // Parcs (jardin du Rosaire…) : plantés dru, sans passer par le filtre des
+  // zones réservées (le parc EST une zone réservée aux bâtiments)
+  for (const r of ctx.parkRects ?? []) {
+    for (let i = 0; i < 120; i++) {
+      const x = r.minX + rand() * (r.maxX - r.minX);
+      const z = r.minZ + rand() * (r.maxZ - r.minZ);
+      if (inWater(x, z)) continue;
+      const ty = ctx.terrainHeight?.(x, z) ?? 0;
+      if (ty < -0.5) continue;
+      valid.push([x, z, 0.8 + rand() * 0.6, Math.max(0, ty)]);
+    }
   }
   if (valid.length === 0) return;
 

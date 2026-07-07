@@ -44,6 +44,11 @@ if (fs.existsSync(distDir)) {
       }
     },
   }));
+  // Repli sur client/public : permet de déposer des fichiers (ex. panoramas
+  // /pano/*.jpg) directement sur le VPS, servis sans rebuild.
+  app.use(express.static(path.join(__dirname, '..', '..', 'client', 'public'), {
+    setHeaders: (res) => res.setHeader('Cache-Control', 'public, max-age=86400'),
+  }));
   app.get(/^\/(?!api|ws).*/, (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, must-revalidate');
     res.sendFile(path.join(distDir, 'index.html'));
