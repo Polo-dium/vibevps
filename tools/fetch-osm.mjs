@@ -114,10 +114,6 @@ const WATER = [
   };
 });
 
-function inWater(x) {
-  return WATER.some((w) => x > w.minX - 2 && x < w.maxX + 2);
-}
-
 // Emprise du bbox en coordonnées jeu : IMPORTANT, les lignes `waterway=river`
 // d'OSM sont d'immenses polylignes (la Saône/le Rhône font des centaines de
 // km) et la récursion `>;` en ramène TOUS les nœuds, très loin hors carte.
@@ -395,8 +391,9 @@ for (const el of data.elements) {
     }
     area = Math.abs(area) / 2;
     if (area < 8) continue;
-    const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
-    if (inWater(cx)) continue; // donnée douteuse sur l'eau
+    // NE PAS filtrer par bande d'eau ici : ça effaçait des colonnes entières
+    // de bâtiments sur toute la carte (la bande couvre tout le méandre). Le
+    // client écarte lui-même, précisément, ceux qui tombent sur l'eau réelle.
     const h = r1(buildingHeight(el.tags, el.id));
     buildings.push({ h, p: pts.flat() });
     for (const [x, z] of pts) bound = Math.max(bound, Math.abs(x), Math.abs(z));

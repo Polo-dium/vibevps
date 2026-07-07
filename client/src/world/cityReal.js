@@ -165,7 +165,7 @@ function detectRivers(data, bound) {
 // qu'on relie en chaînes = fleuves. Même format de sortie que detectRivers.
 function riversFromPolys(polys, bound) {
   if (!Array.isArray(polys) || !polys.length) return [];
-  const ZB = 36;
+  const ZB = 24; // tranches fines : virages serrés mieux suivis
   const nz = Math.max(1, Math.ceil((2 * bound) / ZB));
   const active = [], done = [];
   for (let s = 0; s < nz; s++) {
@@ -196,31 +196,43 @@ function riversFromPolys(polys, bound) {
       if (last && iv[0] <= last[1] + 20) last[1] = Math.max(last[1], iv[1]);
       else merged.push([iv[0], iv[1]]);
     }
-    const cur = merged.filter((m) => m[1] - m[0] >= 14).map((m) => ({ x: (m[0] + m[1]) / 2, w: m[1] - m[0] }));
-    // Chaînage nord→sud AVEC MOMENTUM : chaque fleuve prédit sa position
-    // suivante (position + vitesse) et prend l'intervalle le plus proche de
-    // cette PRÉDICTION → à une bifurcation (île, bras mort), il continue dans
-    // sa direction (ex. la Saône qui part vers l'ouest) au lieu de sauter sur
-    // le bras qui remonte.
+    const cur = merged.filter((m) => m[1] - m[0] >= 14)
+      .map((m) => ({ x: (m[0] + m[1]) / 2, w: m[1] - m[0], lo: m[0], hi: m[1] }));
+    // Chaînage nord→sud par PROXIMITÉ D'INTERVALLES : un fleuve continu se
+    // recouvre (ou presque) d'une tranche à l'autre, même dans un virage très
+    // serré (coude de Saint-Georges) où son CENTRE saute de >150 m alors que
+    // les intervalles restent quasi contigus. On accepte un petit trou
+    // (< 70 m) entre intervalles ; la prédiction par vitesse reste en repli.
     const usedIv = new Set(), usedCh = new Set();
     const cand = [];
     for (let ci = 0; ci < active.length; ci++) {
-      const pred = active[ci].lastX + (active[ci].vel || 0);
-      for (let k = 0; k < cur.length; k++) cand.push({ ci, k, d: Math.abs(cur[k].x - pred) });
+      const c = active[ci];
+      const pred = c.lastX + (c.vel || 0);
+      for (let k = 0; k < cur.length; k++) {
+        const iv = cur[k];
+        const gapX = Math.max(iv.lo - c.hi, c.lo - iv.hi, 0); // 0 = chevauchement
+        const d = Math.abs(iv.x - pred);
+        if (gapX < 70) cand.push({ ci, k, score: 10000 - gapX });
+        else if (d < 150) cand.push({ ci, k, score: 150 - d });
+      }
     }
-    cand.sort((a, b) => a.d - b.d);
-    for (const { ci, k, d } of cand) {
-      if (usedCh.has(ci) || usedIv.has(k) || d >= 150) continue;
+    cand.sort((a, b) => b.score - a.score);
+    for (const { ci, k } of cand) {
+      if (usedCh.has(ci) || usedIv.has(k)) continue;
       const c = active[ci], iv = cur[k];
       c.vel = 0.6 * (c.vel || 0) + 0.4 * (iv.x - c.lastX);
-      c.pts.push([z, iv.x, iv.w]); c.lastX = iv.x; c.gap = 0;
+      c.pts.push([z, iv.x, iv.w]);
+      c.lastX = iv.x; c.lo = iv.lo; c.hi = iv.hi; c.gap = 0;
       usedCh.add(ci); usedIv.add(k);
     }
     for (let ci = active.length - 1; ci >= 0; ci--) {
       if (!usedCh.has(ci) && ++active[ci].gap > 3) { done.push(active[ci]); active.splice(ci, 1); }
     }
     for (let k = 0; k < cur.length; k++) {
-      if (!usedIv.has(k)) active.push({ pts: [[z, cur[k].x, cur[k].w]], lastX: cur[k].x, vel: 0, gap: 0 });
+      if (!usedIv.has(k)) {
+        const iv = cur[k];
+        active.push({ pts: [[z, iv.x, iv.w]], lastX: iv.x, lo: iv.lo, hi: iv.hi, vel: 0, gap: 0 });
+      }
     }
   }
   done.push(...active);
