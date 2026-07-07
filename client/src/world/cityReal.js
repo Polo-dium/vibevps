@@ -9,7 +9,7 @@ import {
   buildGrandeRoue, buildFountain, buildStreetFurniture, buildMurPeint,
   buildPeniches, buildSilure, buildFourviere, buildLamps,
   buildTraboules, buildRiverWorks, composeRiverTerrain, buildConfluence,
-  buildJetpackPad,
+  buildJetpackPad, makeWaterTexture, WATER_Y, BED_Y,
 } from './city.js';
 import { buildTraffic } from './traffic.js';
 import { buildRooftopBar } from './rooftops.js';
@@ -249,6 +249,73 @@ function riversFromPolys(polys, bound) {
     .sort((a, b) => a.avgX - b.avgX);
 }
 
+// Masque d'eau : grille (résolution 4 m) remplie par scanline depuis les
+// polygones d'eau OSM. Vérité terrain pour TOUT ce qui doit savoir « ici,
+// c'est de l'eau » (lit du terrain, exclusion des bâtiments/arbres, PNJ) —
+// contrairement au tracé centerline cx(z), il gère les bras est-ouest du
+// fleuve (quai Saint-Vincent) que le balayage nord-sud représente mal.
+function buildWaterMask(polys, bound, res = 4) {
+  if (!Array.isArray(polys) || !polys.length) return null;
+  const n = Math.ceil((2 * bound) / res);
+  const grid = new Uint8Array(n * n);
+  for (let row = 0; row < n; row++) {
+    const z = -bound + (row + 0.5) * res;
+    for (const ring of polys) {
+      const xs = [];
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i], b = ring[(i + 1) % ring.length];
+        if ((a[1] <= z && b[1] > z) || (b[1] <= z && a[1] > z)) {
+          xs.push(a[0] + (b[0] - a[0]) * (z - a[1]) / (b[1] - a[1]));
+        }
+      }
+      xs.sort((p, q) => p - q);
+      for (let i = 0; i + 1 < xs.length; i += 2) {
+        const c0 = Math.max(0, Math.round((xs[i] + bound) / res));
+        const c1 = Math.min(n - 1, Math.round((xs[i + 1] + bound) / res));
+        for (let c = c0; c <= c1; c++) grid[row * n + c] = 1;
+      }
+    }
+  }
+  return {
+    res,
+    isWater(x, z) {
+      const c = Math.floor((x + bound) / res), r = Math.floor((z + bound) / res);
+      return c >= 0 && r >= 0 && c < n && r < n && grid[r * n + c] === 1;
+    },
+  };
+}
+
+// Rend l'eau DIRECTEMENT depuis les polygones OSM (forme exacte, virages et
+// bras est-ouest compris) — plus aucune approximation par ruban.
+function buildWaterSurfaces(ctx, polys) {
+  // Dédoublonnage : natural=water et riverbank décrivent souvent le même plan
+  const seen = new Set(), uniq = [];
+  for (const p of polys) {
+    const key = p.length + ':' + p[0] + ':' + p[p.length >> 1];
+    if (!seen.has(key)) { seen.add(key); uniq.push(p); }
+  }
+  const tex = makeWaterTexture();
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  const mat = new THREE.MeshPhongMaterial({
+    map: tex, transparent: true, opacity: 0.96,
+    specular: 0x3f6b78, shininess: 60, side: THREE.DoubleSide,
+  });
+  uniq.forEach((ring, i) => {
+    // Forme en (x, −z) puis rotation −90° : géographie préservée, normale
+    // vers le haut (une rotation +90° inverserait la carte).
+    const shape = new THREE.Shape(ring.map(([x, z]) => new THREE.Vector2(x, -z)));
+    const geo = new THREE.ShapeGeometry(shape);
+    geo.rotateX(-Math.PI / 2);
+    const uv = geo.attributes.uv;
+    for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) / 18, uv.getY(k) / 18);
+    const mesh = new THREE.Mesh(geo, mat);
+    // Léger étagement pour éviter le z-fighting entre surfaces qui se chevauchent
+    mesh.position.y = WATER_Y + (i % 3) * 0.02;
+    ctx.scene.add(mesh);
+  });
+  ctx.updatables.push((dt) => { tex.offset.y -= dt * 0.012; });
+}
+
 export function buildRealCity(ctx, data) {
   const bound = data.bound;
   ctx.worldBound = bound;
@@ -324,15 +391,25 @@ export function buildRealCity(ctx, data) {
   const CONF_RECT = { minX: west.minX, maxX: east.maxX, minZ: zConf - 30, maxZ: bound + 300 };
 
   if (full) {
-    // --- VILLE COMPLÈTE, CARTE PROPRE À PLAT : le vrai Lyon OSM tel quel
-    // (tous les bâtiments + fleuves posés sur la vraie géométrie d'eau).
-    // Pas de collines ni de Confluence synthétique pour l'instant : le relief
-    // reviendra plus tard, correctement calé sur les fleuves. Aucune zone
-    // rasée — la ville est complète partout, comme sur la Presqu'île.
+    // --- VILLE COMPLÈTE : le vrai Lyon OSM tel quel. L'eau est rendue
+    // DIRECTEMENT depuis les polygones OSM (bras est-ouest du quai
+    // Saint-Vincent compris) ; le masque d'eau creuse le lit dans le terrain
+    // et sert de vérité pour bâtiments/arbres/PNJ. Les collines réelles
+    // (Fourvière, Croix-Rousse — mêmes coordonnées OSM que le reste) posent
+    // le relief partout où il n'y a pas d'eau. Aucune zone rasée.
     HILL_RECT = null;
     EXTRA_RECTS = [];
-    ctx.terrainHeight = () => 0;
-    composeRiverTerrain(ctx, data.water, [], null);
+    const mask = buildWaterMask(data.waterPolys, bound);
+    ctx.waterMask = mask;
+    const hillsBase = Array.isArray(data.hills) && data.hills.length
+      ? makeHillsFn(data.hills) : () => 0;
+    if (mask) {
+      ctx.terrainHeight = (x, z) => (mask.isWater(x, z) ? BED_Y : hillsBase(x, z));
+      buildWaterSurfaces(ctx, data.waterPolys);
+    } else {
+      ctx.terrainHeight = hillsBase;
+      composeRiverTerrain(ctx, data.water, [], null);
+    }
     buildTerrainMesh(ctx, bound);
   } else {
     // --- ANCIEN JSON : colline synthétique collée à l'ouest de la Saône --
@@ -397,7 +474,7 @@ export function buildRealCity(ctx, data) {
 // fonction de hauteur (collines, lits des fleuves), coloré par altitude.
 function buildTerrainMesh(ctx, bound) {
   const size = bound * 2 + 240;
-  const seg = 160;
+  const seg = 230; // assez fin pour des berges nettes le long de l'eau réelle
   const geo = new THREE.PlaneGeometry(size, size, seg, seg);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
@@ -446,7 +523,7 @@ function lampSpotsOsm(ctx, data, full = false, zConf = null) {
     const x = BELLECOUR.minX + 6 + i * 8.2;
     spots.push([x, BELLECOUR.minZ + 1.5], [x, BELLECOUR.maxZ - 1.5]);
   }
-  const inWater = (x, z) => nearRiver(data.water, x, z, 4);
+  const inWater = (x, z) => (ctx.waterMask ? ctx.waterMask.isWater(x, z) : nearRiver(data.water, x, z, 4));
   const cap = full ? 700 : 220;
   let done = false;
   for (const road of data.roads) {
@@ -519,17 +596,23 @@ function buildWater(ctx, bands, bound, zConf = null) {
     const bridgesZ = [0, 170, -170, 340, -340].filter(
       (z) => z > zLo + 40 && z < zMax - 40 && Math.abs(z) < bound - 30
     );
+    // Quand l'eau vient des polygones OSM (ctx.waterMask), le ruban centerline
+    // ne sert plus qu'aux PONTS — le lit, l'eau, les murs et parapets du ruban
+    // seraient faux dans les bras est-ouest.
     buildRiverWorks(ctx, band, {
       halfLength: bound + 100,
       zMin: zLo,
       zMax,
       bridgesZ,
       parapetHalf: bound,
+      bridgesOnly: !!ctx.waterMask,
     });
     const quayMat = new THREE.MeshLambertMaterial({ color: 0x8d8676, side: THREE.DoubleSide });
     if (band.cx) {
       // Fleuve courbe : trottoirs de quai en ruban qui suit le méandre.
       // `side` = -1 (rive ouest) / +1 (rive est) ; largeur du trottoir 5 m.
+      // Hors de l'eau réelle uniquement (masque) : pas de trottoir en travers
+      // d'un bras que le tracé nord-sud représente mal.
       const half = riverHalf(band);
       for (const side of [-1, 1]) {
         const STEP = 6, pos = [];
@@ -537,6 +620,7 @@ function buildWater(ctx, bands, bound, zConf = null) {
           const za = z, zb = Math.min(z + STEP, zMax);
           const ia = riverCx(band, za) + side * half, ib = riverCx(band, zb) + side * half;
           const oa = ia + side * 5, ob = ib + side * 5;
+          if (ctx.waterMask?.isWater((ia + oa) / 2, za) || ctx.waterMask?.isWater((ib + ob) / 2, zb)) continue;
           // ordre gauche→droite (x croissant) pour une normale vers le haut
           const [la, ra] = side < 0 ? [oa, ia] : [ia, oa];
           const [lb, rb] = side < 0 ? [ob, ib] : [ib, ob];
@@ -631,6 +715,10 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     }
     // Pas de bâtiment sur l'eau ni sur l'avenue de quai (distance au tracé, par z)
     if (nearRiver(data.water, cx, cz, 14)) continue;
+    // …ni sur l'eau réelle (masque : couvre aussi les bras est-ouest)
+    if (ctx.waterMask && (ctx.waterMask.isWater(cx, cz) ||
+        ctx.waterMask.isWater(minX, minZ) || ctx.waterMask.isWater(maxX, maxZ) ||
+        ctx.waterMask.isWater(minX, maxZ) || ctx.waterMask.isWater(maxX, minZ))) continue;
 
     // Sens horaire (vu de dessus) pour des normales de murs vers l'extérieur
     let area = 0;
@@ -921,7 +1009,7 @@ function buildGreenery(ctx, data, rand, full = false) {
   const inReserved = (x, z) => reserved.some(
     (r) => x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ
   );
-  const inWater = (x, z) => nearRiver(data.water, x, z, 4);
+  const inWater = (x, z) => (ctx.waterMask ? ctx.waterMask.isWater(x, z) : nearRiver(data.water, x, z, 4));
 
   // Alignements le long des deux rives : on suit le tracé courbe du fleuve
   for (const band of data.water) {

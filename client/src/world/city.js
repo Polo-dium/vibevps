@@ -113,7 +113,7 @@ function buildGroundAndRivers(ctx) {
 // sous lesquels passent les péniches. Partagé procédural / mode OSM.
 export function buildRiverWorks(ctx, band, {
   halfLength = 280, bridgesZ = [0], withArcs = false, parapetHalf = 134,
-  zMin = null, zMax = null,
+  zMin = null, zMax = null, bridgesOnly = false,
 } = {}) {
   const z0 = zMin ?? -halfLength;
   const z1 = zMax ?? halfLength;
@@ -142,6 +142,9 @@ export function buildRiverWorks(ctx, band, {
     return g;
   }
 
+  // Mode « ponts seulement » : quand l'eau est rendue directement depuis les
+  // polygones OSM (cityReal), le ruban centerline ne sert plus qu'aux ponts.
+  if (!bridgesOnly) {
   const bed = new THREE.Mesh(flatRibbon(BED_Y + 0.01),
     new THREE.MeshLambertMaterial({ color: 0x27352b }));
   ctx.scene.add(bed);
@@ -225,6 +228,7 @@ export function buildRiverWorks(ctx, band, {
       ctx.scene.add(seg);
     }
   }
+  } // fin !bridgesOnly
 
   // Ponts surélevés (au centre courbe du fleuve) : tablier + rampes + piles
   const DECK_Y = 1.25;
