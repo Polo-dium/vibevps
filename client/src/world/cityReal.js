@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { addInvisibleWall, addBox } from './utils.js';
 import { state } from '../state.js';
 import {
-  ARCADE, RANGE, MUR_PEINT, BELLECOUR, makeRand,
+  ARCADE, RANGE, MUR_PEINT, BELLECOUR, BELLECOUR_REAL, makeRand,
   makeCenterline, riverCx, riverHalf,
 } from './layout.js';
 import {
@@ -35,6 +35,7 @@ const ROOF_TINTS = ['#a8543c', '#b05a40', '#9c4e38', '#b46248', '#7e8696', '#6d7
 let HILL_RECT = null;
 let WATER_RECTS = [];
 let EXTRA_RECTS = [];
+let BELLE_RECT = null; // Bellecour à l'échelle en mode ville complète
 
 // Un point est-il dans (ou au bord de) l'eau, à la profondeur z ? Test par
 // distance au tracé central → fonctionne même quand les fleuves se courbent
@@ -621,6 +622,14 @@ export function buildRealCity(ctx, data) {
     // (Fourvière, Croix-Rousse — mêmes coordonnées OSM que le reste) posent
     // le relief partout où il n'y a pas d'eau. Aucune zone rasée.
     HILL_RECT = null;
+    // Place Bellecour À L'ÉCHELLE, encadrée par les vraies façades OSM.
+    // La salle d'arcade devient le pavillon central de la place (comme les
+    // vrais pavillons de Bellecour) — déplacée AVANT toute construction pour
+    // que zones réservées, portes et bornes suivent.
+    BELLE_RECT = BELLECOUR_REAL;
+    ctx.bellecourRect = BELLECOUR_REAL;
+    ARCADE.x = 26;
+    ARCADE.z = 3;
     // Basilique RECULÉE de 18 m vers le cœur de la colline (elle débordait
     // dans le vide au bord de la pente) ; esplanade dégagée autour, et parc
     // du Rosaire qui descend vers Saint-Jean (sans bâtiments, planté d'arbres).
@@ -673,9 +682,11 @@ export function buildRealCity(ctx, data) {
   buildGreenery(ctx, data, rand, full);
 
   // Lieux de gameplay (zones déjà déblayées des bâtiments OSM)
-  buildBellecour(ctx);
-  // Jetpack disponible sur la place Bellecour (à l'écart du cercle de spawn)
-  buildJetpackPad(ctx, BELLECOUR.maxX - 8, BELLECOUR.maxZ - 8);
+  const BELLE = BELLE_RECT ?? BELLECOUR;
+  buildBellecour(ctx, BELLE, full);
+  // Jetpack sur la place, côté sud-ouest près du jardin (à l'écart du
+  // cercle de spawn et du pavillon arcade)
+  buildJetpackPad(ctx, full ? BELLE.minX + 10 : BELLE.maxX - 8, BELLE.maxZ - 10);
   buildMurPeint(ctx);
   buildGrandeRoue(ctx);
   buildFountain(ctx);
@@ -768,9 +779,14 @@ function lampSpotsOsm(ctx, data, full = false, zConf = null) {
       }
     }
   }
-  for (let i = 0; i < 8; i++) {
-    const x = BELLECOUR.minX + 6 + i * 8.2;
-    spots.push([x, BELLECOUR.minZ + 1.5], [x, BELLECOUR.maxZ - 1.5]);
+  {
+    // Tour de Bellecour (petit rect en legacy, place à l'échelle en full)
+    const B = ctx.bellecourRect ?? BELLECOUR;
+    const n = ctx.bellecourRect ? 11 : 8;
+    for (let i = 0; i < n; i++) {
+      const x = B.minX + 6 + i * ((B.maxX - B.minX - 12) / (n - 1));
+      spots.push([x, B.minZ + 1.5], [x, B.maxZ - 1.5]);
+    }
   }
   const inWater = (x, z) => (ctx.waterMask ? ctx.waterMask.isWater(x, z) : nearRiver(data.water, x, z, 4));
   const cap = full ? 700 : 220;
@@ -895,8 +911,9 @@ function buildWater(ctx, bands, bound, zConf = null) {
 
 // Zones réservées au gameplay : on retire les bâtiments OSM qui les chevauchent
 function reservedRects() {
+  const B = BELLE_RECT ?? BELLECOUR;
   const rects = [
-    { minX: BELLECOUR.minX - 2, maxX: BELLECOUR.maxX + 2, minZ: BELLECOUR.minZ - 2, maxZ: BELLECOUR.maxZ + 2 },
+    { minX: B.minX - 2, maxX: B.maxX + 2, minZ: B.minZ - 2, maxZ: B.maxZ + 2 },
     { minX: ARCADE.x - ARCADE.w / 2 - 9, maxX: ARCADE.x + ARCADE.w / 2 + 9, minZ: ARCADE.z - ARCADE.d / 2 - 11, maxZ: ARCADE.z + ARCADE.d / 2 + 11 },
     { minX: RANGE.x - RANGE.width / 2 - 7, maxX: RANGE.x + RANGE.width / 2 + 7, minZ: RANGE.backZ - 7, maxZ: RANGE.counterZ + 10 },
     { minX: MUR_PEINT.x - MUR_PEINT.w / 2 - 5, maxX: MUR_PEINT.x + MUR_PEINT.w / 2 + 5, minZ: MUR_PEINT.z - 8, maxZ: MUR_PEINT.z + 8 },
@@ -1271,11 +1288,14 @@ function buildGreenery(ctx, data, rand, full = false) {
       }
     }
   }
-  // Pourtour de Bellecour
-  for (let i = 0; i < 26; i++) {
-    const t = i / 26;
-    spots.push([BELLECOUR.minX + t * (BELLECOUR.maxX - BELLECOUR.minX), BELLECOUR.minZ - 2]);
-    spots.push([BELLECOUR.minX + t * (BELLECOUR.maxX - BELLECOUR.minX), BELLECOUR.maxZ + 2]);
+  // Pourtour de Bellecour (petit rect du mode legacy uniquement ; la place à
+  // l'échelle a ses doubles rangées intérieures, plantées plus bas)
+  if (!ctx.bellecourRect) {
+    for (let i = 0; i < 26; i++) {
+      const t = i / 26;
+      spots.push([BELLECOUR.minX + t * (BELLECOUR.maxX - BELLECOUR.minX), BELLECOUR.minZ - 2]);
+      spots.push([BELLECOUR.minX + t * (BELLECOUR.maxX - BELLECOUR.minX), BELLECOUR.maxZ + 2]);
+    }
   }
   // Arbres épars dans les rues (et sur les collines en ville complète)
   const scatter = full ? 420 : 140;
@@ -1306,6 +1326,17 @@ function buildGreenery(ctx, data, rand, full = false) {
       const ty = ctx.terrainHeight?.(x, z) ?? 0;
       if (ty < -0.5) continue;
       valid.push([x, z, 0.8 + rand() * 0.6, Math.max(0, ty)]);
+    }
+  }
+  // Bellecour à l'échelle : DOUBLES rangées d'arbres nord et sud, à
+  // l'intérieur de la place, comme en vrai (même bypass que les parcs)
+  if (ctx.bellecourRect) {
+    const B = ctx.bellecourRect;
+    for (let x = B.minX + 6; x < B.maxX - 6; x += 7) {
+      for (const off of [4.5, 9.5]) {
+        valid.push([x + (rand() - 0.5) * 1.5, B.minZ + off, 0.85 + rand() * 0.4, 0]);
+        valid.push([x + (rand() - 0.5) * 1.5, B.maxZ - off, 0.85 + rand() * 0.4, 0]);
+      }
     }
   }
   if (valid.length === 0) return;

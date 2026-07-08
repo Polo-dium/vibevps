@@ -1213,23 +1213,89 @@ export function makeSkylineTexture() {
   return tex;
 }
 
-export function buildBellecour(ctx) {
-  // Gravier stabilisé rose caractéristique de la place
+export function buildBellecour(ctx, rect = BELLECOUR, real = false) {
+  const w = rect.maxX - rect.minX, d = rect.maxZ - rect.minZ;
+  const cx = (rect.minX + rect.maxX) / 2, cz = (rect.minZ + rect.maxZ) / 2;
+  // Gravier stabilisé rose-rouge caractéristique de la place
   const gravelTex = makeGravelTexture();
-  gravelTex.repeat.set(10, 7);
+  gravelTex.repeat.set(Math.max(6, Math.round(w / 6.4)), Math.max(5, Math.round(d / 6.3)));
   const plaza = new THREE.Mesh(
-    new THREE.PlaneGeometry(BELLECOUR.maxX - BELLECOUR.minX, BELLECOUR.maxZ - BELLECOUR.minZ),
+    new THREE.PlaneGeometry(w, d),
     new THREE.MeshLambertMaterial({ map: gravelTex })
   );
   plaza.rotation.x = -Math.PI / 2;
-  plaza.position.set(
-    (BELLECOUR.minX + BELLECOUR.maxX) / 2, 0.02,
-    (BELLECOUR.minZ + BELLECOUR.maxZ) / 2
-  );
+  plaza.position.set(cx, 0.02, cz);
   ctx.scene.add(plaza);
 
   // Statue équestre de Louis XIV (le « Roi de bronze » de Bellecour)
   buildLouisXIV(ctx, -2, 6);
+  if (!real) return;
+
+  // --- Version à l'échelle (vrai Lyon) : allées, jardin ouest, bancs -----
+  const pathMat = new THREE.MeshLambertMaterial({ color: 0xd8cfba });
+  const mkPath = (px, pz, pw, pd) => {
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(pw, pd), pathMat);
+    p.rotation.x = -Math.PI / 2;
+    p.position.set(px, 0.035, pz);
+    ctx.scene.add(p);
+  };
+  mkPath(cx, cz, w, 8); // grande allée est-ouest
+  mkPath(cx - w / 4, cz, 7, d);
+  mkPath(cx + w / 4, cz, 7, d);
+
+  // Jardin ouest : parterres fleuris + Antoine de Saint-Exupéry
+  const rand = makeRand(1900);
+  const bedMat = new THREE.MeshLambertMaterial({ color: 0x4e7a3d });
+  for (const bz of [cz - 17, cz + 17]) {
+    const bed = new THREE.Mesh(new THREE.BoxGeometry(22, 0.35, 12), bedMat);
+    bed.position.set(rect.minX + 17, 0.18, bz);
+    ctx.scene.add(bed);
+    for (let i = 0; i < 22; i++) {
+      const f = new THREE.Mesh(
+        new THREE.BoxGeometry(0.35, 0.3, 0.35),
+        new THREE.MeshLambertMaterial({
+          color: [0xd94f6b, 0xe8c33a, 0xd9782f, 0xc23bb0][Math.floor(rand() * 4)],
+          emissive: 0x1c0a10,
+        })
+      );
+      f.position.set(rect.minX + 17 + (rand() - 0.5) * 20, 0.5, bz + (rand() - 0.5) * 10);
+      ctx.scene.add(f);
+    }
+  }
+  // Colonne Saint-Exupéry et son Petit Prince (vraie statue à Bellecour)
+  const sx = rect.minX + 17, sz = cz;
+  addBox(ctx, { x: sx, y: 0, z: sz, w: 1.6, h: 0.6, d: 1.6, color: 0xb0a896 });
+  const colonne = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.45, 0.55, 5.2, 10),
+    new THREE.MeshLambertMaterial({ color: 0xcac2b0 })
+  );
+  colonne.position.set(sx, 3.2, sz);
+  ctx.scene.add(colonne);
+  const aviateur = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.42, 1.1, 4, 8),
+    new THREE.MeshPhongMaterial({ color: 0x3c5a4a, specular: 0x9fb8a8, shininess: 35 })
+  );
+  aviateur.position.set(sx, 6.6, sz);
+  ctx.scene.add(aviateur);
+  const prince = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.22, 0.5, 4, 8),
+    new THREE.MeshLambertMaterial({ color: 0xd4af37, emissive: 0x4a3a0c })
+  );
+  prince.position.set(sx + 0.7, 6.3, sz + 0.2);
+  ctx.scene.add(prince);
+  ctx.interactables.push({
+    x: sx, z: sz, r: 5,
+    label: 'E — Saluer Saint-Exupéry',
+    action: () => ctx.notify?.('✈️ Antoine de Saint-Exupéry, gone de Lyon. « Dessine-moi un mouton. »'),
+  });
+
+  // Bancs le long de la grande allée
+  for (let i = 0; i < 8; i++) {
+    const bxp = rect.minX + 20 + i * ((w - 40) / 7);
+    for (const s of [-1, 1]) {
+      addBox(ctx, { x: bxp, y: 0, z: cz + s * 6.4, w: 2.4, h: 0.55, d: 0.7, color: 0x7a5c3d });
+    }
+  }
 }
 
 function buildLouisXIV(ctx, x, z) {

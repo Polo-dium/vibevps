@@ -18,8 +18,11 @@ export function spawnPoint() {
   return { x, y: 0, z, ry };
 }
 
-// Place Bellecour
+// Place Bellecour (petite version du mode procédural)
 export const BELLECOUR = { minX: -34, maxX: 30, minZ: -16, maxZ: 28 };
+// Place Bellecour À L'ÉCHELLE pour le vrai Lyon OSM : ~312 × 212 m réels
+// (l'une des plus grandes places piétonnes d'Europe), sur son vrai centre.
+export const BELLECOUR_REAL = { minX: -92, maxX: 66, minZ: -50, maxZ: 56 };
 
 // Salle d'arcade
 export const ARCADE = {
