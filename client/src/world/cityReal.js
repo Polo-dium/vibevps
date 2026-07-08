@@ -628,7 +628,9 @@ export function buildRealCity(ctx, data) {
     // que zones réservées, portes et bornes suivent.
     BELLE_RECT = BELLECOUR_REAL;
     ctx.bellecourRect = BELLECOUR_REAL;
-    ARCADE.x = 26;
+    // Pavillon au centre-OUEST : à bonne distance de la grande roue (20,20)
+    // et de la prairie qui occupe l'est de la place.
+    ARCADE.x = -48;
     ARCADE.z = 3;
     // Basilique RECULÉE de 18 m vers le cœur de la colline (elle débordait
     // dans le vide au bord de la pente) ; esplanade dégagée autour, et parc
@@ -962,7 +964,7 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
 
   for (let bi = 0; bi < data.buildings.length; bi++) {
     const b = data.buildings[bi];
-    const h = Math.max(3, b.h);
+    let h = Math.max(3, b.h);
     const pts = [];
     for (let i = 0; i < b.p.length; i += 2) pts.push([b.p[i], b.p[i + 1]]);
     if (pts.length < 3) continue;
@@ -996,10 +998,22 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     if (area > 0) pts.reverse();
 
     const tile = tileOf(cx, cz);
-    wallColor.set(WALL_TINTS[hash2(bi) % WALL_TINTS.length])
-      .offsetHSL(0, 0, (rand() - 0.5) * 0.06);
-    roofColor.set(ROOF_TINTS[hash2(bi * 7 + 3) % ROOF_TINTS.length])
-      .offsetHSL(0, 0, (rand() - 0.5) * 0.05);
+    // Front bâti de Bellecour : les immeubles qui bordent la place adoptent
+    // le style uniforme de la vraie place (façades crème alignées ~6 étages,
+    // toits de zinc) — l'écrin haussmannien caractéristique.
+    const BB = BELLE_RECT;
+    const nearBelle = BB && cx > BB.minX - 34 && cx < BB.maxX + 34 &&
+      cz > BB.minZ - 34 && cz < BB.maxZ + 34;
+    if (nearBelle) {
+      h = 19.2 + (hash2(bi) % 3) * 0.5; // quasi uniforme, ~6 étages
+      wallColor.set(0xece3cd).offsetHSL(0, 0, (rand() - 0.5) * 0.015);
+      roofColor.set(0x6d7585).offsetHSL(0, 0, (rand() - 0.5) * 0.02);
+    } else {
+      wallColor.set(WALL_TINTS[hash2(bi) % WALL_TINTS.length])
+        .offsetHSL(0, 0, (rand() - 0.5) * 0.06);
+      roofColor.set(ROOF_TINTS[hash2(bi * 7 + 3) % ROOF_TINTS.length])
+        .offsetHSL(0, 0, (rand() - 0.5) * 0.05);
+    }
 
     // Sur la ville complète, le bâtiment est posé sur le terrain (pentes de
     // la Croix-Rousse, flanc de Fourvière) avec une jupe enterrée de 2 m

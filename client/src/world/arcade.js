@@ -44,6 +44,38 @@ export function buildArcade(ctx, { onPlayGame, onOpenCreator }) {
   sign.position.set(cx, doorHeight + 2.6, south + 0.05);
   ctx.scene.add(sign);
 
+  // Panneaux d'expression de chaque côté de l'entrée : les joueurs écrivent
+  // dessus À LA BOMBE (surfaces taguables, partagées comme tous les tags).
+  // À gauche les bugs, à droite les idées / demandes d'implémentation.
+  for (const [side, title, accent] of [
+    [-1, '🐛 BUGS ICI', '#ff6b5e'],
+    [1, '💡 IDÉES ICI', '#ffe14d'],
+  ]) {
+    const px = cx + side * (doorWidth / 2 + 4.6);
+    addBox(ctx, {
+      x: px, y: 0.8, z: south + 0.12, w: 6.4, h: 3.4, d: 0.22,
+      color: 0x232a36, taggable: true, collider: false,
+    });
+    // Cadre clair + titre au-dessus
+    addBox(ctx, {
+      x: px, y: 0.62, z: south + 0.09, w: 6.8, h: 3.8, d: 0.12,
+      color: 0x8d96a2, collider: false,
+    });
+    const label = new THREE.Mesh(
+      new THREE.PlaneGeometry(6.6, 1.1),
+      new THREE.MeshBasicMaterial({ map: makeTextTexture(title, { color: accent }), transparent: true })
+    );
+    label.position.set(px, 4.9, south + 0.16);
+    ctx.scene.add(label);
+    ctx.interactables.push({
+      x: px, z: south + 2, r: 3.5,
+      label: side < 0 ? 'Panneau des BUGS — écris à la bombe (F)' : 'Panneau des IDÉES — écris à la bombe (F)',
+      action: () => ctx.notify?.(side < 0
+        ? '🐛 Un bug ? Tague-le sur le panneau (F pour la bombe, T pour écrire un texte) !'
+        : '💡 Une idée pour le jeu ? Tague-la sur le panneau (F pour la bombe, T pour écrire un texte) !'),
+    });
+  }
+
   // Ambiance intérieure : lumières néon
   for (const [lx, lz, color] of [
     [cx - 9, cz, 0x00ffd5],
