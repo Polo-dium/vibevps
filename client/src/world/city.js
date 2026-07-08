@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { addBox, addInvisibleWall, makeTextTexture } from './utils.js';
 import { buildTraffic } from './traffic.js';
+import { buildHuman } from './human.js';
 import { audio } from '../audio.js';
+import { createMusicSource, gainForDistance } from '../music.js';
 import {
   WORLD_BOUND, BELLECOUR, ARCADE, RANGE, SAONE, RHONE, BRIDGE, MUR_PEINT,
   makeRand, riverCx, riverHalf,
@@ -1220,6 +1222,125 @@ export function makeSkylineTexture() {
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+// Bar à terrasse de quai : plancher bois, tables + parasols, guirlande,
+// PNJ installés, et une enceinte qui joue une boucle procédurale (volume
+// selon la distance — voir music.js, coût quasi nul de loin).
+export function buildTerrasse(ctx, x, z, ry, nom, trackId, rand = makeRand(nom.length * 97 + 31)) {
+  const g = new THREE.Group();
+  const bois = new THREE.MeshLambertMaterial({ color: 0x8a6640 });
+  const boisFonce = new THREE.MeshLambertMaterial({ color: 0x5f4429 });
+  const add = (geo, mat, px, py, pz, rry = 0) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(px, py, pz);
+    m.rotation.y = rry;
+    g.add(m);
+    return m;
+  };
+
+  // Plancher + petite clôture
+  add(new THREE.BoxGeometry(15, 0.3, 9), bois, 0, 0.15, 0);
+  for (const [fx, fz, fw, fd] of [[0, -4.4, 15, 0.18], [-7.4, 0, 0.18, 9], [7.4, 0, 0.18, 9]]) {
+    add(new THREE.BoxGeometry(fw, 0.9, fd), boisFonce, fx, 0.75, fz);
+  }
+
+  // Comptoir + enseigne + auvent rayé
+  add(new THREE.BoxGeometry(5.4, 1.15, 1.1), boisFonce, 0, 0.85, 3.6);
+  const enseigne = add(
+    new THREE.PlaneGeometry(6.4, 1.1),
+    new THREE.MeshBasicMaterial({ map: makeTextTexture(nom, { color: '#ffd56b' }), transparent: true }),
+    0, 2.6, 3.9, Math.PI
+  );
+  enseigne.userData.noShadow = true;
+  const auvent = add(
+    new THREE.BoxGeometry(6.4, 0.08, 2.4),
+    new THREE.MeshLambertMaterial({ color: 0xc0392b }),
+    0, 2.75, 3.2
+  );
+  auvent.rotation.x = 0.28; // pente vers les clients
+
+  // L'enceinte du bar, posée sur le comptoir
+  const hp = add(new THREE.BoxGeometry(0.55, 0.8, 0.45), new THREE.MeshLambertMaterial({ color: 0x23262d }), 1.9, 1.85, 3.6);
+  const cone = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.16, 0.22, 0.06, 10),
+    new THREE.MeshLambertMaterial({ color: 0x555b66 })
+  );
+  cone.rotation.x = Math.PI / 2;
+  cone.position.set(1.9, 1.9, 3.3);
+  g.add(cone);
+  void hp;
+
+  // Tables rondes + parasols + tabourets
+  const spots = [[-4.6, 0.6], [-0.6, -1.4], [3.9, 0.4]];
+  const parasolCol = [0xd9534f, 0xe8c33a, 0x4da6ff];
+  spots.forEach(([tx, tz], i) => {
+    add(new THREE.CylinderGeometry(0.08, 0.1, 0.8, 6), boisFonce, tx, 0.7, tz);
+    add(new THREE.CylinderGeometry(0.75, 0.75, 0.07, 10), bois, tx, 1.12, tz);
+    add(new THREE.CylinderGeometry(0.05, 0.05, 1.6, 6), boisFonce, tx, 1.9, tz);
+    const p = add(
+      new THREE.ConeGeometry(1.5, 0.55, 8),
+      new THREE.MeshLambertMaterial({ color: parasolCol[i % 3] }),
+      tx, 2.8, tz
+    );
+    p.rotation.y = rand() * Math.PI;
+    for (const a of [0.6, 2.4, 4.2]) {
+      add(new THREE.CylinderGeometry(0.22, 0.26, 0.55, 6), bois,
+        tx + Math.cos(a + i) * 1.15, 0.55, tz + Math.sin(a + i) * 1.15);
+    }
+  });
+
+  // Guirlande lumineuse au-dessus de la terrasse (chaude, visible de nuit)
+  const bulbGeo = new THREE.SphereGeometry(0.07, 5, 5);
+  const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffd9a0 });
+  for (let i = 0; i < 12; i++) {
+    const t = i / 11;
+    const b = new THREE.Mesh(bulbGeo, bulbMat);
+    b.position.set(-6.6 + t * 13.2, 3 - Math.sin(t * Math.PI) * 0.35 + 0.35, -3.9);
+    b.userData.noShadow = true;
+    g.add(b);
+  }
+
+  // Les habitués : PNJ posés entre les tables (statiques, zéro coût de tick)
+  const chemises = [0xb0413e, 0x3d6b9e, 0x7a5ba8, 0x4e7a4a];
+  spots.forEach(([tx, tz], i) => {
+    const h = buildHuman({ shirt: chemises[i % chemises.length] });
+    h.group.position.set(tx + 0.9, 0.3, tz + 0.5);
+    h.group.rotation.y = Math.atan2(tx + 0.9 - tx, tz + 0.5 - tz) + Math.PI; // face à la table
+    g.add(h.group);
+  });
+  const barman = buildHuman({ shirt: 0xe8e3d8 });
+  barman.group.position.set(-0.8, 0.3, 4.4);
+  barman.group.rotation.y = Math.PI; // face aux clients
+  g.add(barman.group);
+
+  g.position.set(x, 0, z);
+  g.rotation.y = ry;
+  ctx.scene.add(g);
+
+  // Collider : le plancher, une marche de 0,3 m qu'on grimpe tout seul
+  // (boîte carrée englobante : la terrasse peut être orientée)
+  ctx.colliders.push({
+    minX: x - 7.6, maxX: x + 7.6, minY: 0, maxY: 0.3, minZ: z - 7.6, maxZ: z + 7.6,
+  });
+
+  // Musique d'ambiance : démarre à l'approche, volume selon la distance
+  const src = createMusicSource();
+  let started = false;
+  ctx.updatables.push(() => {
+    const p = ctx.playerPos?.();
+    if (!p) return;
+    const d = Math.hypot(p.x - x, p.z - z);
+    if (d > 60) { if (started) src.setVolume(0); return; }
+    if (!started) { started = true; src.setVolume(0); src.start(trackId); }
+    src.setVolume(gainForDistance(d, 0.45, 42));
+  });
+
+  ctx.interactables.push({
+    x, z, r: 7,
+    label: `E — ${nom}`,
+    action: () => ctx.notify?.(`🍷 ${nom} — ici on refait le monde en musique, gone.`),
+  });
 }
 
 export function buildBellecour(ctx, rect = BELLECOUR, real = false) {

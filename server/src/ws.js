@@ -74,6 +74,8 @@ export function setupWs(httpServer) {
         // Véhicule (optionnel) : relayé pour afficher la voiture chez les autres
         // 0 = à pied, 1 = voiture, 2 = avion (champ optionnel, borné)
         me.veh = Math.min(2, Math.max(0, Math.floor(Number(msg.veh) || 0)));
+        // Enceinte portable : morceau 1..3, 0 = coupée (optionnel, borné)
+        me.mus = Math.min(3, Math.max(0, Math.floor(Number(msg.mus) || 0)));
         const vry = Number(msg.vry);
         me.vry = Number.isFinite(vry) ? vry : 0;
         me.dirty = true;
@@ -204,6 +206,7 @@ export function setupWs(httpServer) {
         pid, ...entry.p.map((v) => Math.round(v * 100) / 100),
         Math.round(entry.ry * 1000) / 1000, entry.m,
         entry.veh ?? 0, Math.round((entry.vry ?? 0) * 1000) / 1000,
+        entry.mus ?? 0, // enceinte portable (les vieux clients l'ignorent)
       ]);
     }
     if (states.length > 0) broadcast({ t: 'states', s: states });

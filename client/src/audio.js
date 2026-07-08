@@ -69,6 +69,13 @@ function tone(freq, duration, { type = 'sine', gain = 0.15, at = 0, slideTo = nu
   osc.stop(t + duration + 0.05);
 }
 
+// Accès bas niveau pour le séquenceur musical (music.js) : même contexte,
+// même master — la musique suit le volume général du jeu.
+export function getAudioGraph() {
+  ensure();
+  return { ctx, master };
+}
+
 export const audio = {
   // Pas : intensité 0..1 selon la vitesse
   footstep(intensity = 1) {

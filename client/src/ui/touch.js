@@ -2,7 +2,7 @@ import { state } from '../state.js';
 
 // Contrôles tactiles : joystick gauche (déplacement), glisser à droite (regard),
 // boutons d'action. Activé uniquement sur écran tactile.
-export function createTouchControls({ controls, weapon, spray, tagEditor, ui, voice, capture, emote, jetpack, interact, map }) {
+export function createTouchControls({ controls, weapon, spray, tagEditor, ui, voice, capture, emote, jetpack, interact, map, radio }) {
   const root = document.createElement('div');
   root.id = 'touch-ui';
   root.innerHTML = `
@@ -19,6 +19,7 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
         <button class="tbtn tbtn-small" id="tb-jet">🚀</button>
         <button class="tbtn tbtn-small" id="tb-map">🗺️</button>
         <button class="tbtn tbtn-small" id="tb-arme">🔁</button>
+        <button class="tbtn tbtn-small" id="tb-radio">📻</button>
         <button class="tbtn tbtn-small" id="tb-lb">🏆</button>
         <button class="tbtn tbtn-small" id="tb-fs">⛶</button>
       </div>
@@ -138,6 +139,7 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
   bind('#tb-gun', () => weapon.toggle());
   bind('#tb-map', () => map?.());
   bind('#tb-arme', () => weapon.cycle()); // change d'arme (celles ramassées)
+  bind('#tb-radio', () => radio?.()); // enceinte portable (morceau suivant)
   bind('#tb-tag', () => tagEditor.open());
   bind('#tb-chat', () => ui.openChat());
   bind('#tb-mic', () => voice?.toggleMic());

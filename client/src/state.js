@@ -15,6 +15,7 @@ export const state = {
   xp: 0, // progression du joueur (source de vérité : serveur)
   level: 1,
   photoMode: false, // mode photo : zoom à la molette, clic = capture
+  boombox: 0, // enceinte portable : 0 = coupée, 1..3 = morceau en cours
   driving: false, // au volant d'une décapotable
   hasJetpack: false, // jetpack ramassé à la Confluence
   flying: false, // jetpack en cours d'utilisation

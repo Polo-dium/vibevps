@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { audio } from '../audio.js';
+import { createMusicSource } from '../music.js';
 import { makeRand, riverCx, riverHalf } from './layout.js';
 
 // Circulation des quais : avenues le long des berges — qui SUIVENT le tracé
@@ -197,7 +198,11 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
       spots.push({ x: sx, z, ry: k % 2 ? Math.PI : 0 });
     }
   }
-  spots.forEach((s, i) => buildCabrio(ctx, s, CABRIO_COLORS[i % CABRIO_COLORS.length]));
+  // Une décapotable sur deux a l'autoradio (stations 1/2/3 en alternance)
+  spots.forEach((s, i) => {
+    if (i % 2 === 0) s.radio = 1 + (i / 2) % 3;
+    buildCabrio(ctx, s, CABRIO_COLORS[i % CABRIO_COLORS.length]);
+  });
 }
 
 // Berline garée conduisible : on réutilise l'instance des InstancedMesh
@@ -307,6 +312,10 @@ function buildCabrio(ctx, spot, color) {
   const car = { heading: spot.ry, speed: 0, thirdPerson: false };
   let driving = false;
 
+  // Autoradio : chaque décapotable a sa station (boucle procédurale, voir
+  // music.js) — allumée au volant, coupée à la descente. Coût quasi nul.
+  let radio = null;
+
   const gate = {
     x: spot.x, z: spot.z, r: 3,
     label: 'E — Conduire la décapotable',
@@ -315,10 +324,18 @@ function buildCabrio(ctx, spot, color) {
         driving = true;
         gate.label = 'E — Couper le moteur et sortir';
         ctx.startDrive?.(car, group);
-        ctx.notify?.('🚗 Vroum ! ZQSD pour conduire, Espace pour klaxonner.');
+        if (spot.radio) {
+          radio ??= createMusicSource();
+          radio.setVolume(0.26);
+          radio.start(spot.radio);
+          ctx.notify?.('🚗📻 Vroum ! Autoradio à fond, ZQSD pour conduire, Espace pour klaxonner.');
+        } else {
+          ctx.notify?.('🚗 Vroum ! ZQSD pour conduire, Espace pour klaxonner.');
+        }
       } else {
         driving = false;
         gate.label = 'E — Conduire la décapotable';
+        radio?.stop();
         ctx.stopDrive?.(car, group);
         gate.x = group.position.x;
         gate.z = group.position.z;
@@ -332,6 +349,7 @@ function buildCabrio(ctx, spot, color) {
     if (!driving) return;
     driving = false;
     gate.label = 'E — Conduire la décapotable';
+    radio?.stop();
     gate.x = group.position.x;
     gate.z = group.position.z;
   });

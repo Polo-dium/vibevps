@@ -2,13 +2,14 @@ import * as THREE from 'three';
 import { hashColor } from '../world/utils.js';
 import { buildHuman } from '../world/human.js';
 import { buildPlaneModel } from '../world/aviation.js';
+import { createMusicSource, gainForDistance } from '../music.js';
 import * as net from '../net.js';
 
 const INTERP_DELAY = 0.12; // secondes de retard de rendu pour interpoler
 
 const PANTS = [0x39404e, 0x4e4439, 0x2e3a4e, 0x44394e];
 
-export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
+export function createRemotePlayers(scene, shootables, { onHitRemote, getListenerPos } = {}) {
   const remotes = new Map();
 
   function spawn(id, name, p, ry) {
@@ -54,6 +55,8 @@ export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
     const r = remotes.get(id);
     if (!r) return;
     if (r.car) scene.remove(r.car);
+    if (r.plane) scene.remove(r.plane);
+    r.music?.stop();
     scene.remove(r.human.group);
     if (shootables) {
       for (const mesh of r.human.hitMeshes) {
@@ -81,10 +84,10 @@ export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
   net.on('chat', (msg) => showChat(msg.id, msg.text));
   net.on('states', (msg) => {
     const now = performance.now() / 1000;
-    for (const [id, x, y, z, ry, , veh, vry] of msg.s) {
+    for (const [id, x, y, z, ry, , veh, vry, mus] of msg.s) {
       const r = remotes.get(id);
       if (!r) continue;
-      r.buffer.push({ t: now, p: [x, y, z], ry, veh: veh ?? 0, vry: vry ?? 0 });
+      r.buffer.push({ t: now, p: [x, y, z], ry, veh: veh ?? 0, vry: vry ?? 0, mus: mus ?? 0 });
       if (r.buffer.length > 30) r.buffer.shift();
     }
   });
@@ -159,6 +162,22 @@ export function createRemotePlayers(scene, shootables, { onHitRemote } = {}) {
           r.plane.rotation.y = vry;
           r.plane.userData.prop.rotation.z += frameDt * 25;
         }
+      }
+
+      // Enceinte portable du joueur distant : musique positionnelle
+      // (volume par distance ; une source lointaine ne programme rien)
+      const musCode = b.mus ?? a.mus ?? 0;
+      if (musCode > 0) {
+        if (!r.music) r.music = createMusicSource();
+        if (r.music.track !== musCode) {
+          r.music.setVolume(0);
+          r.music.start(musCode);
+        }
+        const lp = getListenerPos?.();
+        const d = lp ? Math.hypot(lp.x - g.position.x, lp.z - g.position.z) : 999;
+        r.music.setVolume(gainForDistance(d, 0.32, 36));
+      } else if (r.music?.track) {
+        r.music.stop();
       }
 
       // Animation de marche selon la vitesse réelle observée (figée en voiture)

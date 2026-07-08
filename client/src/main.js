@@ -9,6 +9,7 @@ import { buildArcade } from './world/arcade.js';
 import { buildRange } from './world/range.js';
 import { buildLoot } from './world/loot.js';
 import { buildBannerPlane, buildAirport } from './world/aviation.js';
+import { createMusicSource, TRACKS } from './music.js';
 import { createPoiMap } from './ui/map.js';
 import { createControls, IS_TOUCH } from './player/controls.js';
 import { createWeapon } from './player/weapon.js';
@@ -366,6 +367,7 @@ async function boot() {
   });
   if (window.__game) window.__game.weapon = weapon; // hook de debug (?debug)
   const remotes = createRemotePlayers(scene, ctx.shootables, {
+    getListenerPos: () => controls.position, // enceintes des autres joueurs
     onHitRemote: (id) => {
       audio.hitmarker();
       ui.hitmarker();
@@ -432,6 +434,28 @@ async function boot() {
 
   // Capture d'écran stylée : touche C (desktop) ou bouton 📸 (tactile)
   const capture = createCapture({ renderer, scene, camera, onToast: ui.toast });
+
+  // --- Enceinte portable (touche B) : boucles procédurales WebAudio, zéro
+  // asset et coût quasi nul. Les autres joueurs l'entendent (champ `mus`
+  // optionnel dans l'état réseau, joué en positionnel par remotes.js).
+  const boombox = createMusicSource();
+  const boomModel = buildBoomboxModel();
+  boomModel.visible = false;
+  camera.add(boomModel);
+  function cycleBoombox() {
+    state.boombox = (state.boombox + 1) % (TRACKS.length + 1);
+    if (state.boombox === 0) {
+      boombox.stop();
+      boomModel.visible = false;
+      ui.toast('📻 Enceinte coupée.');
+    } else {
+      boombox.setVolume(0.3);
+      boombox.start(state.boombox);
+      boomModel.visible = true;
+      ui.toast(`📻 Enceinte : ${TRACKS[state.boombox - 1].nom} — B pour changer, les autres t'entendent !`);
+      navigator.vibrate?.(12);
+    }
+  }
 
   // --- Emotes ridicules (3/4/5 ou bouton 😜) : passent par le chat de
   // proximité, donc visibles en bulle au-dessus de la tête pour les autres
@@ -638,6 +662,7 @@ async function boot() {
       else capture.toggleMode(true);
     }
     if (e.code === 'KeyJ') toggleJetpack();
+    if (e.code === 'KeyB') cycleBoombox();
     if (e.code === 'Digit3') emote(0);
     if (e.code === 'Digit4') emote(1);
     if (e.code === 'Digit5') emote(2);
@@ -661,6 +686,7 @@ async function boot() {
       jetpack: () => toggleJetpack(),
       interact: () => nearestInteractable?.action(),
       map: () => poiMap.toggle(),
+      radio: () => cycleBoombox(),
     });
     // Le prompt « ▶ JOUER » est lui-même tactile : plus besoin de viser le bouton E.
     ui.onPromptTap(() => nearestInteractable?.action());
@@ -818,4 +844,32 @@ function makeHaloTexture() {
   g.fillStyle = grad;
   g.fillRect(0, 0, 256, 256);
   return new THREE.CanvasTexture(canvas);
+}
+
+// Enceinte portable en main (coin bas-gauche de la vue, comme l'arme à droite)
+function buildBoomboxModel() {
+  const g = new THREE.Group();
+  const dark = new THREE.MeshLambertMaterial({ color: 0x23262d });
+  const grey = new THREE.MeshLambertMaterial({ color: 0x555b66 });
+  const accent = new THREE.MeshLambertMaterial({ color: 0xff3df0 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.2, 0.12), dark);
+  g.add(body);
+  for (const dx of [-0.09, 0.09]) {
+    const hp = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.02, 10), grey);
+    hp.rotation.x = Math.PI / 2;
+    hp.position.set(dx, -0.01, 0.065);
+    g.add(hp);
+  }
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.03), accent);
+  bar.position.y = 0.13;
+  g.add(bar);
+  for (const dx of [-0.14, 0.14]) {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.06, 0.03), grey);
+    arm.position.set(dx, 0.1, 0);
+    g.add(arm);
+  }
+  // Tenue à bout de bras, tournée vers le joueur
+  g.position.set(-0.34, -0.3, -0.55);
+  g.rotation.set(0.1, 2.6, 0);
+  return g;
 }

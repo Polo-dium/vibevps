@@ -340,6 +340,8 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         s.veh = vehicle.plane ? 2 : 1;
         s.vry = Math.round(vehicle.heading * 1000) / 1000;
       }
+      // Enceinte portable allumée : les autres l'entendent (champ optionnel)
+      if (state.boombox) s.mus = state.boombox;
       return s;
     },
   };

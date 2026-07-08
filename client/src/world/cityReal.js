@@ -10,7 +10,7 @@ import {
   buildGrandeRoue, buildFountain, buildStreetFurniture, buildMurPeint,
   buildPeniches, buildSilure, buildFourviere, buildLamps,
   buildTraboules, buildRiverWorks, composeRiverTerrain, buildConfluence,
-  buildJetpackPad, makeWaterTexture, WATER_Y, BED_Y,
+  buildJetpackPad, buildTerrasse, makeWaterTexture, WATER_Y, BED_Y,
 } from './city.js';
 import { buildTraffic } from './traffic.js';
 import { buildRooftopBar } from './rooftops.js';
@@ -285,12 +285,52 @@ function buildWaterMask(polys, bound, res = 4) {
     }
   }
   return {
-    res,
+    res, grid, n, bound,
     isWater(x, z) {
       const c = Math.floor((x + bound) / res), r = Math.floor((z + bound) / res);
       return c >= 0 && r >= 0 && c < n && r < n && grid[r * n + c] === 1;
     },
   };
+}
+
+// Murets de quai en pierre le long de la frontière eau/terre du masque :
+// ils habillent la transition (le terrain est échantillonné à 4 m, l'eau
+// suit les polygones exacts → sans muret, l'eau semble déborder par
+// endroits). Un seul mesh fusionné, pas de collider (on les enjambe).
+function buildQuayEdges(ctx, mask) {
+  const { grid, n, res, bound } = mask;
+  const at = (r, c) => (r < 0 || c < 0 || r >= n || c >= n ? 1 : grid[r * n + c]);
+  const TOP = 0.42, BOT = BED_Y - 0.3;
+  const pos = [];
+  const wall = (x1, z1, x2, z2, capDx, capDz) => {
+    pos.push(
+      x1, BOT, z1, x2, BOT, z2, x2, TOP, z2,
+      x1, BOT, z1, x2, TOP, z2, x1, TOP, z1,
+      // couvre-mur : petit méplat de 0,55 m côté terre
+      x1, TOP, z1, x2, TOP, z2, x2 + capDx, TOP, z2 + capDz,
+      x1, TOP, z1, x2 + capDx, TOP, z2 + capDz, x1 + capDx, TOP, z1 + capDz
+    );
+  };
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      if (grid[r * n + c] !== 1) continue;
+      const x0 = -bound + c * res, x1 = x0 + res;
+      const z0 = -bound + r * res, z1 = z0 + res;
+      if (!at(r, c - 1)) wall(x0, z0, x0, z1, -0.55, 0); // terre à l'ouest
+      if (!at(r, c + 1)) wall(x1, z0, x1, z1, 0.55, 0); // terre à l'est
+      if (!at(r - 1, c)) wall(x0, z0, x1, z0, 0, -0.55); // terre au nord
+      if (!at(r + 1, c)) wall(x0, z1, x1, z1, 0, 0.55); // terre au sud
+    }
+  }
+  if (!pos.length) return;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+    color: 0x968f7d, side: THREE.DoubleSide,
+  }));
+  mesh.userData.noShadow = true;
+  ctx.scene.add(mesh);
 }
 
 // Rend l'eau DIRECTEMENT depuis les polygones OSM (forme exacte, virages et
@@ -659,6 +699,7 @@ export function buildRealCity(ctx, data) {
     if (mask) {
       ctx.terrainHeight = (x, z) => (mask.isWater(x, z) ? BED_Y : ground(x, z));
       buildWaterSurfaces(ctx, data.waterPolys);
+      buildQuayEdges(ctx, mask); // murets de pierre : fin des débordements
     } else {
       ctx.terrainHeight = ground;
       composeRiverTerrain(ctx, data.water, [], null);
@@ -703,6 +744,22 @@ export function buildRealCity(ctx, data) {
     // Trafic sur les vrais quais courbes ; basilique de Fourvière (reculée
     // sur la colline) + parc du Rosaire qui descend vers Saint-Jean.
     buildTraffic(ctx, data.water, bound - 8);
+    // Bars à terrasse sur les quais du fleuve le plus large (le Rhône) :
+    // musique, parasols et PNJ installés — chacun son ambiance
+    if (widest?.cx) {
+      const bars = [
+        { z: 92, nom: 'CHEZ GNAFRON', track: 1 },
+        { z: -168, nom: 'LE QUAI DES GONES', track: 2 },
+        { z: 268, nom: 'LA PÉNICHE ARCADE', track: 3 },
+      ];
+      const halfW = riverHalf(widest);
+      for (const b of bars) {
+        // En retrait de l'avenue du quai (voitures garées comprises)
+        const bx = riverCx(widest, b.z) - halfW - 27;
+        if (ctx.waterMask?.isWater(bx, b.z)) continue; // jamais les pieds dans l'eau
+        buildTerrasse(ctx, bx, b.z, Math.PI / 2, b.nom, b.track);
+      }
+    }
     const basP = data.poi?.basilica ?? [-369, -244.5];
     const bX = basP[0] - 18, bZ = basP[1];
     const basY = Math.max(0, ctx.terrainHeight(bX, bZ));
@@ -760,11 +817,47 @@ function buildTerrainMesh(ctx, bound) {
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.computeVertexNormals();
+  // UV planaires + grain procédural répété : les places et esplanades ont un
+  // vrai sol dallé au lieu d'un aplat uni (multiplié par la couleur au sommet)
+  const uv = geo.attributes.uv;
+  for (let i = 0; i < uv.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i);
+    uv.setXY(i, x / 14, z / 14);
+  }
+  const detail = makeGroundDetailTexture();
   const mesh = new THREE.Mesh(
     geo,
-    new THREE.MeshLambertMaterial({ vertexColors: true })
+    new THREE.MeshLambertMaterial({ vertexColors: true, map: detail })
   );
   ctx.scene.add(mesh);
+}
+
+// Tuile de sol urbain : dalles claires + grain, quasi blanche (elle est
+// multipliée par la couleur d'altitude : bitume, herbe, lit des fleuves…)
+function makeGroundDetailTexture() {
+  const S = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = S;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#f4f4f2';
+  g.fillRect(0, 0, S, S);
+  // Grain
+  for (let i = 0; i < 700; i++) {
+    const v = 220 + Math.random() * 35;
+    g.fillStyle = `rgba(${v}, ${v}, ${v - 6}, 0.35)`;
+    g.fillRect(Math.random() * S, Math.random() * S, 2, 2);
+  }
+  // Joints de dalles (grille discrète)
+  g.strokeStyle = 'rgba(140, 140, 135, 0.5)';
+  g.lineWidth = 1.5;
+  for (const p of [0, S / 2]) {
+    g.strokeRect(p + 0.5, 0.5, S / 2 - 1, S / 2 - 1);
+    g.strokeRect(p ? 0.5 : S / 2 + 0.5, S / 2 + 0.5, S / 2 - 1, S / 2 - 1);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
 }
 
 // Lampadaires du mode OSM : quais des deux fleuves (le long du tracé courbe
@@ -1199,6 +1292,7 @@ function buildOsmRoads(ctx, data, full = false) {
   const pos = [];        // chaussée
   const walk = [];       // trottoirs (rubans élargis clairs, sous la chaussée)
   const zebra = [];      // passages piétons (quads rayés)
+  const lines = [];      // marquage central pointillé des grands axes
   // Sur la ville complète, les rubans de route épousent le terrain
   const yAt = full
     ? (x, z) => Math.max(0, ctx.terrainHeight?.(x, z) ?? 0) + 0.06
@@ -1218,6 +1312,7 @@ function buildOsmRoads(ctx, data, full = false) {
   for (const road of data.roads) {
     const half = road.w / 2;
     let acc = 0;
+    let dashAcc = 0;
     for (let i = 0; i + 3 < road.p.length; i += 2) {
       const x1 = road.p[i], z1 = road.p[i + 1];
       const x2 = road.p[i + 2], z2 = road.p[i + 3];
@@ -1230,6 +1325,14 @@ function buildOsmRoads(ctx, data, full = false) {
         acc = 0;
         const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
         ribbon(zebra, mx, mz, mx + (x2 - x1) / (len || 1) * 2.6, mz + (z2 - z1) / (len || 1) * 2.6, half, 0.02);
+      }
+      // Ligne médiane pointillée : un tiret de 2,6 m tous les ~8 m
+      if (road.w >= 6.5 && len > 0.1) {
+        const ux = (x2 - x1) / len, uz = (z2 - z1) / len;
+        for (let d = dashAcc; d + 2.6 < len; d += 8) {
+          ribbon(lines, x1 + ux * d, z1 + uz * d, x1 + ux * (d + 2.6), z1 + uz * (d + 2.6), 0.14, 0.015);
+        }
+        dashAcc = (dashAcc + len) % 8;
       }
     }
   }
@@ -1249,6 +1352,11 @@ function buildOsmRoads(ctx, data, full = false) {
   if (zebra.length) {
     addMesh(zebra, new THREE.MeshLambertMaterial({
       color: 0xd7dccb, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    }));
+  }
+  if (lines.length) {
+    addMesh(lines, new THREE.MeshBasicMaterial({
+      color: 0xe9e4c8, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
     }));
   }
 }
@@ -1313,9 +1421,25 @@ function buildGreenery(ctx, data, rand, full = false) {
     }
   }
   // Arbres épars dans les rues (et sur les collines en ville complète)
-  const scatter = full ? 420 : 140;
+  const scatter = full ? 700 : 140;
   for (let i = 0; i < scatter; i++) {
     spots.push([(rand() - 0.5) * ctx.worldBound * 1.9, (rand() - 0.5) * ctx.worldBound * 1.9]);
+  }
+  // Arbres d'alignement le long des grands axes OSM (des deux côtés) : le
+  // tout reste dans les deux InstancedMesh, donc toujours 2 draw calls
+  if (Array.isArray(data.roads)) {
+    let planted = 0;
+    for (const road of data.roads) {
+      if (planted > 900) break;
+      if (road.w < 6.5) continue;
+      for (let i = 0; i + 1 < road.p.length; i += 16) {
+        const x = road.p[i], z = road.p[i + 1];
+        if (Math.abs(x) > ctx.worldBound - 8 || Math.abs(z) > ctx.worldBound - 8) continue;
+        const side = (i % 32 === 0) ? 1 : -1; // alternance des côtés
+        spots.push([x + side * (road.w / 2 + 2.2), z + (rand() - 0.5) * 2]);
+        planted++;
+      }
+    }
   }
 
   // Filtre : pas dans l'eau, pas dans une zone de jeu, pas dans un bâtiment
