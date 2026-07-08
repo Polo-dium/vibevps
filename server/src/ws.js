@@ -72,7 +72,8 @@ export function setupWs(httpServer) {
         me.ry = ry;
         me.m = msg.m ? 1 : 0;
         // Véhicule (optionnel) : relayé pour afficher la voiture chez les autres
-        me.veh = msg.veh ? 1 : 0;
+        // 0 = à pied, 1 = voiture, 2 = avion (champ optionnel, borné)
+        me.veh = Math.min(2, Math.max(0, Math.floor(Number(msg.veh) || 0)));
         const vry = Number(msg.vry);
         me.vry = Number.isFinite(vry) ? vry : 0;
         me.dirty = true;

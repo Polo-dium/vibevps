@@ -143,48 +143,71 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     }
 
     if (vehicle) {
-      // --- Conduite : W/S accélère et freine, A/D braque, Espace klaxonne
       const v = vehicle;
-      const braking = fwd < 0 && v.speed > 0.5;
-      v.speed += fwd * (braking ? 32 : 18) * dt;
-      v.speed *= 1 - 1.1 * dt; // frottements
-      v.speed = Math.max(-14, Math.min(38, v.speed));
-      if (Math.abs(v.speed) < 0.04 && fwd === 0) v.speed = 0;
-      // Braquage proportionnel à la vitesse (pas de rotation à l'arrêt)
-      const grip = Math.min(1, Math.abs(v.speed) / 5);
-      v.heading -= strafe * 1.9 * grip * Math.sign(v.speed || 1) * dt;
+      // Le terrain peut être NÉGATIF (lit des fleuves en contrebas)
+      const gLevel = terrain ? terrain(pos.x, pos.z) : 0;
 
-      if (active && (keys.has('Space') || wantJump)) {
-        if (!v._hornAt || performance.now() - v._hornAt > 350) {
-          v._hornAt = performance.now();
-          v.onHorn?.();
+      if (v.plane) {
+        // --- Avion : W plein gaz, S frein, A/D vire, ESPACE pour monter.
+        // Assez rapide (> 17 m/s) l'avion porte : Espace fait monter, sinon
+        // il plane en descendant doucement. Trop lent : il décroche.
+        v.speed += fwd * (fwd > 0 ? 15 : 24) * dt;
+        v.speed *= 1 - 0.22 * dt; // traînée
+        v.speed = Math.max(0, Math.min(56, v.speed));
+        const grip = Math.min(1, v.speed / 6);
+        v.heading -= strafe * (1.5 - v.speed / 90) * grip * dt;
+
+        const airborne = pos.y > gLevel + 0.4;
+        const lift = v.speed > 17;
+        const thrustUp = active && (keys.has('Space') || wantJump || touchThrust);
+        let targetVy;
+        if (lift && thrustUp) targetVy = 11;
+        else if (lift) targetVy = airborne ? -3.5 : 0; // plané
+        else targetVy = -13; // décrochage
+        vel.y += (targetVy - vel.y) * (1 - Math.exp(-2.5 * dt));
+        wantJump = false;
+      } else {
+        // --- Voiture : W/S accélère et freine, A/D braque, Espace klaxonne
+        const braking = fwd < 0 && v.speed > 0.5;
+        v.speed += fwd * (braking ? 32 : 18) * dt;
+        v.speed *= 1 - 1.1 * dt; // frottements
+        v.speed = Math.max(-14, Math.min(38, v.speed));
+        if (Math.abs(v.speed) < 0.04 && fwd === 0) v.speed = 0;
+        // Braquage proportionnel à la vitesse (pas de rotation à l'arrêt)
+        const grip = Math.min(1, Math.abs(v.speed) / 5);
+        v.heading -= strafe * 1.9 * grip * Math.sign(v.speed || 1) * dt;
+
+        if (active && (keys.has('Space') || wantJump)) {
+          if (!v._hornAt || performance.now() - v._hornAt > 350) {
+            v._hornAt = performance.now();
+            v.onHorn?.();
+          }
         }
+        wantJump = false;
+        vel.y -= GRAVITY * dt;
       }
-      wantJump = false;
 
       vel.x = -Math.sin(v.heading) * v.speed;
       vel.z = -Math.cos(v.heading) * v.speed;
-      vel.y -= GRAVITY * dt;
 
       onGround = false;
       hitWall = false;
       resolveAxis('y', vel.y * dt);
-      // Le terrain peut être NÉGATIF (lit des fleuves en contrebas)
-      const gLevel = terrain ? terrain(pos.x, pos.z) : 0;
       if (pos.y <= gLevel) { pos.y = gLevel; vel.y = 0; onGround = true; }
+      if (v.plane && pos.y > 320) { pos.y = 320; vel.y = Math.min(vel.y, 0); } // plafond
       resolveAxis('x', vel.x * dt);
       resolveAxis('z', vel.z * dt);
       if (hitWall && Math.abs(v.speed) > 2.5) {
-        v.speed *= -0.28; // rebond de tôle
+        v.speed *= v.plane ? 0.15 : -0.28; // rebond de tôle
         v.onCrash?.();
       } else if (hitWall) {
         v.speed = 0;
       }
 
       if (v.thirdPerson) {
-        // Caméra de poursuite (berlines) : derrière et au-dessus, regard sur
-        // la voiture — le braquage tourne la caméra avec le cap
-        const back = 8.2, up = 3.4;
+        // Caméra de poursuite (berlines, avions) : derrière et au-dessus,
+        // regard sur le véhicule — le braquage tourne la caméra avec le cap
+        const back = v.camBack ?? 8.2, up = v.camUp ?? 3.4;
         camera.position.set(
           pos.x + Math.sin(v.heading) * back,
           pos.y + up,
@@ -312,9 +335,9 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         m: this.isMoving() ? 1 : 0,
       };
       // Au volant : les autres joueurs voient la voiture (champs optionnels,
-      // ignorés par les anciens clients/serveurs)
+      // ignorés par les anciens clients/serveurs). 2 = avion.
       if (vehicle) {
-        s.veh = 1;
+        s.veh = vehicle.plane ? 2 : 1;
         s.vry = Math.round(vehicle.heading * 1000) / 1000;
       }
       return s;

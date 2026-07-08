@@ -8,6 +8,7 @@ import { ColliderGrid } from './world/grid.js';
 import { buildArcade } from './world/arcade.js';
 import { buildRange } from './world/range.js';
 import { buildLoot } from './world/loot.js';
+import { buildBannerPlane, buildAirport } from './world/aviation.js';
 import { createPoiMap } from './ui/map.js';
 import { createControls, IS_TOUCH } from './player/controls.js';
 import { createWeapon } from './player/weapon.js';
@@ -223,6 +224,11 @@ async function boot() {
   } else {
     buildCity(ctx);
   }
+
+  // L'aviation : l'avion-banderole d'anniversaire au-dessus de la ville,
+  // et l'aérodrome de l'Est avec ses coucous pilotables
+  buildBannerPlane(ctx);
+  buildAirport(ctx);
 
   const sky = buildSky(scene, ctx.worldBound ? ctx.worldBound * 1.7 : 470);
   ctx.updatables.push((dt) => sky.update(dt, env.daylight));

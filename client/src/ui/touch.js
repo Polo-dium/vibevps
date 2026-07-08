@@ -124,9 +124,12 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
   let emoteIdx = 0;
   bind('#tb-emote', () => emote?.(emoteIdx++ % 3)); // fait défiler les emotes
   bind('#tb-jet', () => jetpack?.());
-  // SAUT : en vol le maintien = poussée du jetpack, sinon saut simple
+  // SAUT : en vol (jetpack ou avion) le maintien = poussée, sinon saut simple
   bind('#tb-jump',
-    () => { if (controls.flying) controls.setTouchThrust(true); else controls.jump(); },
+    () => {
+      if (controls.flying || controls.vehicle?.plane) controls.setTouchThrust(true);
+      else controls.jump();
+    },
     () => controls.setTouchThrust(false));
   bind('#tb-use', () => interact());
   bind('#tb-spray', () => spray.toggleMode()); // mode bombe de peinture
