@@ -282,15 +282,29 @@ export function createUi() {
     }, 4200);
   }
 
-  // --- Écran de pseudo ---
+  // --- Page d'accueil : compte, code secret, invitation ---
+  async function invite() {
+    const url = location.origin;
+    const text = 'Viens jouer à LYON ARCADE avec moi ! Lyon en low-poly : graffiti, bornes d’arcade, avions, PvP 🎮';
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'LYON ARCADE', text, url });
+      } else {
+        await navigator.clipboard.writeText(`${text} ${url}`);
+        toast('🔗 Lien d’invitation copié ! Envoie-le à tes gones.');
+      }
+    } catch { /* partage annulé */ }
+  }
+
   async function ensureAuth() {
+    // Session déjà enregistrée sur cet appareil ?
+    let me = null;
     const saved = localStorage.getItem('vibevps_auth');
     if (saved) {
       try {
         state.auth = JSON.parse(saved);
-        const me = await apiFetch('/me');
+        me = await apiFetch('/me');
         state.isAdmin = Boolean(me.admin);
-        return state.auth;
       } catch {
         state.auth = null;
         localStorage.removeItem('vibevps_auth');
@@ -301,34 +315,103 @@ export function createUi() {
       const overlay = document.createElement('div');
       overlay.className = 'overlay';
       overlay.innerHTML = `
-        <div class="panel" style="text-align:center;">
-          <h1>LYON ARCADE</h1>
-          <p class="sub">Une ville à explorer, des bornes à jouer, des murs à taguer.</p>
-          <input type="text" id="name-input" placeholder="Ton pseudo" maxlength="16" autofocus>
-          <div class="err" id="name-err"></div>
-          <button id="name-go">ENTRER DANS LA VILLE</button>
+        <div class="panel home-panel">
+          <div class="home-title">LYON <span>ARCADE</span></div>
+          <p class="sub">Lyon en low-poly, direct dans ton navigateur : tague Bellecour,
+          pilote un avion, joue aux bornes et défie les gones.</p>
+          <div id="home-resume" class="hidden">
+            <button id="home-play">▶ JOUER</button>
+            <div class="home-links">
+              <a href="#" id="home-switch">changer de compte</a>
+              <a href="#" id="home-protect">🔒 protéger mon pseudo</a>
+            </div>
+            <div id="home-pinrow" class="hidden">
+              <input type="password" id="home-newpin" placeholder="Choisis un code secret (4 car. min)" maxlength="24">
+              <div class="err" id="home-pinerr"></div>
+              <button id="home-pinsave">ENREGISTRER LE CODE</button>
+            </div>
+          </div>
+          <div id="home-form" class="hidden">
+            <input type="text" id="name-input" placeholder="Ton pseudo" maxlength="16">
+            <input type="password" id="pin-input" placeholder="Code secret (facultatif)" maxlength="24">
+            <p class="home-note">Avec un code secret, ton pseudo est protégé : tu le retrouves
+            sur n'importe quel appareil, personne ne peut te le piquer.</p>
+            <div class="err" id="name-err"></div>
+            <button id="name-go">ENTRER DANS LA VILLE</button>
+          </div>
+          <button class="ghost" id="home-invite">🔗 Inviter des gones à jouer</button>
         </div>`;
       document.body.appendChild(overlay);
+
+      const resumeEl = overlay.querySelector('#home-resume');
+      const formEl = overlay.querySelector('#home-form');
       const input = overlay.querySelector('#name-input');
+      const pinInput = overlay.querySelector('#pin-input');
       const err = overlay.querySelector('#name-err');
+
+      const done = (auth) => {
+        overlay.remove();
+        resolve(auth);
+      };
+
+      if (me) {
+        resumeEl.classList.remove('hidden');
+        const play = overlay.querySelector('#home-play');
+        play.textContent = `▶ JOUER — ${me.name}`;
+        play.onclick = () => done(state.auth);
+        // Déjà protégé : on n'affiche pas le lien code secret
+        if (me.protected) overlay.querySelector('#home-protect').classList.add('hidden');
+        overlay.querySelector('#home-protect').onclick = (e) => {
+          e.preventDefault();
+          overlay.querySelector('#home-pinrow').classList.toggle('hidden');
+          setTimeout(() => overlay.querySelector('#home-newpin').focus(), 30);
+        };
+        overlay.querySelector('#home-pinsave').onclick = async () => {
+          const pinErr = overlay.querySelector('#home-pinerr');
+          pinErr.textContent = '';
+          try {
+            await apiFetch('/me/pin', {
+              method: 'POST',
+              body: JSON.stringify({ pin: overlay.querySelector('#home-newpin').value }),
+            });
+            overlay.querySelector('#home-pinrow').classList.add('hidden');
+            overlay.querySelector('#home-protect').classList.add('hidden');
+            toast('🔒 Pseudo protégé ! Retiens bien ton code secret.');
+          } catch (e2) {
+            pinErr.textContent = e2.message;
+          }
+        };
+        overlay.querySelector('#home-switch').onclick = (e) => {
+          e.preventDefault();
+          resumeEl.classList.add('hidden');
+          formEl.classList.remove('hidden');
+          setTimeout(() => input.focus(), 30);
+        };
+      } else {
+        formEl.classList.remove('hidden');
+        setTimeout(() => input.focus(), 50);
+      }
+
+      overlay.querySelector('#home-invite').onclick = () => invite();
+
       const go = async () => {
         err.textContent = '';
         try {
           const auth = await apiFetch('/register', {
             method: 'POST',
-            body: JSON.stringify({ name: input.value }),
+            body: JSON.stringify({ name: input.value, pin: pinInput.value }),
           });
           state.auth = auth;
+          state.isAdmin = false;
           localStorage.setItem('vibevps_auth', JSON.stringify(auth));
-          overlay.remove();
-          resolve(auth);
+          done(auth);
         } catch (e) {
           err.textContent = e.message;
         }
       };
       overlay.querySelector('#name-go').onclick = go;
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-      setTimeout(() => input.focus(), 50);
+      pinInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
     });
   }
 
@@ -544,7 +627,7 @@ export function createUi() {
   }
 
   return {
-    ensureAuth, toast, setPrompt, onPromptTap, setInfo, setRange, setAmmo,
+    ensureAuth, invite, toast, setPrompt, onPromptTap, setInfo, setRange, setAmmo,
     setHp, damageFlash, killBanner, setTagMode, hitmarker, deathScreen,
     setXp, spawnConfetti, achievementUnlocked, bindProgress,
     toggleLeaderboards, openCreator, toggleAdmin, closeTopOverlay,

@@ -66,13 +66,13 @@ export function buildBannerPlane(ctx) {
   ctx.scene.add(plane);
 
   // Deux faces séparées (et pas DoubleSide) : le texte se lit à l'endroit
-  // des deux côtés de la banderole
-  const bannerGeo = new THREE.PlaneGeometry(40, 4.6);
+  // des deux côtés de la banderole. Format GÉANT, lisible depuis Bellecour.
+  const bannerGeo = new THREE.PlaneGeometry(80, 9.2);
   const bannerMat = new THREE.MeshBasicMaterial({ map: makeBannerTexture(BANNER_TEXT) });
   const banner = new THREE.Group();
   for (const s of [1, -1]) {
     const face = new THREE.Mesh(bannerGeo, bannerMat);
-    face.position.z = s * 0.03;
+    face.position.z = s * 0.05;
     face.rotation.y = s > 0 ? 0 : Math.PI;
     face.userData.noShadow = true;
     banner.add(face);
@@ -80,7 +80,7 @@ export function buildBannerPlane(ctx) {
   ctx.scene.add(banner);
   // Corde entre la queue et la banderole
   const rope = new THREE.Mesh(
-    new THREE.BoxGeometry(0.06, 0.06, 9),
+    new THREE.BoxGeometry(0.08, 0.08, 12),
     new THREE.MeshBasicMaterial({ color: 0x333333 })
   );
   ctx.scene.add(rope);
@@ -96,12 +96,12 @@ export function buildBannerPlane(ctx) {
     plane.rotation.set(0, ry, 0.16); // inclinaison dans le virage
     plane.userData.prop.rotation.z += dt * 32;
 
-    // La banderole suit, 27 m derrière, avec un petit flottement
+    // La banderole (géante) suit, 50 m derrière, avec un petit flottement
     const fx = -Math.sin(ry), fz = -Math.cos(ry); // direction de vol
     const flap = Math.sin(now / 700) * 0.05;
-    banner.position.set(x - fx * 27, alt + 0.4 + Math.sin(now / 900) * 0.5, z - fz * 27);
+    banner.position.set(x - fx * 50, alt + 0.4 + Math.sin(now / 900) * 0.5, z - fz * 50);
     banner.rotation.set(0, ry + Math.PI / 2 + flap, 0);
-    rope.position.set(x - fx * 5.5, alt + 0.9, z - fz * 5.5);
+    rope.position.set(x - fx * 7, alt + 0.9, z - fz * 7);
     rope.rotation.set(0, ry, 0);
   });
 }
@@ -306,23 +306,23 @@ function planeBox(x, z, y) {
 // à la longueur pour que tout tienne.
 function makeBannerTexture(text) {
   const c = document.createElement('canvas');
-  c.width = 2048;
-  c.height = 236;
+  c.width = 4096;
+  c.height = 470;
   const g = c.getContext('2d');
   g.fillStyle = '#f7f2e2';
   g.fillRect(0, 0, c.width, c.height);
   g.strokeStyle = '#c22030';
-  g.lineWidth = 14;
-  g.strokeRect(8, 8, c.width - 16, c.height - 16);
+  g.lineWidth = 26;
+  g.strokeRect(14, 14, c.width - 28, c.height - 28);
   g.fillStyle = '#c22030';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  let size = 104;
+  let size = 210;
   do {
     g.font = `900 ${size}px system-ui, sans-serif`;
-    size -= 4;
-  } while (g.measureText(text).width > c.width - 90 && size > 30);
-  g.fillText(text, c.width / 2, c.height / 2 + 6);
+    size -= 6;
+  } while (g.measureText(text).width > c.width - 160 && size > 40);
+  g.fillText(text, c.width / 2, c.height / 2 + 10);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;

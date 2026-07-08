@@ -14,6 +14,7 @@ export const state = {
   rangeSession: null, // session de stand de tir en cours
   xp: 0, // progression du joueur (source de vérité : serveur)
   level: 1,
+  photoMode: false, // mode photo : zoom à la molette, clic = capture
   driving: false, // au volant d'une décapotable
   hasJetpack: false, // jetpack ramassé à la Confluence
   flying: false, // jetpack en cours d'utilisation

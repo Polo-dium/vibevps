@@ -1,9 +1,60 @@
 import { state } from './state.js';
 
-// Capture d'écran stylée en un clic : la frame est re-rendue puis composée
-// avec un bandeau « LYON ARCADE » (pseudo, niveau, date) prêt à partager.
+// Capture d'écran stylée : la frame est re-rendue puis composée avec un
+// bandeau « LYON ARCADE » (pseudo, niveau, date) prêt à partager.
+// Le MODE PHOTO (touche C ou bouton 📸) ajoute le zoom : molette ou +/−,
+// clic ou C pour déclencher, Échap ou ✕ pour sortir.
 export function createCapture({ renderer, scene, camera, onToast }) {
   let busy = false;
+  let modeOn = false;
+  let zoom = 1;
+
+  // Barre du mode photo : [−] [📸] [+] [✕]
+  const bar = document.createElement('div');
+  bar.id = 'photo-bar';
+  bar.className = 'hidden';
+  bar.innerHTML = `
+    <button id="ph-zo">−</button>
+    <button id="ph-shot">📸</button>
+    <button id="ph-zi">+</button>
+    <button id="ph-close">✕</button>
+    <div id="ph-hint">molette ou +/− : zoom · clic, C ou 📸 : photo · Échap : quitter</div>`;
+  document.body.appendChild(bar);
+  const bind = (id, fn) => {
+    const el = bar.querySelector(id);
+    el.addEventListener('click', fn);
+    el.addEventListener('touchstart', (e) => { e.preventDefault(); fn(); }, { passive: false });
+  };
+  bind('#ph-zi', () => setZoom(zoom * 1.3));
+  bind('#ph-zo', () => setZoom(zoom / 1.3));
+  bind('#ph-shot', () => take());
+  bind('#ph-close', () => toggleMode(false));
+
+  function setZoom(z) {
+    zoom = Math.max(1, Math.min(6, z));
+    camera.zoom = zoom;
+    camera.updateProjectionMatrix();
+  }
+
+  function toggleMode(force) {
+    modeOn = force ?? !modeOn;
+    state.photoMode = modeOn;
+    bar.classList.toggle('hidden', !modeOn);
+    if (!modeOn) setZoom(1); // on repart en champ normal
+  }
+
+  // Zoom à la molette pendant le mode photo (hors overlays)
+  window.addEventListener('wheel', (e) => {
+    if (!modeOn || state.overlayOpen || state.tagMode) return;
+    setZoom(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Escape' && modeOn && !state.overlayOpen) toggleMode(false);
+  });
+  // Clic gauche = déclencheur (le tir est coupé en mode photo, voir weapon.js)
+  window.addEventListener('mousedown', (e) => {
+    if (modeOn && e.button === 0 && state.pointerLocked && !state.overlayOpen && !state.tagMode) take();
+  });
 
   async function take() {
     if (busy) return;
@@ -73,5 +124,5 @@ export function createCapture({ renderer, scene, camera, onToast }) {
     }
   }
 
-  return { take };
+  return { take, toggleMode, get modeOn() { return modeOn; } };
 }

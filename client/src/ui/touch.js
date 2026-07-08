@@ -141,7 +141,7 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
   bind('#tb-tag', () => tagEditor.open());
   bind('#tb-chat', () => ui.openChat());
   bind('#tb-mic', () => voice?.toggleMic());
-  bind('#tb-photo', () => capture?.take());
+  bind('#tb-photo', () => capture?.toggleMode()); // mode photo : zoom + 📸
   bind('#tb-lb', () => ui.toggleLeaderboards());
   bind('#tb-fs', () => {
     const el = document.documentElement;

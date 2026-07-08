@@ -25,14 +25,49 @@ export function createPoiMap(ctx, { getPlayer, onToast }) {
   overlay.className = 'hidden';
   overlay.innerHTML = `
     <div id="map-frame">
-      <div id="map-title">🗺️ CARTE DE LYON <span id="map-count"></span></div>
+      <div id="map-title">🗺️ CARTE DE LYON <span id="map-count"></span>
+        <span id="map-zoom-btns"><button id="map-zo">−</button><button id="map-zi">+</button></span>
+      </div>
       <canvas id="map-canvas"></canvas>
-      <div id="map-hint">Explore la ville pour révéler les points d'intérêt · M ou Échap pour fermer</div>
+      <div id="map-hint">Explore la ville pour révéler les points d'intérêt · molette ou +/− pour zoomer · M ou Échap pour fermer</div>
     </div>`;
   document.body.appendChild(overlay);
   const canvas = overlay.querySelector('#map-canvas');
   const countEl = overlay.querySelector('#map-count');
   overlay.addEventListener('click', (e) => { if (e.target === overlay) toggle(false); });
+
+  // --- Zoom : molette, boutons +/− et pincement tactile — centré joueur ---
+  let zoom = 1; // 1 = toute la ville → 8 = quartier
+  function setZoom(z) {
+    zoom = Math.max(1, Math.min(8, z));
+    if (open) draw();
+  }
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    setZoom(zoom * (e.deltaY < 0 ? 1.3 : 1 / 1.3));
+  }, { passive: false });
+  overlay.querySelector('#map-zi').addEventListener('click', () => setZoom(zoom * 1.5));
+  overlay.querySelector('#map-zo').addEventListener('click', () => setZoom(zoom / 1.5));
+  let pinchDist = 0;
+  canvas.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      pinchDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+    }
+  }, { passive: true });
+  canvas.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2 && pinchDist > 0) {
+      e.preventDefault();
+      const d = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      setZoom(zoom * (d / pinchDist));
+      pinchDist = d;
+    }
+  }, { passive: false });
 
   let open = false;
   function toggle(force) {
@@ -65,8 +100,14 @@ export function createPoiMap(ctx, { getPlayer, onToast }) {
     canvas.style.height = `${size}px`;
     const g = canvas.getContext('2d');
     g.scale(dpr, dpr);
-    const sx = (x) => size / 2 + (x / B) * (size / 2);
-    const sz = (z) => size / 2 + (z / B) * (size / 2);
+    // Fenêtre de vue : toute la ville à zoom 1, centrée sur le joueur ensuite
+    const pv = getPlayer();
+    const half = B / zoom;
+    const clampC = (v) => Math.max(-B + half, Math.min(B - half, v));
+    const cx0 = zoom > 1 && pv ? clampC(pv.x) : 0;
+    const cz0 = zoom > 1 && pv ? clampC(pv.z) : 0;
+    const sx = (x) => size / 2 + ((x - cx0) / half) * (size / 2);
+    const sz = (z) => size / 2 + ((z - cz0) / half) * (size / 2);
 
     // Fond parchemin sombre + trame
     g.fillStyle = '#101820';

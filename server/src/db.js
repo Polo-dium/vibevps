@@ -81,6 +81,7 @@ for (const col of [
   `xp INTEGER NOT NULL DEFAULT 0`,
   `tags_posted INTEGER NOT NULL DEFAULT 0`,
   `kills_total INTEGER NOT NULL DEFAULT 0`,
+  `pin_hash TEXT`, // code secret (haché) pour retrouver son pseudo ailleurs
 ]) {
   try {
     db.exec(`ALTER TABLE players ADD COLUMN ${col}`);
@@ -95,6 +96,7 @@ export const q = {
   ),
   playerByName: db.prepare(`SELECT * FROM players WHERE name = ?`),
   playerByToken: db.prepare(`SELECT * FROM players WHERE token = ?`),
+  setPin: db.prepare(`UPDATE players SET pin_hash = ? WHERE id = ?`),
 
   listGames: db.prepare(
     `SELECT g.id, g.title, g.builtin, g.prompt, g.created_at, p.name AS creator

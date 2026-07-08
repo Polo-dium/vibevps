@@ -521,6 +521,19 @@ async function boot() {
   // --- PvP ---
   let myNetId = null;
   net.on('hello', (msg) => { myNetId = msg.id; ui.setHp(100); });
+  // Notification quand un gone se connecte ou s'en va (le nom vient de pjoin)
+  const onlineNames = new Map(); // id -> name
+  net.on('pjoin', (msg) => {
+    if (!msg.name || onlineNames.has(msg.id)) return;
+    onlineNames.set(msg.id, msg.name);
+    ui.toast(`👋 ${msg.name} vient de se connecter !`);
+    audio.hitmarker();
+  });
+  net.on('pleave', (msg) => {
+    const name = onlineNames.get(msg.id);
+    onlineNames.delete(msg.id);
+    if (name) ui.toast(`💨 ${name} a quitté la ville.`);
+  });
   net.on('shot', (msg) => {
     weapon.fx.spawnTracer(msg.a, msg.b);
     weapon.fx.spawnImpact(msg.b);
@@ -619,7 +632,11 @@ async function boot() {
     // Entrée : ouvrir le chat de proximité
     if (e.code === 'Enter') { ui.openChat(); return; }
     if (e.code === 'KeyE' && nearestInteractable) nearestInteractable.action();
-    if (e.code === 'KeyC') capture.take();
+    // C : ouvre le mode photo (zoom à la molette), C à nouveau déclenche
+    if (e.code === 'KeyC') {
+      if (capture.modeOn) capture.take();
+      else capture.toggleMode(true);
+    }
     if (e.code === 'KeyJ') toggleJetpack();
     if (e.code === 'Digit3') emote(0);
     if (e.code === 'Digit4') emote(1);

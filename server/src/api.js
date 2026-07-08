@@ -29,22 +29,60 @@ function validImageDataUrl(data) {
 
 // --- Joueurs -------------------------------------------------------------
 
+// Le code secret (facultatif) protège le pseudo : haché avec l'id du joueur
+// en sel, jamais stocké en clair.
+function hashPin(playerId, pin) {
+  return crypto.createHash('sha256').update(`${playerId}:${pin}`).digest('hex');
+}
+function validPin(pin) {
+  return typeof pin === 'string' && pin.length >= 4 && pin.length <= 24;
+}
+
 api.post('/register', (req, res) => {
   const name = String(req.body?.name ?? '').trim();
+  const pin = String(req.body?.pin ?? '').trim();
   if (!/^[\p{L}\p{N} _.-]{2,16}$/u.test(name)) {
     return res.status(400).json({ error: 'Pseudo invalide (2 à 16 caractères).' });
   }
-  if (q.playerByName.get(name)) {
-    return res.status(409).json({ error: 'Ce pseudo est déjà pris.' });
+  if (pin && !validPin(pin)) {
+    return res.status(400).json({ error: 'Code secret : 4 à 24 caractères.' });
+  }
+  const existing = q.playerByName.get(name);
+  if (existing) {
+    // Pseudo protégé + bon code secret → c'est une CONNEXION
+    if (pin && existing.pin_hash && existing.pin_hash === hashPin(existing.id, pin)) {
+      return res.json({ id: existing.id, name: existing.name, token: existing.token });
+    }
+    return res.status(409).json({
+      error: existing.pin_hash
+        ? 'Ce pseudo est protégé — entre son code secret pour le récupérer.'
+        : 'Ce pseudo est déjà pris.',
+    });
   }
   const id = crypto.randomUUID();
   const token = crypto.randomBytes(24).toString('hex');
   q.createPlayer.run(id, name, token, Date.now());
+  if (pin) q.setPin.run(hashPin(id, pin), id);
   res.json({ id, name, token });
 });
 
+// Protéger (ou changer le code de) son pseudo une fois connecté
+api.post('/me/pin', auth, (req, res) => {
+  const pin = String(req.body?.pin ?? '').trim();
+  if (!validPin(pin)) {
+    return res.status(400).json({ error: 'Code secret : 4 à 24 caractères.' });
+  }
+  q.setPin.run(hashPin(req.player.id, pin), req.player.id);
+  res.json({ ok: true });
+});
+
 api.get('/me', auth, (req, res) => {
-  res.json({ id: req.player.id, name: req.player.name, admin: Boolean(req.player.is_admin) });
+  res.json({
+    id: req.player.id,
+    name: req.player.name,
+    admin: Boolean(req.player.is_admin),
+    protected: Boolean(req.player.pin_hash),
+  });
 });
 
 // --- Administration -------------------------------------------------------

@@ -437,6 +437,7 @@ export function createWeapon(camera, scene, shootables, {
     const inputOk = IS_TOUCH || state.pointerLocked;
     const canShoot =
       inputOk && !state.overlayOpen && !state.tagMode && !state.sanctuary &&
+      !state.photoMode && // en mode photo, le clic déclenche l'appareil
       triggerDown && cooldown <= 0 && reloading <= 0 && (spec.melee || ammo > 0);
     if (canShoot) shoot();
 
