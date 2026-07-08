@@ -589,3 +589,32 @@ html, body {
   animation: blink 1.4s infinite;
 }
 .tbtn.on { background: rgba(255, 82, 82, 0.45); border-color: #ff5252; }
+
+/* Carte des points d'intérêt (touche M) */
+#map-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(4, 8, 14, 0.78);
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: auto;
+}
+#map-overlay.hidden { display: none; }
+#map-frame {
+  background: rgba(10, 16, 24, 0.96);
+  border: 2px solid var(--neon);
+  border-radius: 14px;
+  padding: 14px 18px 12px;
+  box-shadow: 0 0 40px rgba(255, 61, 240, 0.25);
+  text-align: center;
+}
+#map-title {
+  color: #e8f6ff; font-weight: 800; letter-spacing: 1.5px;
+  font-size: 15px; margin-bottom: 10px;
+}
+#map-title span { color: #7fd8ff; font-weight: 600; font-size: 12px; }
+#map-canvas {
+  border-radius: 8px;
+  border: 1px solid rgba(127, 216, 255, 0.25);
+}
+#map-hint {
+  margin-top: 9px; color: #7f9ab0; font-size: 11.5px;
+}

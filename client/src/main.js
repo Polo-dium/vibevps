@@ -7,6 +7,8 @@ import { buildRealCity } from './world/cityReal.js';
 import { ColliderGrid } from './world/grid.js';
 import { buildArcade } from './world/arcade.js';
 import { buildRange } from './world/range.js';
+import { buildLoot } from './world/loot.js';
+import { createPoiMap } from './ui/map.js';
 import { createControls, IS_TOUCH } from './player/controls.js';
 import { createWeapon } from './player/weapon.js';
 import { createRemotePlayers } from './player/remotes.js';
@@ -149,6 +151,7 @@ async function boot() {
     interactables: [],
     shootables: [],
     updatables: [], // animations du monde (eau, péniches, grande roue…)
+    pois: [], // points d'intérêt (remplis par le décor, révélés sur la carte M)
     worldBound: null,
     waterBands: null,
     env, // cycle jour/nuit lisible par le décor (halos de lampadaires…)
@@ -337,16 +340,32 @@ async function boot() {
     window.__game = { controls, ctx, state, camera };
   }
   const weapon = createWeapon(camera, scene, ctx.shootables, {
-    onAmmoChange: (ammo, reloading) => ui.setAmmo(ammo, reloading, state.weaponEquipped),
+    onAmmoChange: (ammo, reloading, spec) => ui.setAmmo(ammo, reloading, state.weaponEquipped, spec),
     onShot: (a, b) => net.send({ t: 'shot', a, b }),
     getGroundY: () => controls.position.y,
+    onWeaponChange: (spec) => ui.toast(`${spec.emoji} ${spec.nom} en main ! (2 pour changer d'arme)`),
+    // Les tirs s'arrêtent sur les murs et le sol (boîtes de collision) :
+    // marche de rayon grossière, appelée une fois par coup tiré
+    worldHit: (origin, dir, maxDist) => {
+      for (let d = 1; d < maxDist; d += 1.5) {
+        const x = origin.x + dir.x * d, y = origin.y + dir.y * d, z = origin.z + dir.z * d;
+        if (y <= (ctx.terrainHeight?.(x, z) ?? 0)) return d;
+        for (const b of ctx.colliders.nearby(x, z, 1)) {
+          if (x > b.minX && x < b.maxX && y > b.minY && y < b.maxY &&
+              z > b.minZ && z < b.maxZ) return d;
+        }
+      }
+      return Infinity;
+    },
   });
+  if (window.__game) window.__game.weapon = weapon; // hook de debug (?debug)
   const remotes = createRemotePlayers(scene, ctx.shootables, {
     onHitRemote: (id) => {
       audio.hitmarker();
       ui.hitmarker();
       navigator.vibrate?.(18);
-      net.send({ t: 'hit', target: id });
+      // dmg selon l'arme en main — borné et rythmé côté serveur
+      net.send({ t: 'hit', target: id, dmg: weapon.damage });
     },
   });
   const spray = createSpray(scene, camera, ctx.taggables, {
@@ -378,6 +397,20 @@ async function boot() {
     },
   });
 
+  // Armes à ramasser sur la map, du marteau au bazooka (voir world/loot.js)
+  buildLoot(ctx, {
+    onPickup: (id) => {
+      audio.reward();
+      weapon.give(id); // équipe (toast via onWeaponChange) ou recharge
+    },
+  });
+
+  // Carte des points d'intérêt (M) : se remplit en explorant
+  const poiMap = createPoiMap(ctx, {
+    getPlayer: () => ({ x: controls.position.x, z: controls.position.z, yaw: controls.yaw }),
+    onToast: ui.toast,
+  });
+
   // La Grande Roue (et tout futur manège) déplace le joueur via ce hook
   ctx.rideTick = (x, y, z) => controls.teleport(x, y, z);
 
@@ -386,9 +419,9 @@ async function boot() {
   ctx.onRoi = () => {
     audio.announce('Vive le Roi !');
     npcs.shout('VIVE LE ROI !');
-    ui.spawnConfetti(30);
+    navigator.vibrate?.([90, 60, 140]); // le tonnerre gronde (son dans city.js)
     npcs.enrage(18);
-    ui.toast('⚔️ La Garde Royale est à tes trousses ! Cours, gone !');
+    ui.toast('⚡ La foudre royale ! La Garde est à tes trousses, cours gone !');
   };
 
   // Capture d'écran stylée : touche C (desktop) ou bouton 📸 (tactile)
@@ -604,6 +637,7 @@ async function boot() {
       controls, weapon, spray, tagEditor, ui, voice, capture, emote,
       jetpack: () => toggleJetpack(),
       interact: () => nearestInteractable?.action(),
+      map: () => poiMap.toggle(),
     });
     // Le prompt « ▶ JOUER » est lui-même tactile : plus besoin de viser le bouton E.
     ui.onPromptTap(() => nearestInteractable?.action());

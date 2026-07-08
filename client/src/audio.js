@@ -106,6 +106,46 @@ export const audio = {
     tone(1300, 0.04, { type: 'sine', gain: 0.1 });
   },
 
+  // Coup de tonnerre : craquement sec puis long grondement grave
+  thunder() {
+    ensure();
+    noise(0.1, { type: 'highpass', freq: 1800, gain: 0.55 });
+    noise(0.5, { type: 'lowpass', freq: 420, gain: 0.4, at: 0.04 });
+    noise(1.8, { type: 'lowpass', freq: 110, gain: 0.6, at: 0.12 });
+    noise(1.2, { type: 'lowpass', freq: 180, gain: 0.25, at: 0.9 });
+  },
+
+  // Explosion (bazooka) : souffle grave + débris
+  explosion() {
+    ensure();
+    noise(0.15, { type: 'lowpass', freq: 900, gain: 0.5 });
+    noise(0.8, { type: 'lowpass', freq: 160, gain: 0.55, at: 0.03 });
+    noise(0.25, { type: 'highpass', freq: 1200, gain: 0.2, at: 0.1 });
+  },
+
+  // Coup de marteau : choc mat
+  thud() {
+    ensure();
+    tone(120, 0.09, { type: 'square', gain: 0.25 });
+    noise(0.08, { type: 'lowpass', freq: 500, gain: 0.3 });
+  },
+
+  // Fusil à pompe : détonation large + réarmement clac-clac
+  shotgun() {
+    ensure();
+    noise(0.14, { type: 'lowpass', freq: 1400, gain: 0.45 });
+    tone(90, 0.12, { type: 'square', gain: 0.28, slideTo: 40 });
+    tone(750, 0.04, { type: 'square', gain: 0.1, at: 0.42 });
+    tone(950, 0.04, { type: 'square', gain: 0.1, at: 0.55 });
+  },
+
+  // Départ de roquette : whoosh soufflé
+  rocket() {
+    ensure();
+    noise(0.5, { type: 'bandpass', freq: 900, q: 0.7, gain: 0.35 });
+    tone(220, 0.4, { type: 'sawtooth', gain: 0.12, slideTo: 60 });
+  },
+
   // Spray de peinture : chuintement en boucle
   _hiss: null,
   hissStart() {

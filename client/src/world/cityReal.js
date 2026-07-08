@@ -330,6 +330,7 @@ function buildWaterSurfaces(ctx, polys) {
 // À l'intérieur : sanctuaire (ni tag ni tir) + visite immersive 360°
 // (photo réelle chargée à la demande depuis /pano/fourviere.jpg).
 function buildBasilica(ctx, bx, bz, by) {
+  ctx.pois?.push({ id: 'basilique', nom: 'Basilique de Fourvière', emoji: '⛪', x: bx, z: bz });
   const W = 46, D = 22, H = 14, T = 1.2; // nef est-ouest, portail à l'OUEST
   const stone = 0xf2ead8;
   // Parvis : plateforme qui rattrape la pente de la colline

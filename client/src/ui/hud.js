@@ -34,8 +34,8 @@ export function createUi() {
     <div id="help">
       ZQSD bouger (sprint auto) · Espace saut · E interagir · clic tirer<br>
       F bombe de peinture (clic = graffiti, molette = couleur) · G poser ton tag<br>
-      T éditeur de tags · 1 arme · R recharger · 3/4/5 emotes<br>
-      L classements/succès · C photo · P admin
+      T éditeur de tags · 1 arme · 2 changer d'arme · R recharger · 3/4/5 emotes<br>
+      M carte · L classements/succès · C photo · P admin
     </div>`;
   document.body.appendChild(hud);
   const vignette = document.createElement('div');
@@ -259,13 +259,15 @@ export function createUi() {
       `<span style="font-size:13px;">touches ${session.hits} / tirs ${session.shots} · précision ${acc}%</span>`;
   }
 
-  function setAmmo(ammo, reloading, visible) {
+  function setAmmo(ammo, reloading, visible, spec) {
     if (!visible) {
       ammoEl.classList.add('hidden');
       return;
     }
     ammoEl.classList.remove('hidden');
-    ammoEl.textContent = reloading ? 'RECHARGE…' : `${ammo} / 30`;
+    if (reloading) ammoEl.textContent = 'RECHARGE…';
+    else if (spec?.melee) ammoEl.textContent = `${spec.emoji} ${spec.nom}`;
+    else ammoEl.textContent = `${spec ? spec.emoji + ' ' : ''}${ammo} / ${spec?.mag ?? 30}`;
   }
 
   function toast(message) {

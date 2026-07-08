@@ -101,7 +101,10 @@ export function setupWs(httpServer) {
         const target = players.get(String(msg.target ?? ''));
         if (!target || target === me) return;
 
-        target.hp -= HIT_DAMAGE;
+        // dmg optionnel selon l'arme (marteau → bazooka), borné : combiné à
+        // la cadence max, un client trafiqué ne fait pas mieux qu'un bazooka
+        const dmg = Math.min(55, Math.max(1, Math.floor(Number(msg.dmg) || HIT_DAMAGE)));
+        target.hp -= dmg;
         target.lastDamagedAt = now;
         if (target.hp > 0) {
           broadcast({ t: 'hp', id: msg.target, hp: target.hp, by: id });

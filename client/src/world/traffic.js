@@ -85,12 +85,13 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
     for (let z = av.zLo + 8; z < av.zHi - 8; z += 13) {
       if (Math.abs(z) < 9 || rand() < 0.4) continue; // ponts + trous
       const px = av.ax(z) + av.side * (AVENUE_W / 2 + 1.1);
-      parked.push({ x: px, z: z + (rand() - 0.5) * 2, ry: rand() < 0.1 ? 0.2 : 0 });
-      // Les voitures garées sont solides
-      ctx.colliders.push({
+      const box = {
         minX: px - 1.1, maxX: px + 1.1, minY: 0, maxY: 1.4,
         minZ: z - 2.2, maxZ: z + 2.2,
-      });
+      };
+      parked.push({ x: px, z: z + (rand() - 0.5) * 2, ry: rand() < 0.1 ? 0.2 : 0, box });
+      // Les voitures garées sont solides (tant que personne ne les conduit)
+      ctx.colliders.push(box);
     }
   }
 
@@ -117,15 +118,15 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
   const _s = new THREE.Vector3(1, 1, 1);
   const _c = new THREE.Color();
 
-  function setCar(i, x, z, ry) {
+  function setCar(i, x, z, ry, y = 0) {
     _e.set(0, ry, 0);
     _q.setFromEuler(_e);
-    _m.compose(_p.set(x, 0, z), _q, _s);
+    _m.compose(_p.set(x, y, z), _q, _s);
     bodies.setMatrixAt(i, _m);
     cabins.setMatrixAt(i, _m);
     // Essieux avant/arrière, décalés dans le repère de la voiture
     for (const [k, off] of [[0, 1.35], [1, -1.35]]) {
-      _p.set(x - Math.sin(ry) * off, 0, z - Math.cos(ry) * off);
+      _p.set(x - Math.sin(ry) * off, y, z - Math.cos(ry) * off);
       _m.compose(_p, _q, _s);
       axles.setMatrixAt(i * 2 + k, _m);
     }
@@ -151,6 +152,8 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
     _c.setHex(CAR_COLORS[Math.floor(rand() * CAR_COLORS.length)]);
     bodies.setColorAt(idx, _c);
     setCar(idx, car.x, car.z, car.ry);
+    // TOUTES les berlines garées sont conduisibles (caméra de poursuite)
+    makeBerline(ctx, car, idx, setCar);
   });
   bodies.instanceColor.needsUpdate = true;
   ctx.scene.add(bodies, cabins, axles);
@@ -197,6 +200,70 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
   spots.forEach((s, i) => buildCabrio(ctx, s, CABRIO_COLORS[i % CABRIO_COLORS.length]));
 }
 
+// Berline garée conduisible : on réutilise l'instance des InstancedMesh
+// (zéro géométrie en plus) et on retire/repose son collider quand on
+// entre/sort. Caméra de poursuite (thirdPerson) — en décapotable on reste
+// en 1re personne, cheveux au vent.
+function makeBerline(ctx, p, idx, setCar) {
+  const car = { heading: p.ry, speed: 0, thirdPerson: true };
+  // Pseudo-groupe : startDrive/stopDrive ne lisent que .position
+  const anchor = { position: new THREE.Vector3(p.x, 0, p.z) };
+  let driving = false;
+
+  // Repose la voiture là où elle s'est arrêtée (collider approché par le cap)
+  function park() {
+    driving = false;
+    gate.label = 'E — Conduire la berline';
+    p.x = anchor.position.x;
+    p.z = anchor.position.z;
+    gate.x = p.x;
+    gate.z = p.z;
+    const s = Math.abs(Math.sin(car.heading)), c = Math.abs(Math.cos(car.heading));
+    p.box = {
+      minX: p.x - (1.1 * c + 2.1 * s), maxX: p.x + (1.1 * c + 2.1 * s),
+      minY: 0, maxY: 1.4,
+      minZ: p.z - (2.1 * c + 1.1 * s), maxZ: p.z + (2.1 * c + 1.1 * s),
+    };
+    ctx.colliders.push(p.box);
+    setCar(idx, p.x, p.z, car.heading, anchor.position.y);
+  }
+
+  const gate = {
+    x: p.x, z: p.z, r: 2.8,
+    label: 'E — Conduire la berline',
+    action: () => {
+      if (!driving) {
+        driving = true;
+        ctx.colliders.remove?.(p.box); // plus un obstacle : c'est NOTRE voiture
+        gate.label = 'E — Couper le moteur et sortir';
+        anchor.position.set(p.x, 0, p.z);
+        ctx.startDrive?.(car, anchor);
+        ctx.notify?.('🚗 Berline empruntée ! ZQSD pour conduire, Espace pour klaxonner.');
+      } else {
+        park();
+        ctx.stopDrive?.(car, anchor);
+      }
+    },
+  };
+  ctx.interactables.push(gate);
+
+  // Mort au volant : la berline reste sur place, moteur coupé
+  ctx.abortRides?.push(() => {
+    if (driving) park();
+  });
+
+  // Tant qu'on conduit : l'instance et l'interactable suivent le joueur
+  ctx.updatables.push(() => {
+    if (!driving) return;
+    const q = ctx.playerPos?.();
+    if (!q) return;
+    anchor.position.set(q.x, q.y, q.z);
+    setCar(idx, q.x, q.z, car.heading, q.y);
+    gate.x = q.x;
+    gate.z = q.z;
+  });
+}
+
 function buildCabrio(ctx, spot, color) {
   const group = new THREE.Group();
   const bodyMat = new THREE.MeshLambertMaterial({ color });
@@ -236,7 +303,8 @@ function buildCabrio(ctx, spot, color) {
   group.rotation.y = spot.ry;
   ctx.scene.add(group);
 
-  const car = { heading: spot.ry, speed: 0 };
+  // 1re personne assumée : en décapotable on veut le vent dans les cheveux
+  const car = { heading: spot.ry, speed: 0, thirdPerson: false };
   let driving = false;
 
   const gate = {

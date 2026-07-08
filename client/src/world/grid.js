@@ -44,6 +44,22 @@ export class ColliderGrid {
     return out;
   }
 
+  // Retire une boîte (ex. voiture garée convertie en voiture pilotable)
+  remove(box) {
+    const i = this.boxes.indexOf(box);
+    if (i >= 0) this.boxes.splice(i, 1);
+    const x0 = Math.floor(box.minX / CELL), x1 = Math.floor(box.maxX / CELL);
+    const z0 = Math.floor(box.minZ / CELL), z1 = Math.floor(box.maxZ / CELL);
+    for (let cx = x0; cx <= x1; cx++) {
+      for (let cz = z0; cz <= z1; cz++) {
+        const arr = this.cells.get(cx + ',' + cz);
+        if (!arr) continue;
+        const j = arr.indexOf(box);
+        if (j >= 0) arr.splice(j, 1);
+      }
+    }
+  }
+
   get length() { return this.boxes.length; }
   [Symbol.iterator]() { return this.boxes[Symbol.iterator](); }
 }

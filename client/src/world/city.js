@@ -688,6 +688,7 @@ export function buildConfluence(ctx, {
     label: 'E — Musée des Confluences',
     action: () => ctx.notify?.('🏛️ Le nuage de cristal, posé là où la Saône embrasse le Rhône.'),
   });
+  ctx.pois?.push({ id: 'musee', nom: 'Musée des Confluences', emoji: '🏛️', x: mx, z: mz });
 
   // Au bout de la pointe : le JETPACK, posé sur son socle lumineux
   buildJetpackPad(ctx, cx, zTip - 6);
@@ -697,6 +698,10 @@ export function buildConfluence(ctx, {
 // Réutilisable : à la Confluence (extérieur) comme dans la salle d'arcade.
 // `y` = hauteur du sol (0 par défaut ; le socle et le modèle s'y posent).
 export function buildJetpackPad(ctx, x, z, y = 0) {
+  ctx.pois?.push({
+    id: `jetpack:${Math.round(x)},${Math.round(z)}`,
+    nom: 'Jetpack', emoji: '🚀', x, z,
+  });
   const pad = new THREE.Mesh(
     new THREE.CylinderGeometry(1.6, 1.8, 0.25, 10),
     new THREE.MeshLambertMaterial({ color: 0x2f3542, emissive: 0x101828 })
@@ -813,6 +818,9 @@ export function buildTraboules(ctx, PAIRS) {
     ctx.notify?.(lore);
   }
 
+  PAIRS.forEach((pair, ti) => {
+    ctx.pois?.push({ id: `traboule${ti}`, nom: 'Traboule secrète', emoji: '🚪', x: pair.a.x, z: pair.a.z });
+  });
   for (const pair of PAIRS) {
     buildArch(pair.a);
     buildArch(pair.b);
@@ -905,6 +913,7 @@ export function buildSilure(ctx, band) {
 // Grande roue de Bellecour
 export function buildGrandeRoue(ctx) {
   const x = 20, z = 20;
+  ctx.pois?.push({ id: 'roue', nom: 'La Grande Roue', emoji: '🎡', x, z });
   const R = 7.5;
   const hubY = R + 2;
 
@@ -1291,6 +1300,7 @@ export function buildBellecour(ctx, rect = BELLECOUR, real = false) {
   );
   prince.position.set(sx + 0.7, 6.3, sz + 0.2);
   ctx.scene.add(prince);
+  ctx.pois?.push({ id: 'saintex', nom: 'Saint-Exupéry et le Petit Prince', emoji: '✈️', x: sx, z: sz });
   ctx.interactables.push({
     x: sx, z: sz, r: 5,
     label: 'E — Saluer Saint-Exupéry',
@@ -1307,6 +1317,7 @@ export function buildBellecour(ctx, rect = BELLECOUR, real = false) {
 }
 
 function buildLouisXIV(ctx, x, z) {
+  ctx.pois?.push({ id: 'roi', nom: 'Statue de Louis XIV', emoji: '👑', x, z });
   const stone = new THREE.MeshLambertMaterial({ color: 0x9b9384 });
   const stoneLight = new THREE.MeshLambertMaterial({ color: 0xb0a896 });
   // Bronze patiné (vert-de-gris léger) — Phong pour le reflet au soleil
@@ -1453,11 +1464,50 @@ function buildLouisXIV(ctx, x, z) {
   st.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   ctx.scene.add(st);
 
-  // Easter egg « VIVE LE ROI » : 5 balles sur la statue et le Roi de bronze
-  // se cabre, l'annonceur tonne, les PNJ alentour acclament. Cooldown 30 s.
+  // --- LA COLÈRE DU ROI : éclairs en zigzag + grand flash ----------------
+  const boltMat = new THREE.MeshBasicMaterial({ color: 0xeaf4ff });
+  const bolts = new THREE.Group();
+  const boltRand = makeRand(451);
+  for (let b = 0; b < 3; b++) {
+    const bolt = new THREE.Group();
+    let px = x + (boltRand() - 0.5) * 20, py = 78, pz = z + (boltRand() - 0.5) * 20;
+    const tx = x + (boltRand() - 0.5) * 2, tz = z + (boltRand() - 0.5) * 2;
+    const STEPS = 8;
+    for (let i = 0; i < STEPS; i++) {
+      const t = (i + 1) / STEPS;
+      const nx = px + (tx - px) / (STEPS - i) + (boltRand() - 0.5) * 14 * (1 - t);
+      const ny = py - (py - 7) / (STEPS - i);
+      const nz = pz + (tz - pz) / (STEPS - i) + (boltRand() - 0.5) * 14 * (1 - t);
+      const len = Math.hypot(nx - px, ny - py, nz - pz);
+      const seg = new THREE.Mesh(
+        new THREE.BoxGeometry(0.3 * (1 - t * 0.5), len, 0.3 * (1 - t * 0.5)), boltMat
+      );
+      seg.position.set((px + nx) / 2, (py + ny) / 2, (pz + nz) / 2);
+      seg.lookAt(nx, ny, nz);
+      seg.rotateX(Math.PI / 2);
+      bolt.add(seg);
+      px = nx; py = ny; pz = nz;
+    }
+    bolt.visible = false;
+    bolts.add(bolt);
+  }
+  ctx.scene.add(bolts);
+  const flash = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: makeLampHaloTexture(), color: 0xdcecff, transparent: true,
+    opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  flash.scale.set(60, 60, 1);
+  flash.position.set(x, 10, z);
+  flash.userData.noShadow = true;
+  ctx.scene.add(flash);
+
+  // Easter egg « VIVE LE ROI » : 5 balles sur la statue → LA FOUDRE s'abat
+  // (éclairs + tonnerre), le Roi se cabre, la Garde Royale charge. 30 s de
+  // cooldown.
   let roiHits = 0;
   let roiCooldownUntil = 0;
   let roiAnim = -1; // temps d'animation en cours (-1 = inactif)
+  const BASE_Y = 4.3; // hauteur de la statue sur le piédestal monumental
   const baseRotY = st.rotation.y;
   st.traverse((o) => {
     if (!o.isMesh) return;
@@ -1469,7 +1519,8 @@ function buildLouisXIV(ctx, x, z) {
         roiHits = 0;
         roiCooldownUntil = now + 30000;
         roiAnim = 0;
-        ctx.notify?.('👑 « ON NE TIRE PAS SUR LE ROI, GONE ! »');
+        audio.thunder();
+        ctx.notify?.('👑⚡ « ON NE TIRE PAS SUR LE ROI, GONE ! »');
         ctx.onRoi?.();
       }
     };
@@ -1477,18 +1528,27 @@ function buildLouisXIV(ctx, x, z) {
   });
   ctx.updatables.push((dt) => {
     if (roiAnim < 0) return;
+    const prev = roiAnim;
     roiAnim += dt;
     const D = 1.6;
+    if (prev < 0.75 && roiAnim >= 0.75) audio.thunder(); // second roulement
     if (roiAnim >= D) {
       roiAnim = -1;
-      st.position.y = 3.3;
+      st.position.y = BASE_Y;
       st.rotation.set(0, baseRotY, 0);
+      for (const b of bolts.children) b.visible = false;
+      flash.material.opacity = 0;
       return;
     }
     const k = Math.sin((roiAnim / D) * Math.PI);
-    st.position.y = 3.3 + k * 0.9; // le cheval se cabre
+    st.position.y = BASE_Y + k * 0.9; // le cheval se cabre
     st.rotation.z = k * 0.38;
     st.rotation.y = baseRotY + Math.sin(roiAnim * 14) * 0.05; // frémissement
+    // Éclairs stroboscopiques pendant la première seconde + flash qui décroît
+    for (const b of bolts.children) {
+      b.visible = roiAnim < 1.05 && Math.random() < 0.42;
+    }
+    flash.material.opacity = Math.max(0, 0.95 - roiAnim * 0.9) * (0.55 + Math.random() * 0.45);
   });
 }
 
@@ -1881,6 +1941,7 @@ export function buildMurPeint(ctx) {
 // Roue) : chacun voit sa propre montée, aucun trafic réseau.
 // A = gare basse, B = gare haute (esplanade) — THREE.Vector3
 export function buildFunicular(ctx, A, B) {
+  ctx.pois?.push({ id: 'ficelle', nom: 'La ficelle (funiculaire)', emoji: '🚋', x: A.x, z: A.z });
   const dir = B.clone().sub(A);
   const RIDE_S = 12;
 
@@ -2262,6 +2323,7 @@ function buildLandmarks(ctx, rand) {
   crayonTip.position.set(116, 63.2 + 7, -45);
   ctx.scene.add(crayonTip);
   addInvisibleWall(ctx, { x: 116, z: -45, w: 18, h: 62, d: 18 });
+  ctx.pois?.push({ id: 'crayon', nom: 'Le Crayon (Part-Dieu)', emoji: '✏️', x: 116, z: -45 });
   void rand;
 }
 

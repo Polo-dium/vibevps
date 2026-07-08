@@ -10,6 +10,7 @@ const NEONS = [0x00ffd5, 0xff3df0, 0xffe14d, 0x4dff6a, 0xff7a4d, 0x4da6ff, 0xc44
 
 export function buildArcade(ctx, { onPlayGame, onOpenCreator }) {
   const { x: cx, z: cz, w, d, h, doorWidth, doorHeight } = ARCADE;
+  ctx.pois?.push({ id: 'arcade', nom: "Salle d'arcade", emoji: '🕹️', x: cx, z: cz });
   const t = 0.6;
   const south = cz + d / 2, north = cz - d / 2;
   const west = cx - w / 2, east = cx + w / 2;

@@ -181,14 +181,27 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         v.speed = 0;
       }
 
-      // Assis au volant : caméra relevée et décalée côté conducteur (gauche)
-      camera.position.set(
-        pos.x - Math.cos(v.heading) * 0.45,
-        pos.y + 1.42,
-        pos.z + Math.sin(v.heading) * 0.45
-      );
-      camera.rotation.order = 'YXZ';
-      camera.rotation.set(pitch, yaw, 0);
+      if (v.thirdPerson) {
+        // Caméra de poursuite (berlines) : derrière et au-dessus, regard sur
+        // la voiture — le braquage tourne la caméra avec le cap
+        const back = 8.2, up = 3.4;
+        camera.position.set(
+          pos.x + Math.sin(v.heading) * back,
+          pos.y + up,
+          pos.z + Math.cos(v.heading) * back
+        );
+        camera.rotation.order = 'YXZ';
+        camera.lookAt(pos.x, pos.y + 1.3, pos.z);
+      } else {
+        // Assis au volant (décapotables) : caméra relevée, côté conducteur
+        camera.position.set(
+          pos.x - Math.cos(v.heading) * 0.45,
+          pos.y + 1.42,
+          pos.z + Math.sin(v.heading) * 0.45
+        );
+        camera.rotation.order = 'YXZ';
+        camera.rotation.set(pitch, yaw, 0);
+      }
       return;
     }
 

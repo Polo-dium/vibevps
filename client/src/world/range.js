@@ -10,6 +10,7 @@ const MAX_UP = 3;
 
 export function buildRange(ctx, { onSessionEnd, onEquipWeapon }) {
   const { x: cx, width, counterZ, targetsZ, backZ } = RANGE;
+  ctx.pois?.push({ id: 'stand', nom: 'Stand de tir', emoji: '🎯', x: cx, z: counterZ });
   const west = cx - width / 2, east = cx + width / 2;
 
   // Mur de fond (pare-balles) — taguable, évidemment
