@@ -152,17 +152,22 @@ export function createMusicSource() {
       });
       // Un enregistrement réel est mastérisé bien plus bas qu'un synthé
       // (surtout un morceau doux comme du piano) : coup de boost + limiteur
-      // doux pour que ça s'entende vraiment sans distordre sur les passages
-      // plus forts. Les synthés (start()) ne passent pas par ce chemin.
+      // serré pour que ça s'entende vraiment sans distordre sur les passages
+      // plus forts, puis un gain de rattrapage après le limiteur pour
+      // remonter le niveau moyen (le limiteur seul ne fait qu'écrêter les
+      // pics, il ne rend pas le morceau plus fort). Les synthés (start())
+      // ne passent pas par ce chemin.
       const boost = graph.ctx.createGain();
-      boost.gain.value = t.gainBoost ?? 3.5;
+      boost.gain.value = t.gainBoost ?? 6.5;
       const limiter = graph.ctx.createDynamicsCompressor();
-      limiter.threshold.value = -14;
-      limiter.knee.value = 20;
-      limiter.ratio.value = 8;
+      limiter.threshold.value = -20;
+      limiter.knee.value = 12;
+      limiter.ratio.value = 12;
       limiter.attack.value = 0.003;
-      limiter.release.value = 0.25;
-      graph.ctx.createMediaElementSource(realAudio).connect(boost).connect(limiter).connect(out);
+      limiter.release.value = 0.15;
+      const makeup = graph.ctx.createGain();
+      makeup.gain.value = t.makeupGain ?? 1.8;
+      graph.ctx.createMediaElementSource(realAudio).connect(boost).connect(limiter).connect(makeup).connect(out);
     } else if (!realAudio.src.endsWith(t.file)) {
       realAudio.src = `/music/${t.file}`;
     }
