@@ -704,7 +704,10 @@ export function buildRealCity(ctx, data) {
       ctx.terrainHeight = ground;
       composeRiverTerrain(ctx, data.water, [], null);
     }
-    buildTerrainMesh(ctx, bound);
+    buildTerrainMesh(ctx, bound, data);
+    // rand DÉDIÉ : ne pas consommer le générateur partagé ici, sinon tout
+    // le placement aval (arbres, teintes…) se décale d'une version à l'autre
+    buildCountryside(ctx, bound, makeRand(4217));
   } else {
     // --- ANCIEN JSON : colline synthétique collée à l'ouest de la Saône --
     EXTRA_RECTS = [CONF_RECT];
@@ -791,9 +794,31 @@ export function buildRealCity(ctx, data) {
   }
 }
 
+// Grille d'urbanisation (cellules de 48 m) : marque les cellules contenant
+// des sommets de bâtiments, dilatées d'une cellule — sert à ne peindre le
+// terrain plat en bitume QUE dans la ville réelle. Avant ça, la règle
+// « plat = bitume » peignait toute la plaine hors ville en gris jusqu'à
+// l'horizon.
+function buildUrbanGrid(data, bound) {
+  const CELL = 48;
+  const off = bound + 120;
+  const set = new Set();
+  const mark = (x, z) => {
+    const cx = Math.floor((x + off) / CELL), cz = Math.floor((z + off) / CELL);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) set.add((cx + dx) * 4096 + (cz + dz));
+    }
+  };
+  for (const b of data.buildings) {
+    for (let i = 0; i < b.p.length; i += 4) mark(b.p[i], b.p[i + 1]);
+  }
+  return (x, z) =>
+    set.has(Math.floor((x + off) / CELL) * 4096 + Math.floor((z + off) / CELL));
+}
+
 // Terrain continu de la ville complète : un seul maillage déplacé par la
 // fonction de hauteur (collines, lits des fleuves), coloré par altitude.
-function buildTerrainMesh(ctx, bound) {
+function buildTerrainMesh(ctx, bound, data) {
   const size = bound * 2 + 240;
   const seg = 230; // assez fin pour des berges nettes le long de l'eau réelle
   const geo = new THREE.PlaneGeometry(size, size, seg, seg);
@@ -805,7 +830,14 @@ function buildTerrainMesh(ctx, bound) {
   const grass = new THREE.Color(0x4d6b43);
   const forest = new THREE.Color(0x36512e);
   const bedC = new THREE.Color(0x27352b);
+  const meadow = new THREE.Color(0x5d7a4a);
   const parks = ctx.parkRects ?? [];
+  const urban = buildUrbanGrid(data, bound);
+  // Berges/quais : bitume conservé près des fleuves même sans bâtiment
+  const bands = ctx.waterBands ?? [];
+  const nearQuay = (x, z) => bands.some((b) =>
+    x > (b.minX ?? Infinity) - 26 && x < (b.maxX ?? -Infinity) + 26 &&
+    z > (b.zMin ?? -bound) - 26 && z < (b.zMax ?? bound) + 26);
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
     const h = ctx.terrainHeight(x, z);
@@ -813,8 +845,14 @@ function buildTerrainMesh(ctx, bound) {
     const inPark = parks.some((r) => x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ);
     if (h < -0.5) c.copy(bedC);
     else if (inPark) c.copy(grass).lerp(forest, 0.25); // parcs toujours en herbe
-    else if (h < 1.4) c.copy(asphalt);
-    else c.copy(grass).lerp(forest, Math.min(1, (h - 1.4) / 32));
+    else if (h < 1.4) {
+      if (urban(x, z) || nearQuay(x, z)) c.copy(asphalt);
+      else {
+        // Campagne : patchwork de champs (teinte stable par parcelle de 64 m)
+        const hsh = ((Math.floor(x / 64) * 73856093) ^ (Math.floor(z / 64) * 19349663)) >>> 0;
+        c.copy(meadow).offsetHSL(((hsh % 13) - 6) * 0.004, 0, ((hsh % 7) - 3) * 0.02);
+      }
+    } else c.copy(grass).lerp(forest, Math.min(1, (h - 1.4) / 32));
     colors[i * 3] = c.r;
     colors[i * 3 + 1] = c.g;
     colors[i * 3 + 2] = c.b;
@@ -834,6 +872,44 @@ function buildTerrainMesh(ctx, bound) {
     new THREE.MeshLambertMaterial({ vertexColors: true, map: detail })
   );
   ctx.scene.add(mesh);
+}
+
+// Campagne au-delà de la carte : ferme l'horizon au lieu de laisser le vide.
+// Un grand disque prairie sous le niveau du terrain + une couronne de
+// collines low-poly (les monts du Lyonnais / monts d'Or) en InstancedMesh —
+// deux draw calls en tout, pas de collision, pas d'ombre : pur décor.
+function buildCountryside(ctx, bound, rand) {
+  const meadow = new THREE.Mesh(
+    new THREE.CircleGeometry(bound * 3, 40),
+    new THREE.MeshLambertMaterial({ color: 0x5d7a4a })
+  );
+  meadow.rotation.x = -Math.PI / 2;
+  meadow.position.y = -0.4; // sous le terrain : pas de z-fight sur la couture
+  meadow.userData.noShadow = true;
+  ctx.scene.add(meadow);
+
+  const N = 42;
+  const geo = new THREE.ConeGeometry(1, 1, 7); // écrasé/étiré par instance
+  geo.translate(0, 0.5, 0); // base du cône au sol
+  const mat = new THREE.MeshLambertMaterial({ color: 0x51684a });
+  const hills = new THREE.InstancedMesh(geo, mat, N);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0);
+  for (let i = 0; i < N; i++) {
+    // Deux rangs de collines qui se chevauchent : silhouette d'horizon
+    // continue sans motif répétitif visible
+    const ring = i % 2 === 0 ? 1.25 : 1.55;
+    const a = (i / N) * Math.PI * 2 + (rand() - 0.5) * 0.12;
+    const r = bound * (ring + (rand() - 0.5) * 0.12);
+    const w = bound * (0.22 + rand() * 0.2);
+    const h = 30 + rand() * 55;
+    q.setFromAxisAngle(up, rand() * Math.PI);
+    s.set(w, h, w * (0.7 + rand() * 0.5));
+    m.compose(new THREE.Vector3(Math.cos(a) * r, -0.4, Math.sin(a) * r), q, s);
+    hills.setMatrixAt(i, m);
+  }
+  hills.userData.noShadow = true;
+  ctx.scene.add(hills);
 }
 
 // Tuile de sol urbain : dalles claires + grain, quasi blanche (elle est

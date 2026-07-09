@@ -13,14 +13,12 @@ import * as THREE from 'three';
 const SKIN = 0xe8c39e;
 const SLEEVE = 0x3c4a5e; // manche de blouson, assortie au reste du perso
 
-// Poses canoniques côté DROIT uniquement (position DE L'ORIGINE DU GROUPE,
-// pas du poignet — avec l'avant-bras un peu rallongé pour le mode arme,
-// +0,1 en z compense pour que le bout des doigts tombe au même endroit
-// qu'avant). Le côté gauche est dérivé par mirror() ci-dessous.
+// Poses canoniques côté DROIT uniquement (position de l'origine du groupe +
+// rotation). Le côté gauche est dérivé par mirror() ci-dessous.
 const RIGHT_POSES = {
-  idle: { pos: [0.15, -0.32, -0.22], rot: [0.5, -0.2, 0.12] },
-  boombox: { pos: [-0.14, -0.28, -0.4], rot: [0.4, -0.55, 0.18] },
-  jetpack: { pos: [0.14, -0.16, -0.18], rot: [0.15, -0.35, 0.22] },
+  idle: { pos: [0.15, -0.32, -0.32], rot: [0.5, -0.2, 0.12] },
+  boombox: { pos: [-0.14, -0.28, -0.5], rot: [0.4, -0.55, 0.18] },
+  jetpack: { pos: [0.14, -0.16, -0.28], rot: [0.15, -0.35, 0.22] },
 };
 
 function mirror(pose) {
@@ -34,11 +32,12 @@ function mirror(pose) {
 // proche du canon) ; le reste (avant-bras puis manche) remonte vers la
 // caméra, donc vers l'épaule — c'est ce décalage qu'il faut compenser
 // quand on accroche le poing pile sur un point de préhension de l'arme.
-// Avant-bras rallongé pour que le poing puisse atteindre le MILIEU de
-// l'arme (pas juste la poignée pistolet toute proche du corps) tout en
-// laissant la manche proche de l'épaule — sinon tout le bras suit le poing
-// vers l'avant et on perd le raccord avec le corps.
-const HAND_LOCAL_Z = -0.45;
+// NE PAS rallonger le bras pour gagner de la portée : à cette distance de
+// la caméra, chaque centimètre de plus se voit énorme à l'écran et les
+// poses au repos deviennent des planches (régression déjà vécue). C'est la
+// compensation dans update() qui amène le poing au milieu de l'arme, pas
+// la longueur du bras.
+const HAND_LOCAL_Z = -0.35;
 
 function buildArm() {
   const group = new THREE.Group();

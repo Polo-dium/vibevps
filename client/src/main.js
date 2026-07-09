@@ -19,6 +19,7 @@ import { createVoice } from './player/voice.js';
 import { createTouchControls } from './ui/touch.js';
 import { SPAWN, spawnPoint } from './world/layout.js';
 import { createNpcs } from './world/npcs.js';
+import { createQuenelle } from './world/quenelle.js';
 import { buildSky } from './world/sky.js';
 import { audio } from './audio.js';
 import { createSpray } from './tags/spray.js';
@@ -469,6 +470,22 @@ async function boot() {
     getPlayer: () => ({ x: controls.position.x, z: controls.position.z, yaw: controls.yaw }),
     onToast: ui.toast,
   });
+
+  // La Quenelle dorée : chasse au trésor toutes les 5 min, calée sur
+  // l'horloge partagée (voir world/quenelle.js) — le serveur arbitre.
+  const quenelle = createQuenelle(ctx, {
+    send: net.send,
+    notify: ui.toast,
+    onWin: (msg) => {
+      ui.toast(`🥇 LA QUENELLE DORÉE EST À TOI, GONE ! +${msg.xp ?? 150} XP`);
+      ui.spawnConfetti(40);
+      audio.reward();
+      progress.refresh();
+    },
+  });
+  net.on('quenelle', (msg) => quenelle.applyServerMsg({
+    ...msg, mine: msg.by != null && msg.by === state.auth?.name,
+  }));
 
   // La Grande Roue (et tout futur manège) déplace le joueur via ce hook
   ctx.rideTick = (x, y, z) => controls.teleport(x, y, z);

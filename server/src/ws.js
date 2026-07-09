@@ -4,6 +4,8 @@ import { q } from './db.js';
 import { bumpDaily } from './daily.js';
 
 const TICK_MS = 66; // ~15 Hz
+const QUENELLE_ROUND_MS = 5 * 60 * 1000; // rotation de la Quenelle dorée
+const QUENELLE_XP = 150;
 const HIT_DAMAGE = 25;
 const HIT_MIN_INTERVAL_MS = 75; // cadence max de l'AK côté serveur
 const SHOT_MIN_INTERVAL_MS = 60;
@@ -13,6 +15,7 @@ const CHAT_MIN_INTERVAL_MS = 500; // anti-spam
 /** @type {Map<string, object>} */
 const players = new Map();
 let wss = null;
+let quenelleClaimedRound = -1; // un seul gagnant par tour de Quenelle dorée
 
 export function setupWs(httpServer) {
   wss = new WebSocketServer({ server: httpServer, path: '/ws' });
@@ -182,6 +185,34 @@ export function setupWs(httpServer) {
             kills: 0,
           });
         }
+        return;
+      }
+
+      // Quenelle dorée : premier joueur du tour à la réclamer la gagne.
+      // Le tour est calé sur Date.now() (même horloge que le client) ; on ne
+      // vérifie pas la position (le serveur ne connaît pas le décor) — dégât
+      // borné : au pire un tricheur gratte 150 XP toutes les 5 minutes.
+      if (msg.t === 'quenelle') {
+        const round = Math.floor(Date.now() / QUENELLE_ROUND_MS);
+        // Tolérance ±1 tour : l'horloge du joueur peut être décalée de
+        // quelques minutes par rapport au serveur — sans ça, il verrait la
+        // quenelle mais ne pourrait JAMAIS la gagner. Le serveur reste seul
+        // maître du tour effectivement réclamé (le sien).
+        const asked = Math.floor(Number(msg.round));
+        if (!Number.isFinite(asked) || Math.abs(asked - round) > 1) return;
+        if (quenelleClaimedRound === round) {
+          if (me.ws.readyState === me.ws.OPEN) {
+            me.ws.send(JSON.stringify({ t: 'quenelle', taken: true, round }));
+          }
+          return;
+        }
+        quenelleClaimedRound = round;
+        try {
+          q.addXp.run(QUENELLE_XP, me.playerId);
+        } catch (err) {
+          console.error('XP quenelle non créditée :', err);
+        }
+        broadcast({ t: 'quenelle', by: me.name, round, xp: QUENELLE_XP });
         return;
       }
 
