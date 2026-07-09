@@ -765,6 +765,10 @@ export function buildRealCity(ctx, data) {
     const basY = Math.max(0, ctx.terrainHeight(bX, bZ));
     buildBasilica(ctx, bX, bZ, basY);
     buildParcRosaire(ctx, bX + 42, bZ, -215, -152);
+    // Le Crayon : repéré par nom dans les données OSM, sinon position
+    // approximative (calculée avec la même projection que fetch-osm.mjs)
+    const [crX, crZ, crH] = data.poi?.crayon ?? [1045, -150, 99];
+    buildCrayonLandmark(ctx, crX, crZ, crH, Math.max(0, ctx.terrainHeight(crX, crZ)));
   } else {
     buildFourviere(ctx, legacyHill);
     // Pointe de terre = sol, le reste (fleuves + confluence) = eau
@@ -1364,29 +1368,38 @@ function buildOsmRoads(ctx, data, full = false) {
 function buildFarLandmarks(ctx, bound) {
   // Fourvière est désormais une vraie colline jouable (buildFourviere) :
   // il ne reste ici que le décor lointain de l'est.
+  buildCrayonLandmark(ctx, bound + 70, -70, 100, 0);
+}
 
-  // Le Crayon (tour Part-Dieu), à l'est : fenêtres + couronne + pointe
-  const EX = bound + 70;
+// Le Crayon (tour Part-Dieu) : en mode « ville complète », le bâtiment OSM
+// existe déjà (extrusion générique, couleur haussmannienne, toit plat) —
+// pile ce qu'il ne faut PAS pour la tour la plus reconnaissable de Lyon. On
+// pose donc un habillage cylindrique par-dessus, à sa vraie hauteur : la
+// silhouette ronde, la teinte cuivrée et la pointe reviennent, et le
+// bâtiment OSM en dessous continue de fournir un collider correct.
+function buildCrayonLandmark(ctx, x, z, h = 100, groundY = 0) {
+  ctx.pois?.push({ id: 'crayon', nom: 'Le Crayon (Part-Dieu)', emoji: '✏️', x, z });
+  const R = 15;
   const towerTex = makeSkylineTexture();
   towerTex.wrapS = towerTex.wrapT = THREE.RepeatWrapping;
-  towerTex.repeat.set(12, 10);
+  towerTex.repeat.set(12, Math.max(4, Math.round(h / 10)));
   const crayon = new THREE.Mesh(
-    new THREE.CylinderGeometry(15, 15, 100, 20),
+    new THREE.CylinderGeometry(R, R, h, 20),
     new THREE.MeshLambertMaterial({ map: towerTex, color: 0xa9594a, fog: false })
   );
-  crayon.position.set(EX, 50, -70);
+  crayon.position.set(x, groundY + h / 2, z);
   ctx.scene.add(crayon);
   const crown = new THREE.Mesh(
-    new THREE.CylinderGeometry(15.6, 15.6, 3.6, 20),
+    new THREE.CylinderGeometry(R * 1.04, R * 1.04, h * 0.036, 20),
     new THREE.MeshLambertMaterial({ color: 0xd8cfc2, fog: false })
   );
-  crown.position.set(EX, 100, -70);
+  crown.position.set(x, groundY + h + h * 0.018, z);
   ctx.scene.add(crown);
   const tip = new THREE.Mesh(
-    new THREE.ConeGeometry(15, 24, 20),
+    new THREE.ConeGeometry(R, h * 0.24, 20),
     new THREE.MeshLambertMaterial({ color: 0x8d4538, fog: false })
   );
-  tip.position.set(EX, 114, -70);
+  tip.position.set(x, groundY + h + h * 0.036 + (h * 0.24) / 2, z);
   ctx.scene.add(tip);
 }
 

@@ -363,6 +363,16 @@ const buildings = [];
 const roads = [];
 let bound = 200;
 
+// Tour Part-Dieu (« Le Crayon ») : repérée par son nom OSM plutôt que par sa
+// hauteur (plusieurs tours dépassent 100 m dans le quartier — la tour
+// Incity, notamment, est plus haute que le Crayon). Elle reste dans
+// `buildings` comme n'importe quel immeuble (le collider/l'emprise au sol
+// restent corrects) ; sa position sert juste à poser par-dessus l'habillage
+// cylindrique pointu et cuivré caractéristique (voir buildCrayonLandmark
+// dans cityReal.js).
+const CRAYON_NAME_RE = /part.?dieu|crayon/i;
+let crayonPoi = null;
+
 for (const el of data.elements) {
   if (el.type !== 'way' || !el.nodes) continue;
   const pts = [];
@@ -397,6 +407,12 @@ for (const el of data.elements) {
     const h = r1(buildingHeight(el.tags, el.id));
     buildings.push({ h, p: pts.flat() });
     for (const [x, z] of pts) bound = Math.max(bound, Math.abs(x), Math.abs(z));
+    if (!crayonPoi && el.tags?.name && CRAYON_NAME_RE.test(el.tags.name)) {
+      const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+      const cz = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+      crayonPoi = [r1(cx), r1(cz), h];
+      console.log(`  Tour repérée pour « Le Crayon » : ${el.tags.name} (h=${h})`);
+    }
   } else if (el.tags?.highway) {
     roads.push({ w: roadWidth(el.tags), p: pts.flat() });
   }
@@ -410,7 +426,7 @@ const out = {
   waterPolys,
   hills: HILLS,
   confluenceZ: CONFLUENCE_Z,
-  poi: { basilica: BASILICA },
+  poi: { basilica: BASILICA, crayon: crayonPoi },
   buildings,
   roads,
 };

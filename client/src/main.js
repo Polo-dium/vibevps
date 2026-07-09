@@ -13,6 +13,7 @@ import { createMusicSource, TRACKS } from './music.js';
 import { createPoiMap } from './ui/map.js';
 import { createControls, IS_TOUCH } from './player/controls.js';
 import { createWeapon } from './player/weapon.js';
+import { createArms } from './player/arms.js';
 import { createRemotePlayers } from './player/remotes.js';
 import { createVoice } from './player/voice.js';
 import { createTouchControls } from './ui/touch.js';
@@ -465,6 +466,9 @@ async function boot() {
   // Capture d'écran stylée : touche C (desktop) ou bouton 📸 (tactile)
   const capture = createCapture({ renderer, scene, camera, onToast: ui.toast });
 
+  // Avant-bras en vue subjective (purement cosmétique, voir player/arms.js)
+  const arms = createArms(camera);
+
   // --- Enceinte portable (touche B) : boucles procédurales WebAudio, zéro
   // asset et coût quasi nul. Les autres joueurs l'entendent (champ `mus`
   // optionnel dans l'état réseau, joué en positionnel par remotes.js).
@@ -506,13 +510,18 @@ async function boot() {
     navigator.vibrate?.(10);
   }
 
-  // --- Jetpack : touche J (une fois ramassé à la Confluence). Particules de
-  // propulsion mutualisées, son de réacteur modulé par la poussée.
+  // --- Jetpack : touche J (une fois ramassé à la Confluence) range/ressort
+  // le jetpack ET décolle/atterrit en un geste — visible en vue subjective
+  // (voir buildJetpackViewModel plus bas), comme l'arme ou l'enceinte.
+  // Particules de propulsion mutualisées, son de réacteur modulé.
   const jetGeo = new THREE.SphereGeometry(0.12, 5, 5);
   const jetMat = new THREE.MeshBasicMaterial({
     color: 0xffb347, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
   });
   const jetParticles = []; // { mesh, vel, life, maxLife }
+  const jetModel = buildJetpackViewModel();
+  jetModel.visible = false;
+  camera.add(jetModel);
   function toggleJetpack() {
     if (!state.hasJetpack) {
       ui.toast('🚀 Va chercher le jetpack à la pointe de la Confluence !');
@@ -522,8 +531,9 @@ async function boot() {
     const on = !controls.flying;
     controls.setFlying(on);
     state.flying = on;
-    if (on) { audio.jetStart(); ui.toast('🚀 Décollage ! Espace pour monter, J pour couper.'); }
-    else audio.jetStop();
+    jetModel.visible = on;
+    if (on) { audio.jetStart(); ui.toast('🚀 Jetpack sorti, décollage ! Espace pour monter, J pour ranger.'); }
+    else { audio.jetStop(); ui.toast('🎒 Jetpack rangé.'); }
   }
   function spawnJetParticles() {
     const p = controls.position;
@@ -639,6 +649,7 @@ async function boot() {
       if (controls.flying) {
         controls.setFlying(false);
         state.flying = false;
+        jetModel.visible = false;
         audio.jetStop();
       }
       npcs.calm(); // la Garde a eu sa vengeance
@@ -800,6 +811,13 @@ async function boot() {
 
     controls.update(dt);
     weapon.update(dt, controls.isMoving());
+    // Bras en vue subjective : masqués au volant/aux commandes (caméra
+    // externe ou poste de pilotage), sinon la pose suit ce qui est en main
+    arms.setVisible(!controls.vehicle);
+    const armMode = state.weaponEquipped ? 'weapon'
+      : state.boombox ? 'boombox'
+      : controls.flying ? 'jetpack' : 'idle';
+    arms.update(dt, armMode, controls.isMoving());
     spray.update(dt);
     remotes.update();
     voice.update();
@@ -920,5 +938,27 @@ function buildBoomboxModel() {
   // Tenue à bout de bras, tournée vers le joueur
   g.position.set(-0.34, -0.3, -0.55);
   g.rotation.set(0.1, 2.6, 0);
+  return g;
+}
+
+// Jetpack rangé/sorti : dossard + bonbonnes visibles au bas de la vue
+// (mêmes teintes que le modèle du monde, voir buildJetpackPad dans city.js)
+function buildJetpackViewModel() {
+  const g = new THREE.Group();
+  const metal = new THREE.MeshLambertMaterial({ color: 0xd23b3b });
+  const dark = new THREE.MeshLambertMaterial({ color: 0x2a2e36 });
+  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.36, 0.14), dark);
+  g.add(pack);
+  for (const dx of [-0.17, 0.17]) {
+    const tank = new THREE.Mesh(new THREE.CapsuleGeometry(0.09, 0.28, 5, 8), metal);
+    tank.position.set(dx, 0, 0);
+    g.add(tank);
+    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.1, 6), dark);
+    nozzle.position.set(dx, -0.24, 0);
+    g.add(nozzle);
+  }
+  // Bas de la vue, légèrement décalé : straps posés sur les épaules
+  g.position.set(0, -0.42, -0.5);
+  g.rotation.set(0.25, 0, 0);
   return g;
 }
