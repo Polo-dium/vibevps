@@ -7,10 +7,23 @@ import { getAudioGraph } from './audio.js';
 // Utilisé par : les bars des quais, l'autoradio des décapotables, et
 // l'enceinte portable des joueurs (locale + distante via le champ `mus`).
 
+// Vrais enregistrements (facultatifs) : déposer le fichier tel quel dans
+// client/public/music/ sur le VPS — servi sans rebuild, exactement comme
+// /pano/fourviere.jpg. Tant que le fichier n'existe pas, la piste échoue
+// silencieusement (juste un avertissement console) : aucun risque de casser
+// le jeu si le morceau n'a pas encore été déposé. N'utiliser que des
+// enregistrements confirmés domaine public / CC0 (Wikimedia Commons,
+// Musopen…) — la partition d'une œuvre ancienne est libre, mais un
+// enregistrement précis a ses propres droits sauf mention contraire.
+const REAL_TRACKS = {
+  4: { nom: 'Clair de Lune (Debussy)', file: 'clair-de-lune.mp3' },
+};
+
 export const TRACKS = [
   { id: 1, nom: 'Gone Funk' },
   { id: 2, nom: 'Quenelle Wave' },
   { id: 3, nom: 'Guignol 8-bit' },
+  { id: 4, nom: REAL_TRACKS[4].nom },
 ];
 
 // Notes en demi-tons MIDI (69 = la 440). `null` = silence.
@@ -60,6 +73,7 @@ export function createMusicSource() {
   let step = 0;
   let nextTime = 0;
   let volume = 0.4;
+  let realAudio = null; // <audio> réutilisé pour les vrais enregistrements
 
   function ensureGraph() {
     if (graph) return;
@@ -123,8 +137,31 @@ export function createMusicSource() {
     if (p.hat[s]) drum(t, 'hat');
   }
 
+  // Vrai fichier audio (facultatif) : lu via un <audio> connecté au même
+  // gain `out`, donc le volume par distance s'applique pareil qu'au synthé.
+  function startReal(id) {
+    const t = REAL_TRACKS[id];
+    ensureGraph();
+    trackId = id;
+    if (timer) { clearInterval(timer); timer = null; }
+    if (!realAudio) {
+      realAudio = new Audio(`/music/${t.file}`);
+      realAudio.loop = true;
+      realAudio.addEventListener('error', () => {
+        console.warn(`🎵 Musique introuvable : /music/${t.file} — dépose le fichier dans client/public/music/ sur le VPS pour l'activer.`);
+      });
+      graph.ctx.createMediaElementSource(realAudio).connect(out);
+    } else if (!realAudio.src.endsWith(t.file)) {
+      realAudio.src = `/music/${t.file}`;
+    }
+    realAudio.currentTime = 0;
+    realAudio.play().catch(() => {}); // geste utilisateur déjà garanti par l'appelant
+  }
+
   function start(id) {
+    if (REAL_TRACKS[id]) { startReal(id); return; }
     if (!PATTERNS[id]) return stop();
+    realAudio?.pause(); // on bascule éventuellement d'un vrai morceau vers un synthé
     ensureGraph();
     trackId = id;
     if (timer) clearInterval(timer);
@@ -149,6 +186,7 @@ export function createMusicSource() {
   function stop() {
     trackId = 0;
     if (timer) { clearInterval(timer); timer = null; }
+    realAudio?.pause();
   }
 
   function setVolume(v) {
