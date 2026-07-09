@@ -462,6 +462,11 @@ export function createWeapon(camera, scene, shootables, {
     get ammo() { return ammo; },
     get spec() { return spec; },
     get damage() { return spec.dmg; },
+    // Le porte-arme lui-même : les bras (arms.js) lisent sa position/rotation
+    // en direct chaque frame pour rester parfaitement calés sur le recul,
+    // le balancement de course et le coup de marteau — pas de resynchro à
+    // maintenir en double.
+    get holder() { return holder; },
   };
 }
 

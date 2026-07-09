@@ -150,7 +150,19 @@ export function createMusicSource() {
       realAudio.addEventListener('error', () => {
         console.warn(`🎵 Musique introuvable : /music/${t.file} — dépose le fichier dans client/public/music/ sur le VPS pour l'activer.`);
       });
-      graph.ctx.createMediaElementSource(realAudio).connect(out);
+      // Un enregistrement réel est mastérisé bien plus bas qu'un synthé
+      // (surtout un morceau doux comme du piano) : coup de boost + limiteur
+      // doux pour que ça s'entende vraiment sans distordre sur les passages
+      // plus forts. Les synthés (start()) ne passent pas par ce chemin.
+      const boost = graph.ctx.createGain();
+      boost.gain.value = t.gainBoost ?? 3.5;
+      const limiter = graph.ctx.createDynamicsCompressor();
+      limiter.threshold.value = -14;
+      limiter.knee.value = 20;
+      limiter.ratio.value = 8;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.25;
+      graph.ctx.createMediaElementSource(realAudio).connect(boost).connect(limiter).connect(out);
     } else if (!realAudio.src.endsWith(t.file)) {
       realAudio.src = `/music/${t.file}`;
     }

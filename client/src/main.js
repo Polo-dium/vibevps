@@ -817,7 +817,7 @@ async function boot() {
     const armMode = state.weaponEquipped ? 'weapon'
       : state.boombox ? 'boombox'
       : controls.flying ? 'jetpack' : 'idle';
-    arms.update(dt, armMode, controls.isMoving());
+    arms.update(dt, armMode, controls.isMoving(), weapon.holder);
     spray.update(dt);
     remotes.update();
     voice.update();
