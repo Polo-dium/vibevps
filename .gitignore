@@ -5,5 +5,3 @@ server/data/
 *.log
 client/public/lyon-osm.json
 client/public/pano/
-client/public/music/*.mp3
-client/public/music/*.ogg

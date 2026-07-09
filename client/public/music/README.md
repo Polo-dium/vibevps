@@ -1,12 +1,18 @@
 # Vraie musique (facultatif)
 
 Le jeu synthétise sa musique en WebAudio (zéro fichier, `client/src/music.js`).
-Un vrai enregistrement peut venir compléter l'offre : dépose-le ici, il est
-servi automatiquement par le serveur — **aucun rebuild, aucun redéploiement**,
-exactement comme `/pano/fourviere.jpg`. Ce dossier n'est pas suivi par git
-(voir `.gitignore`) : le fichier vit uniquement sur le serveur qui le sert.
+Un vrai enregistrement peut venir compléter l'offre : un fichier posé ici est
+servi automatiquement par le serveur (aucun rebuild nécessaire), exactement
+comme `/pano/fourviere.jpg`.
 
-## Fichier attendu en ce moment
+Ce dossier EST suivi par git (contrairement à `lyon-osm.json` ou `/pano/`) :
+un MP3 de quelques Mo ne pèse pas lourd dans l'historique, et c'est le seul
+canal de déploiement fiable pour un fichier ajouté via Claude Code (pas
+d'accès SSH direct au VPS). Si tu préfères éviter d'alourdir le dépôt, tu
+peux toujours déposer un fichier directement sur le serveur sans le committer
+— dans ce cas ajoute son nom à `.gitignore`.
+
+## Fichier actif
 
 ```
 client/public/music/clair-de-lune.mp3
@@ -14,7 +20,7 @@ client/public/music/clair-de-lune.mp3
 
 Référencé dans `client/src/music.js` (`REAL_TRACKS`), disponible dans le
 cycle de l'enceinte portable (touche **B** en jeu, dernier morceau du cycle).
-Tant que le fichier n'existe pas, ce morceau échoue silencieusement (un
+Si un fichier venait à manquer, ce morceau échoue silencieusement (un
 avertissement dans la console du navigateur, rien de cassé).
 
 ## Où trouver un enregistrement vraiment libre de droits
