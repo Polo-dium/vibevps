@@ -14,7 +14,7 @@ const BUILTIN_HTML = {
   breakout: breakoutHtml,
 };
 
-export function createGameShell({ onToast, onOpenChange, onXp }) {
+export function createGameShell({ onToast, onOpenChange, onXp, onDaily }) {
   const root = document.createElement('div');
   root.className = 'overlay hidden';
   root.innerHTML = `
@@ -194,6 +194,7 @@ export function createGameShell({ onToast, onOpenChange, onXp }) {
         renderLeaderboard(res.leaderboard);
         onToast(`Score ${score} enregistré sur ${currentGame.title} !`);
         if (res.xp != null) onXp?.(res.xp, res.xpGain);
+        onDaily?.(res.daily);
       } catch (err) {
         onToast('Score non enregistré : ' + err.message);
       } finally {

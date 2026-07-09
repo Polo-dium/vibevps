@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { api } from './api.js';
 import { setupWs } from './ws.js';
 import { aiAvailable } from './ai.js';
+import { getOgImage } from './ogImage.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3000);
@@ -15,8 +16,46 @@ app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
 app.use('/api', api);
 
+// Vignette de partage (og:image), générée une fois et mise en cache mémoire
+app.get('/og-image.png', (req, res) => {
+  res.setHeader('Content-Type', 'image/png');
+  res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+  res.end(getOgImage());
+});
+
 const distDir = path.join(__dirname, '..', '..', 'client', 'dist');
 const publicOsm = path.join(__dirname, '..', '..', 'client', 'public', 'lyon-osm.json');
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+// Vignette personnalisée quand on arrive via un lien d'invitation
+// (?ami=Pseudo) : le titre du lien annonce directement qui attend en jeu —
+// c'est ce qui fait qu'un lien collé dans WhatsApp donne envie de cliquer.
+// Simple remplacement de chaînes sur le HTML déjà buildé (aucun template
+// engine à maintenir), donc doit rester avant `express.static` pour
+// intercepter la racine avant qu'elle ne serve index.html telle quelle.
+app.get('/', (req, res, next) => {
+  const ami = typeof req.query.ami === 'string'
+    ? req.query.ami.trim().slice(0, 16).replace(/[^\p{L}\p{N} _.-]/gu, '')
+    : '';
+  if (!ami) return next();
+  const indexPath = path.join(distDir, 'index.html');
+  if (!fs.existsSync(indexPath)) return next();
+  let html = fs.readFileSync(indexPath, 'utf8');
+  const safeAmi = escapeHtml(ami);
+  html = html
+    .replace(/LYON ARCADE — Lyon en low-poly, multijoueur, dans ton navigateur/g,
+      `${safeAmi} t’attend à Bellecour ! Rejoins-le sur LYON ARCADE`)
+    .replace(/Tague Bellecour, pilote un avion, chevauche le silure, refais le monde en musique sur les quais[^"]*/g,
+      `${safeAmi} est déjà en ville. Un clic pour le rejoindre — Lyon en low-poly, direct dans le navigateur.`)
+    .replace(/<title>[^<]*<\/title>/, `<title>${safeAmi} t’attend en jeu — LYON ARCADE</title>`);
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  res.send(html);
+});
 
 // IMPORTANT : la carte OSM est servie EN PRIORITÉ depuis client/public (là où
 // `node tools/fetch-osm.mjs` l'écrit), pas depuis le build. Ainsi, régénérer

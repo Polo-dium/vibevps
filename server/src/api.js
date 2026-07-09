@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { db, q, insertTagWithLimit } from './db.js';
 import { aiAvailable, generateGame } from './ai.js';
 import { broadcast } from './ws.js';
+import { bumpDaily, getDailyStatus } from './daily.js';
 
 export const api = Router();
 
@@ -160,8 +161,9 @@ api.post('/scores', auth, (req, res) => {
   q.addXp.run(xpGain, req.player.id);
   const leaderboard = q.leaderboard.all(game.id);
   broadcast({ t: 'leaderboard', gameId: game.id, rows: leaderboard });
+  const daily = bumpDaily(req.player.id, 'arcade');
   res.json({
-    ok: true, leaderboard, xpGain,
+    ok: true, leaderboard, xpGain, daily,
     xp: q.playerProgress.get(req.player.id).xp,
   });
 });
@@ -237,8 +239,15 @@ api.post('/tags', auth, (req, res) => {
   const progress = q.playerProgress.get(req.player.id);
   q.addScore.run(req.player.id, 'graff', progress.tags_posted, null, Date.now());
   broadcast({ t: 'leaderboard', gameId: 'graff', rows: q.leaderboard.all('graff') });
+  const daily = bumpDaily(req.player.id, 'tag');
 
-  res.json({ tag, xp: progress.xp, xpGain: 15 });
+  res.json({ tag, xp: progress.xp, xpGain: 15, daily });
+});
+
+// --- Défis quotidiens ------------------------------------------------------
+
+api.get('/daily', auth, (req, res) => {
+  res.json(getDailyStatus(req.player.id));
 });
 
 // --- Génération IA de nouvelles bornes -----------------------------------

@@ -57,6 +57,18 @@ CREATE TABLE IF NOT EXISTS tags (
   size REAL NOT NULL,
   created_at INTEGER NOT NULL
 );
+
+-- Défis quotidiens : compteurs du jour par joueur (remis à zéro chaque
+-- nouvelle date, une ligne par jour joué — pas de purge nécessaire, le
+-- volume reste minuscule).
+CREATE TABLE IF NOT EXISTS daily_progress (
+  player_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  tag INTEGER NOT NULL DEFAULT 0,
+  kill INTEGER NOT NULL DEFAULT 0,
+  arcade INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (player_id, date)
+);
 `);
 
 // Bornes intégrées : le HTML vit côté client, on ne stocke que les
@@ -82,6 +94,9 @@ for (const col of [
   `tags_posted INTEGER NOT NULL DEFAULT 0`,
   `kills_total INTEGER NOT NULL DEFAULT 0`,
   `pin_hash TEXT`, // code secret (haché) pour retrouver son pseudo ailleurs
+  `streak_current INTEGER NOT NULL DEFAULT 0`, // défis quotidiens : série en cours
+  `streak_best INTEGER NOT NULL DEFAULT 0`,
+  `streak_last_date TEXT`, // dernier jour où les 3 défis ont été bouclés
 ]) {
   try {
     db.exec(`ALTER TABLE players ADD COLUMN ${col}`);
@@ -161,6 +176,20 @@ export const q = {
   ),
   bestScoresByPlayer: db.prepare(
     `SELECT game_id, MAX(score) AS score FROM scores WHERE player_id = ? GROUP BY game_id`
+  ),
+
+  // Défis quotidiens
+  playerById: db.prepare(`SELECT * FROM players WHERE id = ?`),
+  dailyProgress: db.prepare(
+    `SELECT tag, kill, arcade FROM daily_progress WHERE player_id = ? AND date = ?`
+  ),
+  bumpDailyProgress: db.prepare(
+    `INSERT INTO daily_progress (player_id, date, tag, kill, arcade) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(player_id, date) DO UPDATE SET
+       tag = tag + excluded.tag, kill = kill + excluded.kill, arcade = arcade + excluded.arcade`
+  ),
+  setStreak: db.prepare(
+    `UPDATE players SET streak_current = ?, streak_best = ?, streak_last_date = ? WHERE id = ?`
   ),
 };
 

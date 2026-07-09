@@ -5,6 +5,7 @@ let ws = null;
 let sendTimer = null;
 let getLocalState = null;
 let closedByUs = false;
+let joinExtra = {};
 
 export function on(type, fn) {
   if (!listeners.has(type)) listeners.set(type, new Set());
@@ -19,8 +20,11 @@ export function send(obj) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
 }
 
-export function connect(stateProvider) {
+// `extra` : champs additionnels fusionnés dans le message `join` — sert au
+// lien d'invitation (?ami=Pseudo), voir main.js.
+export function connect(stateProvider, extra = {}) {
   getLocalState = stateProvider;
+  joinExtra = extra;
   open();
 }
 
@@ -29,7 +33,7 @@ function open() {
   ws = new WebSocket(`${proto}://${location.host}/ws`);
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({ t: 'join', token: state.auth.token }));
+    ws.send(JSON.stringify({ t: 'join', token: state.auth.token, ...joinExtra }));
     if (sendTimer) clearInterval(sendTimer);
     sendTimer = setInterval(() => {
       if (ws?.readyState !== WebSocket.OPEN || !getLocalState) return;

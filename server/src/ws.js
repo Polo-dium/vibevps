@@ -1,6 +1,7 @@
 import { WebSocketServer } from 'ws';
 import crypto from 'node:crypto';
 import { q } from './db.js';
+import { bumpDaily } from './daily.js';
 
 const TICK_MS = 66; // ~15 Hz
 const HIT_DAMAGE = 25;
@@ -53,9 +54,28 @@ export function setupWs(httpServer) {
         const others = [...players.entries()].map(([oid, o]) => ({
           id: oid, name: o.name, p: o.p, ry: o.ry,
         }));
+
+        // Lien d'invitation (?ami=Pseudo) : si l'ami est déjà en ligne, on
+        // renvoie sa position pour que le nouveau venu atterrisse à côté de
+        // lui, et on le prévient directement — l'arrivée par lien devient
+        // instantanée, ni recherche ni rendez-vous à l'aveugle.
+        let friend = null;
+        const wantedAmi = String(msg.ami ?? '').trim().toLowerCase().slice(0, 16);
+        if (wantedAmi) {
+          for (const [oid, o] of players) {
+            if (o.name.toLowerCase() === wantedAmi) { friend = { id: oid, name: o.name, p: o.p }; break; }
+          }
+        }
+
         players.set(id, entry);
-        ws.send(JSON.stringify({ t: 'hello', id, players: others }));
+        ws.send(JSON.stringify({ t: 'hello', id, players: others, friend }));
         broadcast({ t: 'pjoin', id, name: player.name, p: entry.p, ry: 0 }, id);
+        if (friend) {
+          const friendEntry = players.get(friend.id);
+          if (friendEntry?.ws.readyState === friendEntry.ws.OPEN) {
+            friendEntry.ws.send(JSON.stringify({ t: 'friendArrived', name: player.name }));
+          }
+        }
         return;
       }
 
@@ -119,6 +139,12 @@ export function setupWs(httpServer) {
             q.addXp.run(50, me.playerId);
             q.bumpKills.run(me.playerId);
             broadcast({ t: 'leaderboard', gameId: 'pvp', rows: q.leaderboard.all('pvp') });
+            // Défi quotidien « duels » : notifié seulement au tueur (les
+            // autres champs de `daily` ne les concernent pas)
+            const daily = bumpDaily(me.playerId, 'kill');
+            if (daily && me.ws.readyState === me.ws.OPEN) {
+              me.ws.send(JSON.stringify({ t: 'daily', ...daily }));
+            }
           } catch (err) {
             console.error('Score PvP non enregistré :', err);
           }

@@ -20,6 +20,7 @@ export function createUi() {
       <span id="xp-level">NIV 1</span>
       <div id="xp-bar"><div id="xp-fill"></div></div>
     </div>
+    <div id="hud-daily" class="hidden" title="Défis du jour (L)">🎯 0/3</div>
     <div id="levelbanner" class="hidden"></div>
     <div id="mic-indicator" class="hidden">🎤 EN DIRECT</div>
     <div id="chatfeed"></div>
@@ -284,8 +285,13 @@ export function createUi() {
 
   // --- Page d'accueil : compte, code secret, invitation ---
   async function invite() {
-    const url = location.origin;
-    const text = 'Viens jouer à LYON ARCADE avec moi ! Lyon en low-poly : graffiti, bornes d’arcade, avions, PvP 🎮';
+    // ?ami=<mon pseudo> : quiconque ouvre ce lien atterrit à côté de moi si
+    // je suis en ligne (voir main.js/ws.js) — l'invitation devient littérale.
+    const name = state.auth?.name;
+    const url = name ? `${location.origin}/?ami=${encodeURIComponent(name)}` : location.origin;
+    const text = name
+      ? `${name} t’attend à Bellecour sur LYON ARCADE ! Clique et tu spawn à côté de moi 🎮`
+      : 'Viens jouer à LYON ARCADE avec moi ! Lyon en low-poly : graffiti, bornes d’arcade, avions, PvP 🎮';
     try {
       if (navigator.share) {
         await navigator.share({ title: 'LYON ARCADE', text, url });
@@ -420,7 +426,9 @@ export function createUi() {
   lbOverlay.className = 'overlay hidden';
   lbOverlay.innerHTML = `
     <div class="panel" style="width:900px;">
-      <h2>CLASSEMENTS</h2>
+      <h2>🎯 DÉFIS DU JOUR <span id="daily-streak"></span></h2>
+      <div id="daily-grid"></div>
+      <h2 style="margin-top:16px;">CLASSEMENTS</h2>
       <div id="lb-grid"></div>
       <h2 style="margin-top:16px;">🏆 SUCCÈS</h2>
       <div id="ach-grid"></div>
@@ -430,6 +438,37 @@ export function createUi() {
     </div>`;
   document.body.appendChild(lbOverlay);
   lbOverlay.querySelector('#lb-close').onclick = () => toggleLeaderboards(false);
+
+  // --- Défis quotidiens : badge compact + panneau détaillé -----------------
+  const dailyBadge = hud.querySelector('#hud-daily');
+  dailyBadge.addEventListener('click', () => toggleLeaderboards());
+  let lastDaily = null;
+  function setDaily(status) {
+    if (!status) return;
+    lastDaily = status;
+    const done = status.challenges.filter((c) => c.done).length;
+    dailyBadge.textContent = `🎯 ${done}/${status.challenges.length}${status.streak ? ` · 🔥${status.streak}` : ''}`;
+    dailyBadge.classList.remove('hidden');
+    dailyBadge.classList.toggle('all-done', status.allDone);
+    renderDaily();
+  }
+  function renderDaily() {
+    if (!lastDaily) return;
+    const streakEl = lbOverlay.querySelector('#daily-streak');
+    streakEl.textContent = lastDaily.streak > 0
+      ? `· 🔥 série de ${lastDaily.streak} jour${lastDaily.streak > 1 ? 's' : ''} (record ${lastDaily.bestStreak})`
+      : '· reviens chaque jour pour lancer ta série !';
+    const grid = lbOverlay.querySelector('#daily-grid');
+    grid.innerHTML = lastDaily.challenges.map((c) => `
+      <div class="daily-card${c.done ? ' done' : ''}">
+        <span class="daily-icon">${c.done ? '✅' : c.icon}</span>
+        <div class="daily-body">
+          <div>${escapeHtml(c.label)}</div>
+          <div class="daily-bar"><div class="daily-fill" style="width:${Math.round((c.progress / c.target) * 100)}%"></div></div>
+        </div>
+        <span class="daily-count">${c.progress}/${c.target}</span>
+      </div>`).join('');
+  }
 
   function renderLeaderboards() {
     const grid = lbOverlay.querySelector('#lb-grid');
@@ -471,6 +510,7 @@ export function createUi() {
   function toggleLeaderboards(force) {
     const show = force ?? lbOverlay.classList.contains('hidden');
     if (show) {
+      renderDaily();
       renderLeaderboards();
       renderAchievements();
       // Rafraîchit depuis le serveur puis met à jour l'affichage
@@ -629,7 +669,7 @@ export function createUi() {
   return {
     ensureAuth, invite, toast, setPrompt, onPromptTap, setInfo, setRange, setAmmo,
     setHp, damageFlash, killBanner, setTagMode, hitmarker, deathScreen,
-    setXp, spawnConfetti, achievementUnlocked, bindProgress,
+    setXp, spawnConfetti, achievementUnlocked, bindProgress, setDaily,
     toggleLeaderboards, openCreator, toggleAdmin, closeTopOverlay,
     openChat, onChatSend, addChatLine, setMicState,
   };

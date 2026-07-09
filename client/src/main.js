@@ -31,6 +31,10 @@ async function boot() {
   const ui = createUi();
   await ui.ensureAuth();
 
+  // Lien d'invitation (?ami=Pseudo) : si l'ami est en ligne, le serveur nous
+  // renvoie sa position dans le message 'hello' et on atterrit à côté de lui
+  const inviteFriend = new URLSearchParams(location.search).get('ami');
+
   // État partagé du monde
   const worldState = await apiFetch('/state');
   state.games = worldState.games;
@@ -301,6 +305,29 @@ async function boot() {
   ui.bindProgress(progress);
   progress.refresh(); // restaure la barre d'XP et les succès déjà gagnés
 
+  // --- Défis quotidiens : 3 objectifs (tag/duel/arcade) + série façon
+  // Wordle. `applyDaily` réagit aux réponses serveur (POST /tags, /scores,
+  // ou message ws 'daily' pour les kills PvP) — toujours la même forme
+  // { status, justCompleted, streakBonus }.
+  function applyDaily(result) {
+    if (!result?.status) return;
+    ui.setDaily(result.status);
+    for (const type of result.justCompleted ?? []) {
+      const c = result.status.challenges.find((x) => x.type === type);
+      if (c) ui.toast(`✅ Défi accompli : ${c.icon} ${c.label}`);
+    }
+    if (result.streakBonus) {
+      const n = result.status.streak;
+      ui.toast(`🔥 Série de ${n} jour${n > 1 ? 's' : ''} ! +60 XP — reviens demain !`);
+      ui.spawnConfetti(30);
+      audio.reward();
+      progress.refresh();
+    } else if (result.justCompleted?.length) {
+      audio.reward();
+    }
+  }
+  apiFetch('/daily').then((s) => ui.setDaily(s)).catch(() => {});
+
   const shell = createGameShell({
     onToast: ui.toast,
     onXp: (xp, xpGain) => {
@@ -309,6 +336,7 @@ async function boot() {
       if (xpGain) ui.toast(`+${xpGain} XP`);
       progress.refresh();
     },
+    onDaily: applyDaily,
   });
   const arcade = buildArcade(ctx, {
     onPlayGame: (game) => shell.open(game),
@@ -330,6 +358,7 @@ async function boot() {
           ui.setXp(res.xp);
           audio.reward();
         }
+        applyDaily(res.daily);
         progress.refresh();
       } catch (err) {
         ui.toast('Score non enregistré : ' + err.message);
@@ -344,7 +373,7 @@ async function boot() {
   );
   // Hook de debug (derrière ?debug) : téléportation/inspection pour les tests
   if (new URLSearchParams(location.search).has('debug')) {
-    window.__game = { controls, ctx, state, camera };
+    window.__game = { controls, ctx, state, camera, ui };
   }
   const weapon = createWeapon(camera, scene, ctx.shootables, {
     onAmmoChange: (ammo, reloading, spec) => ui.setAmmo(ammo, reloading, state.weaponEquipped, spec),
@@ -388,6 +417,7 @@ async function boot() {
         audio.reward();
       }
       progress.refresh();
+      applyDaily(res.daily);
     },
   });
   spray.loadExisting(state.tags);
@@ -544,7 +574,26 @@ async function boot() {
 
   // --- PvP ---
   let myNetId = null;
-  net.on('hello', (msg) => { myNetId = msg.id; ui.setHp(100); });
+  net.on('hello', (msg) => {
+    myNetId = msg.id;
+    ui.setHp(100);
+    // Lien d'invitation honoré : l'ami demandé est en ligne, on atterrit
+    // juste à côté de lui (petit décalage aléatoire pour ne pas se superposer)
+    if (msg.friend) {
+      const [fx, fy, fz] = msg.friend.p;
+      const a = Math.random() * Math.PI * 2;
+      controls.teleport(fx + Math.cos(a) * 2.6, fy, fz + Math.sin(a) * 2.6);
+      ui.toast(`👋 Tu as atterri à côté de ${msg.friend.name} !`);
+    } else if (inviteFriend) {
+      ui.toast(`${inviteFriend} n'est pas encore en ville — tu le rejoindras dès qu'il arrive.`);
+    }
+  });
+  net.on('friendArrived', (msg) => {
+    ui.toast(`🎉 ${msg.name} vient d'arriver grâce à ton invitation !`);
+    ui.spawnConfetti(20);
+    audio.reward();
+  });
+  net.on('daily', applyDaily);
   // Notification quand un gone se connecte ou s'en va (le nom vient de pjoin)
   const onlineNames = new Map(); // id -> name
   net.on('pjoin', (msg) => {
@@ -626,7 +675,7 @@ async function boot() {
   });
 
   // --- Réseau ---
-  net.connect(() => controls.netState());
+  net.connect(() => controls.netState(), inviteFriend ? { ami: inviteFriend } : {});
   net.on('game', (msg) => {
     state.games.push(msg.game);
     state.leaderboards[msg.game.id] = [];

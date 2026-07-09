@@ -350,6 +350,47 @@ button.ghost {
   #hud-xp { left: 14px; bottom: 142px; }
 }
 
+/* Badge des défis quotidiens (à côté de la barre d'XP) */
+#hud-daily {
+  position: absolute; left: 160px; bottom: 132px;
+  font-family: monospace; font-weight: 800; font-size: 13px;
+  color: #cfe9ff;
+  background: rgba(10, 14, 28, 0.7);
+  border: 1px solid rgba(127, 216, 255, 0.4);
+  border-radius: 12px;
+  padding: 3px 10px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+#hud-daily.all-done {
+  color: #ffd56b;
+  border-color: rgba(255, 213, 107, 0.6);
+  box-shadow: 0 0 10px rgba(255, 200, 80, 0.25);
+}
+@media (pointer: coarse) {
+  #hud-daily { bottom: 142px; }
+}
+
+/* Panneau des défis quotidiens (dans l'overlay classements) */
+#daily-streak { color: #ffb347; font-size: 13px; font-weight: 600; }
+#daily-grid { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.daily-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 12px; border-radius: 8px;
+  background: rgba(12, 16, 30, 0.6);
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+.daily-card.done { border-color: rgba(0, 255, 213, 0.5); background: rgba(0, 255, 213, 0.06); }
+.daily-icon { font-size: 20px; width: 26px; text-align: center; flex-shrink: 0; }
+.daily-body { flex: 1; }
+.daily-bar {
+  width: 100%; height: 6px; border-radius: 3px; margin-top: 4px;
+  background: rgba(255, 255, 255, 0.08); overflow: hidden;
+}
+.daily-fill { height: 100%; background: linear-gradient(90deg, #00ffd5, #7fd8ff); }
+.daily-count { color: #8fa4b8; font-size: 12px; flex-shrink: 0; }
+
 /* Bannière de passage de niveau */
 #levelbanner {
   position: absolute; left: 50%; top: 32%;
