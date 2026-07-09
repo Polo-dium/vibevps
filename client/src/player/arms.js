@@ -28,11 +28,17 @@ function mirror(pose) {
   };
 }
 
+// Le poing est le bout de l'avant-bras (z le plus négatif, donc le plus
+// proche du canon) ; le reste (avant-bras puis manche) remonte vers la
+// caméra, donc vers l'épaule — c'est ce décalage qu'il faut compenser
+// quand on accroche le poing pile sur un point de préhension de l'arme.
+const HAND_LOCAL_Z = -0.35;
+
 function buildArm() {
   const group = new THREE.Group();
   const skinMat = new THREE.MeshLambertMaterial({ color: SKIN });
   const sleeveMat = new THREE.MeshLambertMaterial({ color: SLEEVE });
-  // Manche (proche de la caméra)
+  // Manche (proche de la caméra, donc de l'épaule)
   const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.22), sleeveMat);
   sleeve.position.z = 0.03;
   group.add(sleeve);
@@ -41,21 +47,22 @@ function buildArm() {
   forearm.position.z = -0.2;
   group.add(forearm);
   const hand = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.075, 0.12), skinMat);
-  hand.position.z = -0.35;
+  hand.position.z = HAND_LOCAL_Z;
   group.add(hand);
   const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.075), skinMat);
-  thumb.position.set(0, 0.045, -0.32);
+  thumb.position.set(0, 0.045, HAND_LOCAL_Z + 0.03);
   group.add(thumb);
   return group;
 }
 
-// Poignée pistolet / chargeur de l'AK, repères locaux au porte-arme (voir
-// buildAkModel dans weapon.js) : la main droite s'y accroche en vrai enfant
-// du groupe plutôt que de recopier une position à la main chaque frame —
-// elle hérite alors du recul/balancement/plongeon de rechargement sans
-// AUCUN calcul de synchro, quelle que soit l'arme en main.
-const GRIP_R = { pos: [0.02, -0.11, -0.02], rot: [0.15, -0.1, 0] };
-const GRIP_L = { pos: [-0.01, -0.06, -0.36], rot: [0.1, 0.15, 0] }; // garde-main
+// Poignée pistolet / garde-main de l'AK, repères locaux au porte-arme (voir
+// buildAkModel dans weapon.js) : le POING (pas l'origine du groupe bras) doit
+// tomber pile sur ces coordonnées — voir la compensation HAND_LOCAL_Z dans
+// update(). La main droite/gauche s'accroche en vrai enfant du groupe plutôt
+// que de recopier une position à la main chaque frame — elle hérite alors du
+// recul/balancement/plongeon de rechargement sans AUCUN calcul de synchro.
+const GRIP_R = { pos: [0.02, -0.09, -0.02], rot: [0.15, -0.1, 0] }; // poignée pistolet
+const GRIP_L = { pos: [-0.01, -0.03, -0.4], rot: [0.1, 0.15, 0] }; // garde-main
 
 export function createArms(camera) {
   const right = buildArm();
@@ -94,9 +101,12 @@ export function createArms(camera) {
         weaponHolder.add(right, left);
         attachedTo = weaponHolder;
       }
-      right.position.set(...GRIP_R.pos);
+      // On positionne l'ORIGINE du groupe bras (pas le poing) : décalée en
+      // arrière de HAND_LOCAL_Z pour que ce soit bien le poing qui tombe sur
+      // le point de préhension, et pas le milieu de l'avant-bras.
+      right.position.set(GRIP_R.pos[0], GRIP_R.pos[1], GRIP_R.pos[2] - HAND_LOCAL_Z);
       right.rotation.set(...GRIP_R.rot);
-      left.position.set(...GRIP_L.pos);
+      left.position.set(GRIP_L.pos[0], GRIP_L.pos[1], GRIP_L.pos[2] - HAND_LOCAL_Z);
       left.rotation.set(...GRIP_L.rot);
       return;
     }
@@ -111,12 +121,16 @@ export function createArms(camera) {
     lerpTo(cur.l, mirror(RIGHT_POSES[target]), k);
 
     bobTime += dt * (isMoving ? 9 : 1.6);
-    const bobX = Math.sin(bobTime) * (isMoving ? 0.012 : 0.003);
-    const bobY = Math.abs(Math.cos(bobTime)) * (isMoving ? 0.01 : 0.003);
+    const bobAmp = isMoving ? 0.012 : 0.003;
+    const bobX = Math.sin(bobTime) * bobAmp;
+    // Bras en opposition de phase : quand l'un descend l'autre remonte,
+    // comme un vrai balancement de marche — au lieu de plonger ensemble.
+    const bobYr = Math.sin(bobTime) * bobAmp;
+    const bobYl = -bobYr;
 
-    right.position.set(cur.r.pos.x + bobX, cur.r.pos.y - bobY, cur.r.pos.z);
+    right.position.set(cur.r.pos.x + bobX, cur.r.pos.y + bobYr, cur.r.pos.z);
     right.rotation.set(cur.r.rot.x, cur.r.rot.y, cur.r.rot.z);
-    left.position.set(cur.l.pos.x - bobX, cur.l.pos.y - bobY, cur.l.pos.z);
+    left.position.set(cur.l.pos.x - bobX, cur.l.pos.y + bobYl, cur.l.pos.z);
     left.rotation.set(cur.l.rot.x, cur.l.rot.y, cur.l.rot.z);
   }
 
