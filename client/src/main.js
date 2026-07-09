@@ -27,6 +27,7 @@ import { createGameShell } from './games/shell.js';
 import { createUi } from './ui/hud.js';
 import { createProgress } from './progress.js';
 import { createCapture } from './capture.js';
+import { createQuality } from './quality.js';
 
 async function boot() {
   const ui = createUi();
@@ -43,12 +44,16 @@ async function boot() {
   state.tags = worldState.tags;
 
   // --- Scène Three.js ---
-  // Ombres dynamiques sur desktop ; désactivées sur mobile pour la fluidité
-  const SHADOWS = !IS_TOUCH;
+  // Qualité graphique : 3 paliers (bas/moyen/élevé), auto-détectés puis
+  // ajustables à la volée (touche O) — voir quality.js. Les ombres restent
+  // le plus gros poste de coût sur un GPU intégré, bien plus que le nombre
+  // de triangles de la ville (identique à tous les paliers).
+  const quality = createQuality(IS_TOUCH);
+  const SHADOWS = quality.preset.shadows;
 
-  const renderer = new THREE.WebGLRenderer({ antialias: !IS_TOUCH, powerPreference: 'high-performance' });
-  // Sur mobile on plafonne la résolution interne : moins de pixels à calculer
-  const maxRatio = IS_TOUCH ? 1.5 : 2;
+  const renderer = new THREE.WebGLRenderer({
+    antialias: !IS_TOUCH && quality.level !== 'bas', powerPreference: 'high-performance',
+  });
   function viewSize() {
     const vv = window.visualViewport;
     return {
@@ -58,13 +63,11 @@ async function boot() {
   }
   const v0 = viewSize();
   renderer.setSize(v0.w, v0.h);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxRatio));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.preset.pixelRatio));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.12;
-  if (SHADOWS) {
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  }
+  renderer.shadowMap.enabled = SHADOWS;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   document.querySelector('#app').appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -114,18 +117,35 @@ async function boot() {
   scene.add(sun.target);
   const HEMI_MAX = SHADOWS ? 0.75 : 1.05;
   const SUN_MAX = SHADOWS ? 2.0 : 1.7;
-  if (SHADOWS) {
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    const d = 95;
-    sun.shadow.camera.left = -d;
-    sun.shadow.camera.right = d;
-    sun.shadow.camera.top = d;
-    sun.shadow.camera.bottom = -d;
-    sun.shadow.camera.near = 10;
-    sun.shadow.camera.far = 420;
-    sun.shadow.bias = -0.0006;
-  }
+  // Toujours configurée (même si les ombres démarrent désactivées) pour que
+  // la touche O puisse les rallumer plus tard sans réglage à moitié fait.
+  sun.castShadow = SHADOWS;
+  sun.shadow.mapSize.set(quality.preset.shadowMapSize, quality.preset.shadowMapSize);
+  const SHADOW_D = 95;
+  sun.shadow.camera.left = -SHADOW_D;
+  sun.shadow.camera.right = SHADOW_D;
+  sun.shadow.camera.top = SHADOW_D;
+  sun.shadow.camera.bottom = -SHADOW_D;
+  sun.shadow.camera.near = 10;
+  sun.shadow.camera.far = 420;
+  sun.shadow.bias = -0.0006;
+
+  // Applique un changement de palier en direct : résolution interne, ombres
+  // on/off, et régénération de la shadow map si sa résolution a changé.
+  // shadowsEnabled (contrairement à SHADOWS, figée au démarrage) suit l'état
+  // courant : c'est elle que lit la boucle jour/nuit plus bas.
+  let shadowsEnabled = SHADOWS;
+  quality.onChange((preset) => {
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatio));
+    renderer.shadowMap.enabled = preset.shadows;
+    shadowsEnabled = preset.shadows;
+    sun.castShadow = preset.shadows;
+    if (preset.shadows && sun.shadow.mapSize.width !== preset.shadowMapSize) {
+      sun.shadow.mapSize.set(preset.shadowMapSize, preset.shadowMapSize);
+      sun.shadow.map?.dispose();
+      sun.shadow.map = null;
+    }
+  });
 
   // Soleil et lune visibles dans le ciel (même direction que la lumière)
   const sunMesh = new THREE.Mesh(
@@ -279,7 +299,7 @@ async function boot() {
     sun.intensity = SUN_MAX * daylight + 0.3 * env.night; // clair de lune la nuit
     sun.color.copy(ENV_DAY.sun).lerp(DUSK_TINT, dusk * 0.7)
       .lerp(ENV_NIGHT.sun, env.night);
-    if (SHADOWS) sun.castShadow = daylight > 0.04;
+    if (shadowsEnabled) sun.castShadow = daylight > 0.04;
 
     // La lumière vient du soleil le jour, de la lune la nuit
     if (elev >= 0.02) _lightDir.copy(env.sunDir);
@@ -374,7 +394,7 @@ async function boot() {
   );
   // Hook de debug (derrière ?debug) : téléportation/inspection pour les tests
   if (new URLSearchParams(location.search).has('debug')) {
-    window.__game = { controls, ctx, state, camera, ui };
+    window.__game = { controls, ctx, state, camera, ui, renderer, quality };
   }
   const weapon = createWeapon(camera, scene, ctx.shootables, {
     onAmmoChange: (ammo, reloading, spec) => ui.setAmmo(ammo, reloading, state.weaponEquipped, spec),
@@ -559,15 +579,16 @@ async function boot() {
     }
   }
 
-  // Active les ombres sur tout le monde statique déjà construit
-  if (SHADOWS) {
-    scene.traverse((o) => {
-      if (o.isMesh && !o.userData.noShadow) {
-        o.castShadow = true;
-        o.receiveShadow = true;
-      }
-    });
-  }
+  // Active les drapeaux castShadow/receiveShadow sur tout le monde statique
+  // déjà construit — TOUJOURS (même si les ombres démarrent désactivées),
+  // sinon la touche O ne pourrait jamais les rallumer plus tard : c'est
+  // renderer.shadowMap.enabled qui pilote le coût réel, pas ces drapeaux.
+  scene.traverse((o) => {
+    if (o.isMesh && !o.userData.noShadow) {
+      o.castShadow = true;
+      o.receiveShadow = true;
+    }
+  });
 
   // Peinture à main levée : clic maintenu en mode bombe
   window.addEventListener('mousedown', (e) => {
@@ -732,6 +753,10 @@ async function boot() {
     if (e.code === 'KeyL') ui.toggleLeaderboards();
     if (e.code === 'KeyP') ui.toggleAdmin();
     if (e.code === 'KeyV') voice.toggleMic();
+    if (e.code === 'KeyO') {
+      const lvl = quality.cycle();
+      ui.toast(`🖥️ Graphismes : ${quality.label} — ${lvl === 'bas' ? 'ombres coupées, plus fluide' : lvl === 'moyen' ? 'ombres légères' : 'ombres complètes'} (O pour changer)`);
+    }
     if (e.code === 'KeyX' && state.isAdmin) {
       spray.deleteAimedTag().then((res) => {
         ui.toast(res.ok ? '🗑 Tag supprimé.' : res.error);
@@ -887,6 +912,13 @@ async function boot() {
   loop();
 
   ui.toast('Bienvenue à Lyon ! La salle d’arcade est au nord de Bellecour.');
+  // Signale le palier auto-détecté seulement s'il a réduit la qualité (rien
+  // à dire pour une machine costaud qui tourne déjà en Élevé par défaut).
+  if (quality.level !== 'eleve') {
+    setTimeout(() => {
+      ui.toast(`🖥️ Graphismes réglés sur ${quality.label} pour rester fluide — touche O pour changer.`);
+    }, 4000);
+  }
 }
 
 boot().catch((err) => {
@@ -957,8 +989,11 @@ function buildJetpackViewModel() {
     nozzle.position.set(dx, -0.24, 0);
     g.add(nozzle);
   }
-  // Bas de la vue, légèrement décalé : straps posés sur les épaules
-  g.position.set(0, -0.42, -0.5);
-  g.rotation.set(0.25, 0, 0);
+  // Porté dans le dos, pas tenu devant le visage : bas de l'écran, penché
+  // vers l'arrière (comme un vrai sac sanglé aux épaules). On ne voit jamais
+  // son propre dos en vue subjective — juste un coin de bretelles/bonbonnes
+  // qui dépasse en bas de cadre, comme le reste de l'équipement porté.
+  g.position.set(0, -0.5, -0.28);
+  g.rotation.set(-0.35, 0, 0);
   return g;
 }

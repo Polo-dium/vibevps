@@ -5,20 +5,22 @@ import * as THREE from 'three';
 // reflétée en X pour la gauche) — évite l'incohérence d'une paire asymétrique
 // réglée à la main des deux côtés séparément.
 //
-// En mode arme, la main droite ne vise plus une pose fixe : elle recopie
-// CHAQUE FRAME la position/rotation réelle du porte-arme (weapon.js expose
-// `holder`), donc elle suit pile le recul, le balancement de course, le
-// plongeon de rechargement et le coup de marteau — plus de main qui reste
-// figée pendant que l'arme part en arrière au tir.
+// En mode arme, les mains deviennent de VRAIS enfants du porte-arme
+// (weapon.js expose `holder`) au lieu de viser une pose fixe : elles
+// héritent alors du recul, du balancement de course, du plongeon de
+// rechargement et du coup de marteau sans aucun calcul de synchro — plus
+// de main qui reste figée pendant que l'arme part en arrière au tir.
 const SKIN = 0xe8c39e;
 const SLEEVE = 0x3c4a5e; // manche de blouson, assortie au reste du perso
 
-// Poses canoniques côté DROIT uniquement (position du poignet + rotation).
-// Le côté gauche est dérivé par mirror() ci-dessous.
+// Poses canoniques côté DROIT uniquement (position DE L'ORIGINE DU GROUPE,
+// pas du poignet — avec l'avant-bras un peu rallongé pour le mode arme,
+// +0,1 en z compense pour que le bout des doigts tombe au même endroit
+// qu'avant). Le côté gauche est dérivé par mirror() ci-dessous.
 const RIGHT_POSES = {
-  idle: { pos: [0.15, -0.32, -0.32], rot: [0.5, -0.2, 0.12] },
-  boombox: { pos: [-0.14, -0.28, -0.5], rot: [0.4, -0.55, 0.18] },
-  jetpack: { pos: [0.14, -0.16, -0.28], rot: [0.15, -0.35, 0.22] },
+  idle: { pos: [0.15, -0.32, -0.22], rot: [0.5, -0.2, 0.12] },
+  boombox: { pos: [-0.14, -0.28, -0.4], rot: [0.4, -0.55, 0.18] },
+  jetpack: { pos: [0.14, -0.16, -0.18], rot: [0.15, -0.35, 0.22] },
 };
 
 function mirror(pose) {
@@ -32,7 +34,11 @@ function mirror(pose) {
 // proche du canon) ; le reste (avant-bras puis manche) remonte vers la
 // caméra, donc vers l'épaule — c'est ce décalage qu'il faut compenser
 // quand on accroche le poing pile sur un point de préhension de l'arme.
-const HAND_LOCAL_Z = -0.35;
+// Avant-bras rallongé pour que le poing puisse atteindre le MILIEU de
+// l'arme (pas juste la poignée pistolet toute proche du corps) tout en
+// laissant la manche proche de l'épaule — sinon tout le bras suit le poing
+// vers l'avant et on perd le raccord avec le corps.
+const HAND_LOCAL_Z = -0.45;
 
 function buildArm() {
   const group = new THREE.Group();
@@ -42,9 +48,11 @@ function buildArm() {
   const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.22), sleeveMat);
   sleeve.position.z = 0.03;
   group.add(sleeve);
-  // Avant-bras nu (manche retroussée), puis main légèrement plus large + pouce
-  const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.088, 0.088, 0.2), skinMat);
-  forearm.position.z = -0.2;
+  // Avant-bras nu (manche retroussée), puis main légèrement plus large + pouce.
+  // Comble tout l'écart entre la manche et la main (voir HAND_LOCAL_Z).
+  const forearmLen = (sleeve.position.z - 0.11) - (HAND_LOCAL_Z + 0.06);
+  const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.088, 0.088, forearmLen), skinMat);
+  forearm.position.z = (sleeve.position.z - 0.11 + HAND_LOCAL_Z + 0.06) / 2;
   group.add(forearm);
   const hand = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.075, 0.12), skinMat);
   hand.position.z = HAND_LOCAL_Z;
@@ -61,7 +69,10 @@ function buildArm() {
 // update(). La main droite/gauche s'accroche en vrai enfant du groupe plutôt
 // que de recopier une position à la main chaque frame — elle hérite alors du
 // recul/balancement/plongeon de rechargement sans AUCUN calcul de synchro.
-const GRIP_R = { pos: [0.02, -0.09, -0.02], rot: [0.15, -0.1, 0] }; // poignée pistolet
+// GRIP_R vise le milieu du fusil (boîtier de culasse), pas la poignée
+// pistolet toute proche du corps — plus cohérent visuellement pour toutes
+// les armes (pas juste l'AK) qui n'ont pas toutes une poignée au même endroit.
+const GRIP_R = { pos: [0.02, -0.05, -0.22], rot: [0.15, -0.1, 0] };
 const GRIP_L = { pos: [-0.01, -0.03, -0.4], rot: [0.1, 0.15, 0] }; // garde-main
 
 export function createArms(camera) {
