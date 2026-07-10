@@ -2,14 +2,15 @@ import * as THREE from 'three';
 import { makeTextTexture } from './utils.js';
 
 // L'aviation lyonnaise ✈️
-// - L'avion-banderole d'anniversaire qui tourne au-dessus de la ville, calé
-//   sur Date.now() (horloge partagée : même position chez tous les joueurs,
-//   zéro trafic réseau — même motif que le silure et le cycle jour/nuit).
+// - L'avion-banderole qui tourne au-dessus de la ville, calé sur Date.now()
+//   (horloge partagée : même position chez tous les joueurs, zéro trafic
+//   réseau — même motif que le silure et le cycle jour/nuit).
 // - L'aérodrome de l'Est (le Lyon-Bron du pauvre) : piste, tour, hangar,
 //   manche à air, et des avions PILOTABLES (gaz Z, virage Q/D, ESPACE pour
 //   monter — physique dans player/controls.js, branche `v.plane`).
 
-const BANNER_TEXT = "BON ANNIVERSAIRE MON PETIT PAPA QUE J'AIME ❤";
+// Clin d'œil au silure géant qui remonte le Rhône toutes les 4 minutes
+const BANNER_TEXT = 'BAIGNADE INTERDITE : LE SILURE A ENCORE FAIM 🐟';
 
 // Petit coucou low-poly en primitives, nez vers -z (comme les voitures).
 // Réutilisé par remotes.js pour afficher les pilotes distants (veh: 2).

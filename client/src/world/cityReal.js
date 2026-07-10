@@ -919,8 +919,8 @@ function buildCountryside(ctx, bound, rand) {
 // Les Alpes à l'est, Mont Blanc en majesté — comme depuis les toits de la
 // Croix-Rousse par temps clair. Panorama PEINT en canvas (zéro asset, règle
 // du projet) sur un arc de cylindre au-delà des collines, hors brume (le
-// voile atmosphérique est peint dans la texture). Matériau Lambert : la
-// chaîne s'assombrit toute seule à la nuit avec le reste de l'éclairage.
+// voile atmosphérique est peint dans la texture), teinté par le cycle
+// jour/nuit (voir l'updatable plus bas).
 // Facultatif : déposer une vraie photo panoramique dans /pano/alpes.jpg sur
 // le VPS (comme /pano/fourviere.jpg) et elle remplace la version peinte.
 function buildAlps(ctx, bound, rand) {
@@ -930,14 +930,23 @@ function buildAlps(ctx, bound, rand) {
   canvas.height = H;
   const g = canvas.getContext('2d');
 
-  // Une chaîne = un profil en dents de scie (marche aléatoire), remplie d'un
-  // dégradé vertical : neige au sommet → roche → voile bleuté à la base.
-  function ridge(baseY, amp, snow, rock, haze, blanc = null) {
+  // Enveloppe latérale : les sommets culminent vers le centre du panorama
+  // et s'affaissent vers les extrémités — la chaîne MEURT à l'horizon au
+  // lieu de s'arrêter net, ce qui donne l'impression qu'elle continue.
+  function win(x) {
+    const t = x / W;
+    const s = Math.min(1, Math.min(t, 1 - t) / 0.24);
+    return s * s * (3 - 2 * s); // smoothstep
+  }
+
+  // Une chaîne = un profil en dents de scie (marche aléatoire × enveloppe),
+  // rempli d'un dégradé vertical : neige au sommet → roche → voile bleuté.
+  function ridge(baseY, amp, snow, rock, haze, blanc = null, jag = 0.85) {
     const pts = [];
-    let y = baseY;
-    for (let x = 0; x <= W; x += 12 + Math.floor(rand() * 18)) {
-      y = Math.min(baseY + 8, Math.max(baseY - amp, y + (rand() - 0.5) * amp * 0.9));
-      pts.push([x, y]);
+    let h = amp * 0.4; // hauteur au-dessus de la ligne de base (0..amp)
+    for (let x = 0; x <= W; x += 10 + Math.floor(rand() * 14)) {
+      h = Math.min(amp, Math.max(0, h + (rand() - 0.5) * amp * jag));
+      pts.push([x, baseY - h * win(x)]);
     }
     pts.push([W, baseY]);
     // Mont Blanc : un dôme large et haut aux deux tiers du panorama
@@ -945,15 +954,15 @@ function buildAlps(ctx, bound, rand) {
       const cx = W * 0.64;
       for (const p of pts) {
         const d = Math.abs(p[0] - cx) / (W * 0.075);
-        if (d < 1.6) p[1] = Math.min(p[1], baseY - amp * (1.55 - 0.6 * d * d));
+        if (d < 1.6) p[1] = Math.min(p[1], baseY - amp * (1.55 - 0.6 * d * d) * win(p[0]));
       }
     }
     let top = baseY;
     for (const p of pts) top = Math.min(top, p[1]);
     const grad = g.createLinearGradient(0, top, 0, H);
     grad.addColorStop(0, snow);
-    grad.addColorStop(0.24, snow); // manteau neigeux franc sur le haut
-    grad.addColorStop(0.5, rock);
+    grad.addColorStop(0.15, snow); // manteau neigeux sur les sommets
+    grad.addColorStop(0.42, rock); // la roche affleure sous la neige
     grad.addColorStop(0.85, haze);
     grad.addColorStop(1, 'rgba(190,205,225,0)'); // fond fondu dans le ciel
     g.fillStyle = grad;
@@ -965,11 +974,26 @@ function buildAlps(ctx, bound, rand) {
     g.fill();
   }
 
-  // Chaîne lointaine pâle, puis chaîne principale avec le Mont Blanc.
-  // Palette volontairement TRÈS claire : la paroi est éclairée de biais par
-  // le soleil (souvent à l'ouest) — sans ça la neige rend gris foncé.
-  ridge(H * 0.52, H * 0.3, 'rgba(255,255,255,0.95)', 'rgba(205,218,235,0.9)', 'rgba(205,218,232,0.4)');
-  ridge(H * 0.62, H * 0.42, '#ffffff', '#b4c4d8', 'rgba(195,210,228,0.5)', true);
+  // Trois plans de crêtes (du plus lointain au plus proche) : c'est la
+  // superposition qui fait la profondeur, donc la crédibilité. Palette
+  // volontairement TRÈS claire : matériau non éclairé, teinté jour/nuit
+  // plus bas.
+  ridge(H * 0.44, H * 0.2, 'rgba(255,255,255,0.55)', 'rgba(214,226,240,0.5)', 'rgba(212,222,236,0.25)');
+  ridge(H * 0.52, H * 0.3, 'rgba(255,255,255,0.95)', 'rgba(188,204,226,0.9)', 'rgba(205,218,232,0.4)');
+  ridge(H * 0.62, H * 0.42, '#ffffff', '#93a8c2', 'rgba(195,210,228,0.5)', true, 1.2);
+
+  // Fondu d'opacité aux deux bords : même la base de la chaîne disparaît
+  // en douceur au lieu de laisser une couture verticale visible.
+  g.globalCompositeOperation = 'destination-out';
+  const EDGE = W * 0.09;
+  for (const [x0, x1] of [[0, EDGE], [W, W - EDGE]]) {
+    const fade = g.createLinearGradient(x0, 0, x1, 0);
+    fade.addColorStop(0, 'rgba(0,0,0,1)');
+    fade.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = fade;
+    g.fillRect(Math.min(x0, x1), 0, EDGE + 1, H);
+  }
+  g.globalCompositeOperation = 'source-over';
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
