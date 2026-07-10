@@ -1024,10 +1024,17 @@ function buildAlps(ctx, bound, rand) {
   mesh.userData.noShadow = true;
   ctx.scene.add(mesh);
 
-  // Si une vraie photo panoramique existe, elle prend la place (même esprit
-  // que la visite 360° de Fourvière : l'asset vit sur le VPS, pas dans git)
-  new THREE.TextureLoader().load('/pano/alpes.jpg', (t) => {
+  // Vraie photo des Alpes : bande détourée en WebP TRANSPARENT (ciel, base
+  // et bords fondus — préparée depuis la photo du joueur, ~78 kB, commitée
+  // car pas d'accès direct au VPS). Répétée en MIROIR : l'arc est ~2,5×
+  // plus large que le ratio de la photo, la doubler évite d'aplatir les
+  // sommets, et les fondus latéraux créent des trouées naturelles entre
+  // les massifs. Si le fichier manque, la version peinte reste en place.
+  new THREE.TextureLoader().load('/pano/alpes.webp', (t) => {
     t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = THREE.MirroredRepeatWrapping;
+    t.repeat.set(2, 1);
+    t.offset.x = 0.5; // un massif plein face au regard, les trouées sur les côtés
     mat.map = t;
     mat.needsUpdate = true;
   }, undefined, () => {});
