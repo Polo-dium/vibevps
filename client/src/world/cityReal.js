@@ -1024,17 +1024,14 @@ function buildAlps(ctx, bound, rand) {
   mesh.userData.noShadow = true;
   ctx.scene.add(mesh);
 
-  // Vraie photo des Alpes : bande détourée en WebP TRANSPARENT (ciel, base
-  // et bords fondus — préparée depuis la photo du joueur, ~78 kB, commitée
-  // car pas d'accès direct au VPS). Répétée en MIROIR : l'arc est ~2,5×
-  // plus large que le ratio de la photo, la doubler évite d'aplatir les
-  // sommets, et les fondus latéraux créent des trouées naturelles entre
-  // les massifs. Si le fichier manque, la version peinte reste en place.
+  // Vraie photo des Alpes : panorama COMPOSÉ hors ligne en une seule
+  // texture SANS couture (WebP transparent, commité car pas d'accès direct
+  // au VPS) — massif central pleine hauteur, chaînes latérales réduites qui
+  // se fondent dedans par chevauchement, extrémités qui s'aplatissent puis
+  // disparaissent. Plaquage simple, aucune répétition à l'exécution.
+  // Si le fichier manque, la version peinte reste en place.
   new THREE.TextureLoader().load('/pano/alpes.webp', (t) => {
     t.colorSpace = THREE.SRGBColorSpace;
-    t.wrapS = THREE.MirroredRepeatWrapping;
-    t.repeat.set(2, 1);
-    t.offset.x = 0.5; // un massif plein face au regard, les trouées sur les côtés
     mat.map = t;
     mat.needsUpdate = true;
   }, undefined, () => {});
