@@ -493,18 +493,19 @@ export function makeWaterTexture() {
   canvas.width = 64;
   canvas.height = 64;
   const g = canvas.getContext('2d');
-  // Bleu franc du Rhône : nettement plus saturé/lumineux que le sol gris,
-  // pour qu'on repère les fleuves d'un coup d'œil, même de loin et d'en haut
-  g.fillStyle = '#1a86c4';
+  // Bleu de fleuve naturel : profond et légèrement gris, PAS turquoise (le
+  // tone mapping ACES tirait l'ancien cyan saturé vers le vert). Toujours
+  // assez distinct du sol pour repérer l'eau de loin.
+  g.fillStyle = '#2a5f96';
   g.fillRect(0, 0, 64, 64);
   for (let i = 0; i < 8; i++) {
-    g.fillStyle = `rgba(20, 70, 120, ${0.1 + Math.random() * 0.12})`;
+    g.fillStyle = `rgba(16, 48, 96, ${0.1 + Math.random() * 0.12})`;
     g.beginPath();
     g.arc(Math.random() * 64, Math.random() * 64, 8 + Math.random() * 16, 0, Math.PI * 2);
     g.fill();
   }
   for (let i = 0; i < 36; i++) {
-    g.strokeStyle = `rgba(${120 + Math.random() * 60}, ${190 + Math.random() * 40}, ${200}, ${0.06 + Math.random() * 0.1})`;
+    g.strokeStyle = `rgba(${140 + Math.random() * 50}, ${175 + Math.random() * 40}, ${215}, ${0.06 + Math.random() * 0.1})`;
     g.lineWidth = 1 + Math.random() * 1.5;
     const y = Math.random() * 64;
     g.beginPath();

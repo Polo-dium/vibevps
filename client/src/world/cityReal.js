@@ -346,7 +346,7 @@ function buildWaterSurfaces(ctx, polys) {
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   const mat = new THREE.MeshPhongMaterial({
     map: tex, transparent: true, opacity: 0.96,
-    specular: 0x3f6b78, shininess: 60, side: THREE.DoubleSide,
+    specular: 0x8fa8c4, shininess: 60, side: THREE.DoubleSide, // reflet bleuté, plus vert
   });
   uniq.forEach((ring, i) => {
     // Forme en (x, −z) puis rotation −90° : géographie préservée, normale
@@ -708,6 +708,7 @@ export function buildRealCity(ctx, data) {
     // rand DÉDIÉ : ne pas consommer le générateur partagé ici, sinon tout
     // le placement aval (arbres, teintes…) se décale d'une version à l'autre
     buildCountryside(ctx, bound, makeRand(4217));
+    buildAlps(ctx, bound, makeRand(74));
   } else {
     // --- ANCIEN JSON : colline synthétique collée à l'ouest de la Saône --
     EXTRA_RECTS = [CONF_RECT];
@@ -884,7 +885,10 @@ function buildCountryside(ctx, bound, rand) {
     new THREE.MeshLambertMaterial({ color: 0x5d7a4a })
   );
   meadow.rotation.x = -Math.PI / 2;
-  meadow.position.y = -0.4; // sous le terrain : pas de z-fight sur la couture
+  // SOUS le lit des fleuves (BED_Y), pas juste sous le terrain : un disque
+  // plein centré sur la carte placé au-dessus de WATER_Y passerait le test
+  // de profondeur devant TOUTES les surfaces d'eau — fleuves invisibles.
+  meadow.position.y = BED_Y - 0.6;
   meadow.userData.noShadow = true;
   ctx.scene.add(meadow);
 
@@ -905,34 +909,157 @@ function buildCountryside(ctx, bound, rand) {
     const h = 30 + rand() * 55;
     q.setFromAxisAngle(up, rand() * Math.PI);
     s.set(w, h, w * (0.7 + rand() * 0.5));
-    m.compose(new THREE.Vector3(Math.cos(a) * r, -0.4, Math.sin(a) * r), q, s);
+    m.compose(new THREE.Vector3(Math.cos(a) * r, BED_Y - 0.6, Math.sin(a) * r), q, s);
     hills.setMatrixAt(i, m);
   }
   hills.userData.noShadow = true;
   ctx.scene.add(hills);
 }
 
+// Les Alpes à l'est, Mont Blanc en majesté — comme depuis les toits de la
+// Croix-Rousse par temps clair. Panorama PEINT en canvas (zéro asset, règle
+// du projet) sur un arc de cylindre au-delà des collines, hors brume (le
+// voile atmosphérique est peint dans la texture). Matériau Lambert : la
+// chaîne s'assombrit toute seule à la nuit avec le reste de l'éclairage.
+// Facultatif : déposer une vraie photo panoramique dans /pano/alpes.jpg sur
+// le VPS (comme /pano/fourviere.jpg) et elle remplace la version peinte.
+function buildAlps(ctx, bound, rand) {
+  const W = 1024, H = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const g = canvas.getContext('2d');
+
+  // Une chaîne = un profil en dents de scie (marche aléatoire), remplie d'un
+  // dégradé vertical : neige au sommet → roche → voile bleuté à la base.
+  function ridge(baseY, amp, snow, rock, haze, blanc = null) {
+    const pts = [];
+    let y = baseY;
+    for (let x = 0; x <= W; x += 12 + Math.floor(rand() * 18)) {
+      y = Math.min(baseY + 8, Math.max(baseY - amp, y + (rand() - 0.5) * amp * 0.9));
+      pts.push([x, y]);
+    }
+    pts.push([W, baseY]);
+    // Mont Blanc : un dôme large et haut aux deux tiers du panorama
+    if (blanc) {
+      const cx = W * 0.64;
+      for (const p of pts) {
+        const d = Math.abs(p[0] - cx) / (W * 0.075);
+        if (d < 1.6) p[1] = Math.min(p[1], baseY - amp * (1.55 - 0.6 * d * d));
+      }
+    }
+    let top = baseY;
+    for (const p of pts) top = Math.min(top, p[1]);
+    const grad = g.createLinearGradient(0, top, 0, H);
+    grad.addColorStop(0, snow);
+    grad.addColorStop(0.24, snow); // manteau neigeux franc sur le haut
+    grad.addColorStop(0.5, rock);
+    grad.addColorStop(0.85, haze);
+    grad.addColorStop(1, 'rgba(190,205,225,0)'); // fond fondu dans le ciel
+    g.fillStyle = grad;
+    g.beginPath();
+    g.moveTo(0, H);
+    for (const [x, y2] of pts) g.lineTo(x, y2);
+    g.lineTo(W, H);
+    g.closePath();
+    g.fill();
+  }
+
+  // Chaîne lointaine pâle, puis chaîne principale avec le Mont Blanc.
+  // Palette volontairement TRÈS claire : la paroi est éclairée de biais par
+  // le soleil (souvent à l'ouest) — sans ça la neige rend gris foncé.
+  ridge(H * 0.52, H * 0.3, 'rgba(255,255,255,0.95)', 'rgba(205,218,235,0.9)', 'rgba(205,218,232,0.4)');
+  ridge(H * 0.62, H * 0.42, '#ffffff', '#b4c4d8', 'rgba(195,210,228,0.5)', true);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  // Matériau NON éclairé : à cette distance, l'éclairage de scène rendait la
+  // neige gris foncé (paroi est jamais face au soleil). La teinte suit le
+  // cycle jour/nuit à la main via ctx.env — Alpes blanches en journée,
+  // silhouette bleutée au clair de lune.
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex, transparent: true, fog: false, side: THREE.BackSide, depthWrite: false,
+  });
+  ctx.updatables.push(() => {
+    const d = ctx.env?.daylight ?? 1;
+    // mat.color est en LINÉAIRE : pour une silhouette nocturne sombre il
+    // faut des valeurs très basses (0,22 linéaire ≈ gris moyen à l'écran).
+    // Courbe en d² : les Alpes accrochent la dernière lumière au crépuscule.
+    const k = d * d;
+    mat.color.setRGB(0.03 + 0.97 * k, 0.035 + 0.965 * k, 0.06 + 0.94 * k);
+  });
+
+  // Arc de ~110° centré plein est (+x, côté Part-Dieu/aérodrome), au-delà
+  // de la couronne de collines mais dans le champ de la caméra (far = 3×bound)
+  const R = bound * 2.1;
+  const HGT = bound * 0.34;
+  const arc = 1.9;
+  const geo = new THREE.CylinderGeometry(R, R, HGT, 32, 1, true, Math.PI / 2 - arc / 2, arc);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.y = HGT / 2 - 6;
+  mesh.userData.noShadow = true;
+  ctx.scene.add(mesh);
+
+  // Si une vraie photo panoramique existe, elle prend la place (même esprit
+  // que la visite 360° de Fourvière : l'asset vit sur le VPS, pas dans git)
+  new THREE.TextureLoader().load('/pano/alpes.jpg', (t) => {
+    t.colorSpace = THREE.SRGBColorSpace;
+    mat.map = t;
+    mat.needsUpdate = true;
+  }, undefined, () => {});
+}
+
 // Tuile de sol urbain : dalles claires + grain, quasi blanche (elle est
 // multipliée par la couleur d'altitude : bitume, herbe, lit des fleuves…)
 function makeGroundDetailTexture() {
-  const S = 128;
+  const S = 256;
+  const CELL = S / 4; // 4×4 dalles par tuile (≈ 3,5 m par dalle au sol)
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = S;
   const g = canvas.getContext('2d');
-  g.fillStyle = '#f4f4f2';
+  g.fillStyle = '#f2f1ee';
   g.fillRect(0, 0, S, S);
-  // Grain
-  for (let i = 0; i < 700; i++) {
-    const v = 220 + Math.random() * 35;
+  // Chaque dalle a sa propre nuance : le sol cesse d'être un aplat uni
+  for (let ix = 0; ix < 4; ix++) {
+    for (let iz = 0; iz < 4; iz++) {
+      const v = 228 + Math.floor(Math.random() * 26) - 8;
+      g.fillStyle = `rgb(${v}, ${v}, ${v - 5})`;
+      g.fillRect(ix * CELL, iz * CELL, CELL, CELL);
+    }
+  }
+  // Grain (usure, gravillons)
+  for (let i = 0; i < 2200; i++) {
+    const v = 205 + Math.random() * 50;
     g.fillStyle = `rgba(${v}, ${v}, ${v - 6}, 0.35)`;
     g.fillRect(Math.random() * S, Math.random() * S, 2, 2);
   }
-  // Joints de dalles (grille discrète)
-  g.strokeStyle = 'rgba(140, 140, 135, 0.5)';
-  g.lineWidth = 1.5;
-  for (const p of [0, S / 2]) {
-    g.strokeRect(p + 0.5, 0.5, S / 2 - 1, S / 2 - 1);
-    g.strokeRect(p ? 0.5 : S / 2 + 0.5, S / 2 + 0.5, S / 2 - 1, S / 2 - 1);
+  // Taches sombres diffuses (pluie, vieux chewing-gums de gones)
+  for (let i = 0; i < 10; i++) {
+    g.fillStyle = `rgba(120, 118, 112, ${0.05 + Math.random() * 0.07})`;
+    g.beginPath();
+    g.arc(Math.random() * S, Math.random() * S, 8 + Math.random() * 22, 0, Math.PI * 2);
+    g.fill();
+  }
+  // Joints de dalles bien marqués
+  g.strokeStyle = 'rgba(120, 120, 114, 0.65)';
+  g.lineWidth = 2;
+  for (let i = 0; i <= 4; i++) {
+    g.beginPath(); g.moveTo(i * CELL + 0.5, 0); g.lineTo(i * CELL + 0.5, S); g.stroke();
+    g.beginPath(); g.moveTo(0, i * CELL + 0.5); g.lineTo(S, i * CELL + 0.5); g.stroke();
+  }
+  // Quelques fissures qui traversent les dalles
+  g.strokeStyle = 'rgba(130, 128, 122, 0.5)';
+  g.lineWidth = 1;
+  for (let i = 0; i < 7; i++) {
+    let x = Math.random() * S, y = Math.random() * S;
+    g.beginPath();
+    g.moveTo(x, y);
+    for (let k = 0; k < 5; k++) {
+      x += (Math.random() - 0.5) * 34;
+      y += (Math.random() - 0.5) * 34;
+      g.lineTo(x, y);
+    }
+    g.stroke();
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
