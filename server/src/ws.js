@@ -6,6 +6,10 @@ import { bumpDaily } from './daily.js';
 const TICK_MS = 66; // ~15 Hz
 const QUENELLE_ROUND_MS = 5 * 60 * 1000; // rotation de la Quenelle dorée
 const QUENELLE_XP = 150;
+const SILURE_ROUND_MS = 4 * 60 * 1000; // passage du silure géant
+const SILURE_SWIM_MS = 38 * 1000; // fenêtre où il est attaquable
+const SILURE_HP = 400;
+const SILURE_XP = 120;
 const HIT_DAMAGE = 25;
 const HIT_MIN_INTERVAL_MS = 75; // cadence max de l'AK côté serveur
 const SHOT_MIN_INTERVAL_MS = 60;
@@ -16,6 +20,7 @@ const CHAT_MIN_INTERVAL_MS = 500; // anti-spam
 const players = new Map();
 let wss = null;
 let quenelleClaimedRound = -1; // un seul gagnant par tour de Quenelle dorée
+let silureRound = -1, silureHp = 0, silureDead = false; // HP partagée du silure
 
 export function setupWs(httpServer) {
   wss = new WebSocketServer({ server: httpServer, path: '/ws' });
@@ -213,6 +218,38 @@ export function setupWs(httpServer) {
           console.error('XP quenelle non créditée :', err);
         }
         broadcast({ t: 'quenelle', by: me.name, round, xp: QUENELLE_XP });
+        return;
+      }
+
+      // Chasse au silure : HP partagée entre tous les joueurs pendant la
+      // fenêtre de nage (calée sur Date.now(), comme côté client). Dégâts
+      // bornés + cadence limitée : un tricheur ne fait pas mieux qu'un
+      // bazooka. Le coup de grâce empoche l'XP.
+      if (msg.t === 'silure') {
+        const now = Date.now();
+        if (now - (me.lastSilureAt ?? 0) < 90) return;
+        me.lastSilureAt = now;
+        if (now % SILURE_ROUND_MS > SILURE_SWIM_MS) return; // pas dans l'eau
+        const round = Math.floor(now / SILURE_ROUND_MS);
+        if (round !== silureRound) {
+          silureRound = round;
+          silureHp = SILURE_HP;
+          silureDead = false;
+        }
+        if (silureDead) return;
+        const dmg = Math.min(55, Math.max(1, Math.floor(Number(msg.dmg) || 10)));
+        silureHp -= dmg;
+        if (silureHp > 0) {
+          broadcast({ t: 'silure', hp: silureHp, max: SILURE_HP, round });
+        } else {
+          silureDead = true;
+          try {
+            q.addXp.run(SILURE_XP, me.playerId);
+          } catch (err) {
+            console.error('XP silure non créditée :', err);
+          }
+          broadcast({ t: 'silure', dead: true, by: me.name, round, xp: SILURE_XP });
+        }
         return;
       }
 

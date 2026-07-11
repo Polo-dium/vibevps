@@ -488,6 +488,23 @@ async function boot() {
     ...msg, mine: msg.by != null && msg.by === state.auth?.name,
   }));
 
+  // Chasse au silure : les tirs sur le monstre partent au serveur avec les
+  // dégâts de l'arme en main (bornés côté serveur), la mort est diffusée.
+  ctx.onSilureHit = () => {
+    net.send({ t: 'silure', dmg: weapon.damage });
+    audio.hitmarker();
+    ui.hitmarker();
+  };
+  net.on('silure', (msg) => {
+    ctx.silure?.applyServerMsg(msg);
+    if (msg.dead && msg.by === state.auth?.name) {
+      ui.toast(`🎣 LE SILURE EST À TOI, GONE ! +${msg.xp ?? 120} XP`);
+      ui.spawnConfetti(35);
+      audio.reward();
+      progress.refresh();
+    }
+  });
+
   // Grand Prix de Lyon : course chrono à checkpoints (voir world/race.js).
   // Le score envoyé décroît avec le temps (36000 − dixièmes de seconde) :
   // le classement MAX(score) garde donc le MEILLEUR temps.

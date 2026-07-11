@@ -891,6 +891,36 @@ export function buildSilure(ctx, band) {
   fish.traverse((o) => { o.userData.noShadow = true; });
   ctx.scene.add(fish);
 
+  // --- CHASSE AU SILURE : le monstre est attaquable pendant sa remontée.
+  // Les dégâts sont arbitrés par le serveur (HP partagée entre tous les
+  // joueurs, un seul vainqueur par passage — même motif que la Quenelle).
+  let deadRound = -1;
+  let deadAt = 0;
+  let weakToastRound = -1;
+  const roundOf = () => Math.floor(Date.now() / APPEAR_MS);
+  const onHit = () => {
+    if (!fish.visible || roundOf() === deadRound) return;
+    ctx.onSilureHit?.(); // branché par main.js (envoi ws + dégâts de l'arme)
+  };
+  for (const part of [body, head, tail]) {
+    part.userData.onHit = onHit;
+    ctx.shootables.push(part);
+  }
+  ctx.silure = {
+    applyServerMsg(msg) {
+      const round = roundOf();
+      if (Math.abs(Number(msg.round) - round) > 1) return; // vieux passage
+      if (msg.dead) {
+        deadRound = round;
+        deadAt = Date.now();
+        ctx.notify?.(`🎣 ${msg.by} a vaincu le silure géant ! (+${msg.xp ?? 120} XP du coup de grâce)`);
+      } else if (msg.hp != null && msg.max && weakToastRound !== round && msg.hp < msg.max * 0.5) {
+        weakToastRound = round;
+        ctx.notify?.('🐟 Le silure faiblit ! Tous sur lui !');
+      }
+    },
+  };
+
   let announced = false;
   ctx.updatables.push(() => {
     const t = Date.now() % APPEAR_MS;
@@ -900,15 +930,26 @@ export function buildSilure(ctx, band) {
       return;
     }
     const k = t / SWIM_MS; // 0..1 le long du fleuve
-    fish.visible = true;
-    if (!announced) {
-      announced = true;
-      ctx.notify?.('🐟 Le silure géant du Rhône est de sortie ! (regarde le fleuve)');
-    }
     const wig = Math.sin(t / 180) * 0.5;
     const fz = -span + k * span * 2;
+
+    // Vaincu ce passage-ci : ventre en l'air, il coule puis disparaît
+    if (roundOf() === deadRound) {
+      const sink = (Date.now() - deadAt) / 1000 * 0.7;
+      if (sink > 7) { fish.visible = false; return; }
+      fish.visible = true;
+      fish.position.set(riverCx(band, fz), WATER_Y - 0.6 - sink, fz);
+      fish.rotation.set(0, Math.PI, Math.PI); // ventre en l'air
+      return;
+    }
+
+    fish.visible = true;
+    fish.rotation.set(0, Math.PI + wig * 0.18, 0); // remonte vers le nord
+    if (!announced) {
+      announced = true;
+      ctx.notify?.('🐟 Le silure géant est de sortie ! Il est ATTAQUABLE — premier coup de grâce gagne. (regarde le fleuve)');
+    }
     fish.position.set(riverCx(band, fz) + wig * 2, WATER_Y - 1.2 + Math.sin(t / 400) * 0.25, fz);
-    fish.rotation.y = Math.PI + wig * 0.18; // remonte vers le nord (-z → +z)
     tail.rotation.y = Math.sin(t / 120) * 0.5;
   });
 }
