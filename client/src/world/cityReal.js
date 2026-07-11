@@ -30,6 +30,9 @@ const FLOOR_M = 3; // hauteur d'étage pour le calage de la texture fenêtres
 
 const WALL_TINTS = ['#e8ddc8', '#e3d4ba', '#d9c6a8', '#e6d9c4', '#dccab0', '#d5c0a0', '#efe6d4', '#cdb695'];
 const ROOF_TINTS = ['#a8543c', '#b05a40', '#9c4e38', '#b46248', '#7e8696', '#6d7585', '#a8543c', '#b05a40'];
+// Façades Renaissance du Vieux Lyon, rive droite de la Saône : ocres, roses,
+// safran — les couleurs de la carte postale
+const VIEUX_LYON_TINTS = ['#d99a5b', '#c96f4a', '#e2b04a', '#d4826a', '#c98d3f', '#b85c48', '#e0a26b', '#cc7a52'];
 
 // Zones fixées par buildRealCity, consommées par reservedRects()
 let HILL_RECT = null;
@@ -1291,6 +1294,17 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
   const acroCol = new THREE.Color(0xc9c3b4); // pierre claire de l'acrotère
   let kept = 0;
 
+  // Vieux Lyon : la bande de ~130 m à l'OUEST de la Saône (rive droite),
+  // suivie le long du vrai tracé courbe du fleuve (centerline)
+  const saone = [...data.water].sort((a, b) => a.minX - b.minX)[0];
+  const inVieuxLyon = (x, z) => {
+    if (!full || !saone) return false;
+    if (saone.zMin != null && (z < saone.zMin || z > saone.zMax)) return false;
+    const cxS = saone.cx ? saone.cx(z) : (saone.minX + saone.maxX) / 2;
+    const d = cxS - x; // distance à l'ouest du centre du fleuve
+    return d > (saone.w ?? 40) * 0.5 - 6 && d < (saone.w ?? 40) * 0.5 + 130;
+  };
+
   for (let bi = 0; bi < data.buildings.length; bi++) {
     const b = data.buildings[bi];
     let h = Math.max(3, b.h);
@@ -1337,6 +1351,14 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       h = 19.2 + (hash2(bi) % 3) * 0.5; // quasi uniforme, ~6 étages
       wallColor.set(0xece3cd).offsetHSL(0, 0, (rand() - 0.5) * 0.015);
       roofColor.set(0x6d7585).offsetHSL(0, 0, (rand() - 0.5) * 0.02);
+    } else if (inVieuxLyon(cx, cz)) {
+      // Rive droite de la Saône : les façades Renaissance colorées du Vieux
+      // Lyon (ocre, rose, safran) — LA carte postale. Chaque branche de ce
+      // if consomme EXACTEMENT 2 rand() : la séquence déterministe des
+      // bâtiments suivants ne bouge pas.
+      wallColor.set(VIEUX_LYON_TINTS[hash2(bi) % VIEUX_LYON_TINTS.length])
+        .offsetHSL(0, 0, (rand() - 0.5) * 0.05);
+      roofColor.set(0xa8543c).offsetHSL(0, 0, (rand() - 0.5) * 0.05);
     } else {
       wallColor.set(WALL_TINTS[hash2(bi) % WALL_TINTS.length])
         .offsetHSL(0, 0, (rand() - 0.5) * 0.06);

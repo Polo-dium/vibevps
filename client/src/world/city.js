@@ -2556,10 +2556,77 @@ export function buildLamps(ctx, spots) {
   const halos = new THREE.Points(haloGeo, haloMat);
   halos.userData.noShadow = true;
   ctx.scene.add(halos);
+
+  // Flaques de lumière AU SOL sous chaque lampadaire : la nuit cesse d'être
+  // un aplat noir entre les halos. Même texture radiale chaude, plan posé à
+  // ras du sol, additif — zéro vraie lumière (règle perf).
+  const poolMat = new THREE.MeshBasicMaterial({
+    map: makeLampHaloTexture(), transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const pools = new THREE.InstancedMesh(
+    new THREE.PlaneGeometry(9, 9).rotateX(-Math.PI / 2), poolMat, n
+  );
+  spots.forEach(([x, z, gy = 0], i) => {
+    m.makeTranslation(x, gy + 0.07, z);
+    pools.setMatrixAt(i, m);
+  });
+  pools.instanceMatrix.needsUpdate = true;
+  pools.userData.noShadow = true;
+  ctx.scene.add(pools);
+
   ctx.updatables.push(() => {
     haloMat.opacity = Math.max(0, (ctx.env?.night ?? 0) * 1.2 - 0.2) * 0.85;
     halos.visible = haloMat.opacity > 0.01;
+    poolMat.opacity = haloMat.opacity * 0.5;
+    pools.visible = halos.visible;
   });
+
+  buildLampFurniture(ctx, spots);
+}
+
+// Mobilier urbain le long des axes éclairés : une poubelle près d'un
+// lampadaire sur trois, un banc sur cinq — purement décoratif (pas de
+// collision), instancié, placement dérivé de l'INDEX (déterministe).
+function buildLampFurniture(ctx, spots) {
+  const bins = [], benches = [];
+  spots.forEach(([x, z, gy = 0], i) => {
+    const h = (i * 2654435761) >>> 0;
+    if (i % 3 === 0) bins.push([x + 1.1 + (h % 5) * 0.1, gy, z + 0.9, (h % 63) / 10]);
+    if (i % 5 === 2) benches.push([x - 1.3, gy, z + 1.1, ((h >> 3) % 63) / 10]);
+  });
+  const m = new THREE.Matrix4(), e = new THREE.Euler(), q = new THREE.Quaternion();
+  const ONE = new THREE.Vector3(1, 1, 1);
+  if (bins.length) {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.32, 0.28, 0.9, 7),
+      new THREE.MeshLambertMaterial({ color: 0x3d5240 }), bins.length
+    );
+    bins.forEach(([x, gy, z, ry], i) => {
+      q.setFromEuler(e.set(0, ry, 0));
+      m.compose(new THREE.Vector3(x, gy + 0.45, z), q, ONE);
+      mesh.setMatrixAt(i, m);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    ctx.scene.add(mesh);
+  }
+  if (benches.length) {
+    const wood = new THREE.MeshLambertMaterial({ color: 0x7a5a38 });
+    const seat = new THREE.InstancedMesh(new THREE.BoxGeometry(1.8, 0.09, 0.55), wood, benches.length);
+    const back = new THREE.InstancedMesh(new THREE.BoxGeometry(1.8, 0.5, 0.08), wood, benches.length);
+    benches.forEach(([x, gy, z, ry], i) => {
+      q.setFromEuler(e.set(0, ry, 0));
+      m.compose(new THREE.Vector3(x, gy + 0.48, z), q, ONE);
+      seat.setMatrixAt(i, m);
+      // dossier : décalé vers l'arrière DANS le repère du banc (via ry)
+      const bx = x - Math.sin(ry) * 0.26, bz = z - Math.cos(ry) * 0.26;
+      m.compose(new THREE.Vector3(bx, gy + 0.78, bz), q, ONE);
+      back.setMatrixAt(i, m);
+    });
+    seat.instanceMatrix.needsUpdate = true;
+    back.instanceMatrix.needsUpdate = true;
+    ctx.scene.add(seat, back);
+  }
 }
 
 // Halo doux de réverbère (dégradé radial chaud)
