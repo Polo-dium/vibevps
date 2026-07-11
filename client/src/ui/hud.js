@@ -248,6 +248,17 @@ export function createUi() {
     infoEl.style.whiteSpace = 'pre';
   }
 
+  // Bandeau générique (chrono de course…) : réutilise l'encart du stand de
+  // tir — un seul des deux est actif à la fois.
+  function setBanner(html) {
+    if (!html) {
+      rangeEl.classList.add('hidden');
+      return;
+    }
+    rangeEl.classList.remove('hidden');
+    rangeEl.innerHTML = html;
+  }
+
   function setRange(session) {
     if (!session) {
       rangeEl.classList.add('hidden');
@@ -667,7 +678,7 @@ export function createUi() {
   }
 
   return {
-    ensureAuth, invite, toast, setPrompt, onPromptTap, setInfo, setRange, setAmmo,
+    ensureAuth, invite, toast, setPrompt, onPromptTap, setInfo, setRange, setBanner, setAmmo,
     setHp, damageFlash, killBanner, setTagMode, hitmarker, deathScreen,
     setXp, spawnConfetti, achievementUnlocked, bindProgress, setDaily,
     toggleLeaderboards, openCreator, toggleAdmin, closeTopOverlay,

@@ -81,6 +81,8 @@ const BUILTINS = [
   ['shooting-range', 'STAND DE TIR'],
   ['pvp', 'DUELS DE RUE'],
   ['graff', 'ROI DU GRAFF'], // guerre de tags : score = total de tags posés
+  // Course chrono : score = 36000 − dixièmes de seconde (MAX = meilleur temps)
+  ['grand-prix', 'GRAND PRIX DE LYON'],
 ];
 const insertBuiltin = db.prepare(
   `INSERT OR IGNORE INTO games (id, title, builtin, created_at) VALUES (?, ?, 1, ?)`

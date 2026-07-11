@@ -20,6 +20,7 @@ import { createTouchControls } from './ui/touch.js';
 import { SPAWN, spawnPoint } from './world/layout.js';
 import { createNpcs } from './world/npcs.js';
 import { createQuenelle } from './world/quenelle.js';
+import { createRace } from './world/race.js';
 import { buildSky } from './world/sky.js';
 import { audio } from './audio.js';
 import { createSpray } from './tags/spray.js';
@@ -486,6 +487,31 @@ async function boot() {
   net.on('quenelle', (msg) => quenelle.applyServerMsg({
     ...msg, mine: msg.by != null && msg.by === state.auth?.name,
   }));
+
+  // Grand Prix de Lyon : course chrono à checkpoints (voir world/race.js).
+  // Le score envoyé décroît avec le temps (36000 − dixièmes de seconde) :
+  // le classement MAX(score) garde donc le MEILLEUR temps.
+  createRace(ctx, {
+    setBanner: ui.setBanner,
+    notify: ui.toast,
+    audio,
+    onFinish: async ({ ms, timeText, record }) => {
+      ui.toast(`🏁 ARRIVÉE ! ${timeText}${record ? ' — record personnel de la session !' : ''}`);
+      ui.spawnConfetti(30);
+      audio.reward();
+      try {
+        const res = await apiFetch('/scores', {
+          method: 'POST',
+          body: JSON.stringify({ gameId: 'grand-prix', score: Math.max(1, 36000 - Math.round(ms / 100)) }),
+        });
+        if (res.xp != null) ui.setXp(res.xp);
+        applyDaily(res.daily);
+        progress.refresh();
+      } catch (err) {
+        ui.toast('Chrono non enregistré : ' + err.message);
+      }
+    },
+  });
 
   // La Grande Roue (et tout futur manège) déplace le joueur via ce hook
   ctx.rideTick = (x, y, z) => controls.teleport(x, y, z);
