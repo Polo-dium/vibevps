@@ -71,8 +71,12 @@ function buildArm() {
 // GRIP_R vise le milieu du fusil (boîtier de culasse), pas la poignée
 // pistolet toute proche du corps — plus cohérent visuellement pour toutes
 // les armes (pas juste l'AK) qui n'ont pas toutes une poignée au même endroit.
-const GRIP_R = { pos: [0.02, -0.05, -0.22], rot: [0.15, -0.1, 0] };
-const GRIP_L = { pos: [-0.01, -0.03, -0.4], rot: [0.1, 0.15, 0] }; // garde-main
+// Rotations franches : chaque bras ARRIVE EN BIAIS depuis son épaule (droite
+// en bas à droite, gauche en bas à gauche) au lieu de flotter parallèle au
+// canon — c'est l'angle qui vend la prise à deux mains.
+const GRIP_R = { pos: [0.025, -0.06, -0.06], rot: [0.42, -0.38, 0.1] }; // poignée pistolet
+const GRIP_L = { pos: [-0.02, -0.02, -0.38], rot: [0.3, 0.55, -0.12] }; // garde-main
+const _fist = new THREE.Vector3();
 
 export function createArms(camera) {
   const right = buildArm();
@@ -111,13 +115,14 @@ export function createArms(camera) {
         weaponHolder.add(right, left);
         attachedTo = weaponHolder;
       }
-      // On positionne l'ORIGINE du groupe bras (pas le poing) : décalée en
-      // arrière de HAND_LOCAL_Z pour que ce soit bien le poing qui tombe sur
-      // le point de préhension, et pas le milieu de l'avant-bras.
-      right.position.set(GRIP_R.pos[0], GRIP_R.pos[1], GRIP_R.pos[2] - HAND_LOCAL_Z);
-      right.rotation.set(...GRIP_R.rot);
-      left.position.set(GRIP_L.pos[0], GRIP_L.pos[1], GRIP_L.pos[2] - HAND_LOCAL_Z);
-      left.rotation.set(...GRIP_L.rot);
+      // On positionne l'ORIGINE du groupe bras pour que le POING (bout du
+      // bras, à HAND_LOCAL_Z le long de son axe TOURNÉ) tombe pile sur le
+      // point de préhension — la rotation du bras est donc libre.
+      for (const [arm, grip] of [[right, GRIP_R], [left, GRIP_L]]) {
+        arm.rotation.set(...grip.rot);
+        _fist.set(0, 0, HAND_LOCAL_Z).applyEuler(arm.rotation);
+        arm.position.set(grip.pos[0] - _fist.x, grip.pos[1] - _fist.y, grip.pos[2] - _fist.z);
+      }
       return;
     }
 

@@ -1020,7 +1020,7 @@ function buildAlps(ctx, bound, rand) {
   // de la couronne de collines mais dans le champ de la caméra (far = 3×bound)
   const R = bound * 2.1;
   const HGT = bound * 0.34;
-  const arc = 1.9;
+  const arc = 2.5; // élargi : la chaîne court sur ~143° d'horizon
   const geo = new THREE.CylinderGeometry(R, R, HGT, 32, 1, true, Math.PI / 2 - arc / 2, arc);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.y = HGT / 2 - 6;

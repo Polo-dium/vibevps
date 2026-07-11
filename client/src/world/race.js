@@ -81,6 +81,19 @@ export function createRace(ctx, { setBanner, notify, onFinish, audio }) {
   ctx.scene.add(gate);
   ctx.pois?.push({ id: 'grand-prix', nom: 'Grand Prix de Lyon', emoji: '🏁', x: startX, z: startZ });
 
+  // Colonne de lumière vers le ciel au-dessus de l'anneau actif : visible
+  // de loin par-dessus les toits — fini les anneaux introuvables.
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.9, 1.6, 160, 8, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0xffb050, transparent: true, opacity: 0.32,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    })
+  );
+  beam.visible = false;
+  beam.userData.noShadow = true;
+  ctx.scene.add(beam);
+
   let racing = false;
   let cp = 0;
   let t0 = 0;
@@ -104,6 +117,7 @@ export function createRace(ctx, { setBanner, notify, onFinish, audio }) {
   function abort(msg) {
     racing = false;
     rings.forEach((r) => { r.visible = false; });
+    beam.visible = false;
     setBanner(null);
     if (msg) notify(msg);
   }
@@ -113,6 +127,11 @@ export function createRace(ctx, { setBanner, notify, onFinish, audio }) {
       r.visible = i === cp || i === cp + 1;
       r.material = i === cp ? matActive : matNext;
     });
+    const ring = rings[cp];
+    if (ring) {
+      beam.position.set(ring.position.x, ring.position.y + 80, ring.position.z);
+      beam.visible = true;
+    }
   }
 
   const fmt = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}.${String(Math.floor((ms % 1000) / 100))}`;
@@ -135,6 +154,7 @@ export function createRace(ctx, { setBanner, notify, onFinish, audio }) {
       if (cp >= rings.length) {
         racing = false;
         rings.forEach((r) => { r.visible = false; });
+        beam.visible = false;
         setBanner(null);
         const ms = Math.round(elapsed);
         const record = best == null || ms < best;
