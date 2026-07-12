@@ -194,8 +194,12 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
   let wasPlane = false;
   function syncPlaneUi() {
     const isPlane = planeMode();
+    const isJet = Boolean(controls.vehicle?.jet);
     root.classList.toggle('plane-mode', isPlane);
-    root.classList.toggle('jet-mode', Boolean(controls.vehicle?.jet));
+    root.classList.toggle('jet-mode', isJet);
+    // Le prompt de sortie appartient au HUD, hors de #touch-ui : une classe
+    // sur body permet de le remonter uniquement quand BOMBE est visible.
+    document.body.classList.toggle('jet-touch-mode', isJet);
     if (wasPlane && !isPlane) {
       resetPlaneStick('left');
       resetPlaneStick('right');

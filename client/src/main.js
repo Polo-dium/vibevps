@@ -514,16 +514,108 @@ async function boot() {
       } else {
         end = planeRaycaster.ray.at(range, new THREE.Vector3());
       }
-      weapon.fx.spawnTracer(origin.toArray(), end.toArray());
+      weapon.fx.spawnTracer(origin.toArray(), end.toArray(), true);
       relayEnd ??= end;
     }
-    if (origins[0] && relayEnd) net.send({ t: 'shot', a: origins[0].toArray(), b: relayEnd.toArray() });
+    if (origins[0] && relayEnd) {
+      net.send({ t: 'shot', a: origins[0].toArray(), b: relayEnd.toArray(), aircraft: 1 });
+    }
     audio.gunshot();
     navigator.vibrate?.(8);
   };
-  ctx.onPlaneBomb = (point) => {
+  // Explosion spécifique des bombes : onde de choc au sol, colonne chaude
+  // puis large chapeau de fumée. Les géométries sont partagées et seules les
+  // matières (qui doivent pâlir indépendamment) sont propres à chaque nuage.
+  const bombClouds = [];
+  const bombStemGeo = new THREE.CylinderGeometry(1, 1.35, 1, 12);
+  const bombPuffGeo = new THREE.SphereGeometry(1, 10, 7);
+  const bombRingGeo = new THREE.RingGeometry(1, 1.12, 40);
+  const bombSmokeHot = new THREE.Color(0xd95724);
+  const bombSmokeCold = new THREE.Color(0x292d31);
+  function removeBombCloud(cloud) {
+    scene.remove(cloud.group);
+    for (const mat of cloud.materials) mat.dispose();
+  }
+  function spawnBombMushroom(point) {
     weapon.fx.spawnExplosion(point);
-    audio.explosion();
+    const p = Array.isArray(point) ? new THREE.Vector3(...point) : point;
+    if (bombClouds.length >= 4) removeBombCloud(bombClouds.shift());
+
+    const smokeMat = new THREE.MeshLambertMaterial({
+      color: bombSmokeHot, transparent: true, opacity: 0.9,
+      depthWrite: false, side: THREE.DoubleSide,
+    });
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: 0xffb126, transparent: true, opacity: 0.9,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xff5b2d, transparent: true, opacity: 0.72,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const group = new THREE.Group();
+    group.position.copy(p);
+    const stem = new THREE.Mesh(bombStemGeo, smokeMat);
+    group.add(stem);
+    const cap = new THREE.Group();
+    const puffLayout = [
+      [0, 0, 0, 5.2], [-4.2, -0.2, 0, 3.8], [4.2, 0.1, 0, 4.1],
+      [0, 0.5, -3.4, 3.7], [0.5, 0.2, 3.6, 3.9],
+      [-2.7, 1.2, -2.5, 3.5], [3.0, 1.0, 2.3, 3.6],
+    ];
+    for (const [x, y, z, s] of puffLayout) {
+      const puff = new THREE.Mesh(bombPuffGeo, smokeMat);
+      puff.position.set(x, y, z);
+      puff.scale.set(s * 1.25, s * 0.72, s);
+      cap.add(puff);
+    }
+    group.add(cap);
+    const glow = new THREE.Mesh(bombPuffGeo, glowMat);
+    glow.scale.set(5, 3.5, 5);
+    glow.position.y = 2.2;
+    group.add(glow);
+    const ring = new THREE.Mesh(bombRingGeo, ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.14;
+    group.add(ring);
+    const light = new THREE.PointLight(0xff7b28, 80, 95, 2);
+    light.position.y = 5;
+    group.add(light);
+    scene.add(group);
+    bombClouds.push({
+      group, stem, cap, glow, ring, light,
+      smokeMat, glowMat, ringMat,
+      materials: [smokeMat, glowMat, ringMat], age: 0, duration: 6.2,
+    });
+  }
+  ctx.updatables.push((dt) => {
+    for (let i = bombClouds.length - 1; i >= 0; i--) {
+      const c = bombClouds[i];
+      c.age += dt;
+      const t = Math.min(1, c.age / c.duration);
+      const rise = 1 - Math.pow(1 - Math.min(1, t * 1.9), 3);
+      const stemH = 2 + rise * 22;
+      c.stem.scale.set(1.3 + rise * 2.5, stemH, 1.3 + rise * 2.5);
+      c.stem.position.y = stemH / 2;
+      c.cap.position.y = 8 + rise * 18;
+      c.cap.scale.setScalar(0.5 + rise * 1.25 + t * 0.4);
+      c.cap.rotation.y += dt * 0.16;
+      c.ring.scale.setScalar(2 + Math.min(1, t * 4) * 48);
+      c.glow.scale.setScalar(5 + Math.min(1, t * 6) * 8);
+      c.smokeMat.color.copy(bombSmokeHot).lerp(bombSmokeCold, Math.min(1, t * 2.1));
+      c.smokeMat.opacity = Math.max(0, 0.92 * (1 - Math.pow(t, 2.4)));
+      c.glowMat.opacity = Math.max(0, 0.9 * (1 - t * 5));
+      c.ringMat.opacity = Math.max(0, 0.72 * (1 - t * 3.2));
+      c.light.intensity = Math.max(0, 80 * (1 - t * 5));
+      if (t >= 1) {
+        removeBombCloud(c);
+        bombClouds.splice(i, 1);
+      }
+    }
+  });
+  ctx.onPlaneBomb = (point) => {
+    spawnBombMushroom(point);
     navigator.vibrate?.([70, 30, 120]);
     net.send({ t: 'bomb', p: point.toArray() });
   };
@@ -799,12 +891,11 @@ async function boot() {
     if (name) ui.toast(`💨 ${name} a quitté la ville.`);
   });
   net.on('shot', (msg) => {
-    weapon.fx.spawnTracer(msg.a, msg.b);
+    weapon.fx.spawnTracer(msg.a, msg.b, Boolean(msg.aircraft));
     weapon.fx.spawnImpact(msg.b);
   });
   net.on('explosion', (msg) => {
-    weapon.fx.spawnExplosion(msg.p);
-    audio.explosion();
+    spawnBombMushroom(msg.p);
     navigator.vibrate?.([60, 25, 90]);
   });
   net.on('hp', (msg) => {

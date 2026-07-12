@@ -715,50 +715,89 @@ export function buildConfluence(ctx, {
     ctx.scene.add(par);
   }
 
-  // Musée des Confluences : le « nuage de cristal » déconstructiviste,
-  // posé vers la base de la pointe (là où elle est large)
-  const mx = cx, mz = zStart + 22;
-  const glassMat = new THREE.MeshPhongMaterial({
-    color: 0xaec9d8, specular: 0xe8f4fa, shininess: 80,
-    transparent: true, opacity: 0.85,
-  });
-  const steelMat = new THREE.MeshLambertMaterial({ color: 0xb8bec8 });
-  const museum = new THREE.Group();
-  const plinth = new THREE.Mesh(new THREE.BoxGeometry(26, 1.2, 14), steelMat);
-  plinth.position.y = 0.6;
-  museum.add(plinth);
-  const hull = new THREE.Mesh(new THREE.BoxGeometry(24, 7, 12), glassMat);
-  hull.position.y = 6;
-  hull.rotation.z = 0.06;
-  hull.rotation.x = -0.05;
-  museum.add(hull);
-  const crystal = new THREE.Mesh(new THREE.ConeGeometry(5.5, 9, 4), glassMat);
-  crystal.position.set(-9, 8.5, 0);
-  crystal.rotation.z = 0.5;
-  museum.add(crystal);
-  const spike = new THREE.Mesh(new THREE.BoxGeometry(10, 2.6, 6), steelMat);
-  spike.position.set(10, 9.4, 0);
-  spike.rotation.z = -0.22;
-  museum.add(spike);
-  for (const [lx, lz] of [[-8, -4], [8, -4], [-8, 4], [8, 4]]) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.55, 3.5, 6), steelMat);
-    leg.position.set(lx, 1.7, lz);
-    museum.add(leg);
-  }
-  museum.position.set(mx, 0, mz);
-  ctx.scene.add(museum);
-  ctx.colliders.push({
-    minX: mx - 13, maxX: mx + 13, minY: 0, maxY: 12, minZ: mz - 7, maxZ: mz + 7,
-  });
-  ctx.interactables.push({
-    x: mx, z: mz + 9, r: 6,
-    label: 'E — Musée des Confluences',
-    action: () => ctx.notify?.('🏛️ Le nuage de cristal, posé là où la Saône embrasse le Rhône.'),
-  });
-  ctx.pois?.push({ id: 'musee', nom: 'Musée des Confluences', emoji: '🏛️', x: mx, z: mz });
+  // Musée des Confluences : grand nuage de verre posé vers la base de la
+  // pointe, là où la Presqu'île reste assez large.
+  buildConfluenceMuseum(ctx, { x: cx, z: zStart + 35, scale: 0.78 });
 
   // Au bout de la pointe : le JETPACK, posé sur son socle lumineux
   buildJetpackPad(ctx, cx, zTip - 6);
+}
+
+// Grand Musée des Confluences réutilisable dans la ville procédurale et sur
+// la vraie emprise OSM. Le volume est volontairement ample : à l'échelle 1/2
+// de la carte, ses 64 m correspondent à l'effet monumental du bâtiment réel.
+export function buildConfluenceMuseum(ctx, { x, z, y = 0, scale = 1 } = {}) {
+  const glassMat = new THREE.MeshPhongMaterial({
+    color: 0x9fc9dc, specular: 0xffffff, shininess: 110,
+    transparent: true, opacity: 0.78, depthWrite: false,
+  });
+  const darkGlass = new THREE.MeshPhongMaterial({
+    color: 0x315768, specular: 0xccecff, shininess: 95,
+    transparent: true, opacity: 0.88,
+  });
+  const steelMat = new THREE.MeshLambertMaterial({ color: 0xaeb8c3 });
+  const darkSteel = new THREE.MeshLambertMaterial({ color: 0x515d68 });
+  const museum = new THREE.Group();
+  const plinth = new THREE.Mesh(new THREE.BoxGeometry(64, 1.4, 34), darkSteel);
+  plinth.position.y = 0.7;
+  museum.add(plinth);
+
+  // Nuage central suspendu et volumes facettés asymétriques.
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(48, 13, 25), glassMat);
+  hull.position.set(2, 10.5, 0);
+  hull.rotation.z = 0.08;
+  hull.rotation.x = -0.04;
+  museum.add(hull);
+  const cloudA = new THREE.Mesh(new THREE.IcosahedronGeometry(10, 1), glassMat);
+  cloudA.scale.set(1.75, 0.72, 1.05);
+  cloudA.position.set(18, 13.5, 1);
+  museum.add(cloudA);
+  const cloudB = new THREE.Mesh(new THREE.IcosahedronGeometry(8.5, 1), glassMat);
+  cloudB.scale.set(1.4, 0.82, 1.15);
+  cloudB.position.set(-17, 12, -1);
+  museum.add(cloudB);
+
+  // Le cristal d'entrée, grande proue transparente tournée vers la pointe.
+  const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(10, 0), darkGlass);
+  crystal.scale.set(1.15, 1.45, 0.82);
+  crystal.position.set(-24, 18, 0);
+  crystal.rotation.z = 0.32;
+  museum.add(crystal);
+
+  const spike = new THREE.Mesh(new THREE.BoxGeometry(24, 3.4, 13), steelMat);
+  spike.position.set(24, 17, 0);
+  spike.rotation.z = -0.18;
+  museum.add(spike);
+
+  // Pilotis et diagonales de la charpente visibles derrière le verre.
+  for (const [lx, lz] of [[-23, -10], [-8, -10], [10, -10], [25, -10], [-23, 10], [-8, 10], [10, 10], [25, 10]]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.68, 8, 8), darkSteel);
+    leg.position.set(lx, 4, lz);
+    museum.add(leg);
+  }
+  for (const s of [-1, 1]) {
+    for (let bx = -20; bx <= 20; bx += 10) {
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(0.28, 13, 0.28), steelMat);
+      beam.position.set(bx, 11, s * 12.65);
+      beam.rotation.z = (bx / 20) * 0.18;
+      museum.add(beam);
+    }
+  }
+
+  museum.scale.setScalar(scale);
+  museum.position.set(x, y, z);
+  ctx.scene.add(museum);
+  ctx.colliders.push({
+    minX: x - 42 * scale, maxX: x + 42 * scale,
+    minY: y, maxY: y + 42 * scale,
+    minZ: z - 17 * scale, maxZ: z + 17 * scale,
+  });
+  ctx.interactables.push({
+    x, z: z + 20 * scale, r: 8 * scale,
+    label: 'E — Musée des Confluences',
+    action: () => ctx.notify?.('🏛️ Le nuage de cristal, posé là où la Saône embrasse le Rhône.'),
+  });
+  ctx.pois?.push({ id: 'musee', nom: 'Musée des Confluences', emoji: '🏛️', x, z });
 }
 
 // Socle + modèle low-poly du jetpack + halo + interaction « Enfiler le jetpack ».

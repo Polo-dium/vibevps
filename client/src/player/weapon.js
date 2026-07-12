@@ -83,6 +83,9 @@ export function createWeapon(camera, scene, shootables, {
   const tracerMat = new THREE.MeshBasicMaterial({
     color: 0xffe9a0, blending: THREE.AdditiveBlending, depthWrite: false,
   });
+  const aircraftTracerMat = new THREE.MeshBasicMaterial({
+    color: 0xff2020, blending: THREE.AdditiveBlending, depthWrite: false,
+  });
 
   const particles = []; // { mesh, vel, life, maxLife, baseScale }
   const particleGeo = new THREE.SphereGeometry(0.03, 5, 5);
@@ -131,14 +134,14 @@ export function createWeapon(camera, scene, shootables, {
     });
   }
 
-  function spawnTracer(a, b) {
+  function spawnTracer(a, b, aircraft = false) {
     const from = new THREE.Vector3(...a);
     const to = new THREE.Vector3(...b);
     const dir = to.clone().sub(from);
     const dist = dir.length();
     if (dist < 0.5) return;
     dir.normalize();
-    const mesh = new THREE.Mesh(tracerGeo, tracerMat);
+    const mesh = new THREE.Mesh(tracerGeo, aircraft ? aircraftTracerMat : tracerMat);
     mesh.position.copy(from);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir);
     scene.add(mesh);

@@ -10,7 +10,8 @@ import {
   buildGrandeRoue, buildFountain, buildStreetFurniture, buildMurPeint,
   buildPeniches, buildSilure, buildFourviere, buildLamps,
   buildTraboules, buildRiverWorks, composeRiverTerrain, buildConfluence,
-  buildJetpackPad, buildTerrasse, makeWaterTexture, WATER_Y, BED_Y,
+  buildConfluenceMuseum, buildJetpackPad, buildTerrasse,
+  makeWaterTexture, WATER_Y, BED_Y,
 } from './city.js';
 import { buildTraffic } from './traffic.js';
 import { buildRooftopBar } from './rooftops.js';
@@ -269,6 +270,7 @@ function buildWaterMask(polys, bound, res = 4) {
   if (!Array.isArray(polys) || !polys.length) return null;
   const n = Math.ceil((2 * bound) / res);
   const grid = new Uint8Array(n * n);
+  const extensions = [];
   for (let row = 0; row < n; row++) {
     const z = -bound + (row + 0.5) * res;
     for (const ring of polys) {
@@ -289,11 +291,54 @@ function buildWaterMask(polys, bound, res = 4) {
   }
   return {
     res, grid, n, bound,
+    extensions,
     isWater(x, z) {
       const c = Math.floor((x + bound) / res), r = Math.floor((z + bound) / res);
-      return c >= 0 && r >= 0 && c < n && r < n && grid[r * n + c] === 1;
+      if (c >= 0 && r >= 0 && c < n && r < n && grid[r * n + c] === 1) return true;
+      return extensions.some((e) => e.contains(x, z));
     },
   };
+}
+
+// Consolide le masque le long des centerlines (évite qu'un grand triangle de
+// colline traverse la Saône), puis extrapole le Rhône après la Confluence.
+function reinforceRiverWater(mask, bands, rhone, zConf, bound) {
+  const { grid, n, res } = mask;
+  const paint = (cxAt, half, z0, z1) => {
+    const r0 = Math.max(0, Math.floor((z0 + bound) / res));
+    const r1 = Math.min(n - 1, Math.ceil((z1 + bound) / res));
+    for (let r = r0; r <= r1; r++) {
+      const z = -bound + (r + 0.5) * res;
+      const cx = cxAt(z);
+      const c0 = Math.max(0, Math.floor((cx - half + bound) / res));
+      const c1 = Math.min(n - 1, Math.ceil((cx + half + bound) / res));
+      for (let c = c0; c <= c1; c++) grid[r * n + c] = 1;
+    }
+  };
+
+  for (const band of bands) {
+    const z0 = Math.max(-bound, band.zMin ?? -bound);
+    const z1 = Math.min(bound, band.zMax ?? bound);
+    paint((z) => riverCx(band, z), riverHalf(band) + 1.5, z0, z1);
+  }
+
+  const zStart = Math.max(-bound, zConf - 24);
+  const zEnd = bound + 120;
+  const anchorZ = Math.min(zStart, rhone.zMax ?? zStart);
+  const anchorX = riverCx(rhone, anchorZ);
+  const beforeX = riverCx(rhone, anchorZ - 80);
+  const slope = THREE.MathUtils.clamp((anchorX - beforeX) / 80, -0.35, 0.35);
+  const half = Math.max(30, riverHalf(rhone));
+  const continuation = {
+    zStart, zEnd, half,
+    cx: (z) => anchorX + slope * (z - anchorZ),
+    contains(x, z) {
+      return z >= zStart && z <= zEnd && Math.abs(x - this.cx(z)) <= half;
+    },
+  };
+  paint(continuation.cx, half, zStart, bound);
+  mask.extensions.push(continuation);
+  return continuation;
 }
 
 // Murets de quai en pierre le long de la frontière eau/terre du masque :
@@ -454,6 +499,47 @@ function buildWaterSurfaces(ctx, polys) {
     ctx.scene.add(mesh);
   });
   ctx.updatables.push((dt) => { tex.offset.y -= dt * 0.012; });
+}
+
+// Ruban aval du Rhône : prolonge visuellement et physiquement le fleuve au
+// sud de l'emprise OSM. Il chevauche légèrement l'eau réelle à la jonction,
+// puis continue derrière la limite jouable pour fermer proprement l'horizon.
+function buildRiverContinuation(ctx, continuation) {
+  const positions = [], uvs = [];
+  const STEP = 12;
+  for (let za = continuation.zStart; za < continuation.zEnd; za += STEP) {
+    const zb = Math.min(za + STEP, continuation.zEnd);
+    const la = continuation.cx(za) - continuation.half;
+    const ra = continuation.cx(za) + continuation.half;
+    const lb = continuation.cx(zb) - continuation.half;
+    const rb = continuation.cx(zb) + continuation.half;
+    positions.push(
+      la, 0, za, lb, 0, zb, rb, 0, zb,
+      la, 0, za, rb, 0, zb, ra, 0, za
+    );
+    const va = za / 18, vb = zb / 18;
+    uvs.push(0, va, 0, vb, 1, vb, 0, va, 1, vb, 1, va);
+  }
+  const geometry = () => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.computeVertexNormals();
+    return geo;
+  };
+  const bed = new THREE.Mesh(geometry(), new THREE.MeshLambertMaterial({ color: 0x27352b }));
+  bed.position.y = BED_Y + 0.02;
+  ctx.scene.add(bed);
+
+  const tex = makeWaterTexture();
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  const water = new THREE.Mesh(geometry(), new THREE.MeshPhongMaterial({
+    map: tex, transparent: true, opacity: 0.96,
+    specular: 0x9cb9ce, shininess: 70, side: THREE.DoubleSide,
+  }));
+  water.position.y = WATER_Y + 0.015;
+  ctx.scene.add(water);
+  ctx.updatables.push((dt) => { tex.offset.y -= dt * 0.014; });
 }
 
 // Basilique Notre-Dame de Fourvière : à sa vraie place sur la colline, à
@@ -744,6 +830,15 @@ export function buildRealCity(ctx, data) {
     zTip: zConf + Math.min(130, (east.minX - west.maxX) * 0.7),
     zEnd: bound + 120,
   };
+  // Le musée réel se trouve juste au nord de la pointe, entre les deux rives.
+  const museumZ = zConf - 58;
+  const museumWest = riverCx(west, museumZ) + riverHalf(west);
+  const museumEast = riverCx(east, museumZ) - riverHalf(east);
+  const museumX = (museumWest + museumEast) / 2;
+  const MUSEUM_RECT = {
+    minX: museumX - 42, maxX: museumX + 42,
+    minZ: museumZ - 28, maxZ: museumZ + 28,
+  };
   // Réserve bâtiments : toute la zone de confluence (eau + pointe + musée)
   const CONF_RECT = { minX: west.minX, maxX: east.maxX, minZ: zConf - 30, maxZ: bound + 300 };
 
@@ -791,9 +886,24 @@ export function buildRealCity(ctx, data) {
     const basX = basPos[0] - 18, basZ = basPos[1];
     const ESPL = { minX: basX - 44, maxX: basX + 40, minZ: basZ - 32, maxZ: basZ + 32 };
     const PARC = { minX: basX + 40, maxX: -212, minZ: -292, maxZ: -142 };
-    EXTRA_RECTS = [ESPL, PARC];
+    // On remplace l'empreinte OSM générique du musée par le grand modèle en
+    // verre : sa zone doit être réservée avant la construction des bâtiments.
+    EXTRA_RECTS = [ESPL, PARC, MUSEUM_RECT];
     ctx.parkRects = [PARC];
     const mask = buildWaterMask(data.waterPolys, bound);
+    // Les polygones Overpass peuvent finir quelques dizaines de mètres avant
+    // le bord sud. On renforce les deux lits réels et prolonge le Rhône après
+    // la jonction, jusqu'au-delà de la limite visible de la carte.
+    const rhoneContinuation = mask
+      ? reinforceRiverWater(mask, data.water, east, zConf, bound)
+      : null;
+    ctx.waterExtensions = rhoneContinuation ? [{
+      ...rhoneContinuation,
+      name: 'rhone-aval', w: rhoneContinuation.half * 2,
+      minX: Math.min(rhoneContinuation.cx(rhoneContinuation.zStart), rhoneContinuation.cx(rhoneContinuation.zEnd)) - rhoneContinuation.half,
+      maxX: Math.max(rhoneContinuation.cx(rhoneContinuation.zStart), rhoneContinuation.cx(rhoneContinuation.zEnd)) + rhoneContinuation.half,
+      zMin: rhoneContinuation.zStart, zMax: rhoneContinuation.zEnd,
+    }] : [];
     ctx.waterMask = mask;
     const hillsBase = Array.isArray(data.hills) && data.hills.length
       ? makeHillsFn(data.hills) : () => 0;
@@ -825,6 +935,7 @@ export function buildRealCity(ctx, data) {
         return h > 0.5 ? Math.min(h, shoreMax(x, z)) : h;
       };
       buildWaterSurfaces(ctx, data.waterPolys);
+      if (rhoneContinuation) buildRiverContinuation(ctx, rhoneContinuation);
       buildQuayEdges(ctx, mask); // murets de pierre : fin des débordements
     } else {
       ctx.terrainHeight = ground;
@@ -854,6 +965,7 @@ export function buildRealCity(ctx, data) {
   buildOsmBuildings(ctx, data, rand, full);
   buildOsmRoads(ctx, data, full);
   buildGreenery(ctx, data, rand, full);
+  if (full) buildConfluenceMuseum(ctx, { x: museumX, z: museumZ, scale: 1.08 });
 
   // Lieux de gameplay (zones déjà déblayées des bâtiments OSM)
   const BELLE = BELLE_RECT ?? BELLECOUR;
@@ -973,7 +1085,9 @@ function buildUrbanField(data, bound) {
 // fonction de hauteur (collines, lits des fleuves), coloré par altitude.
 function buildTerrainMesh(ctx, bound, data) {
   const size = bound * 2 + 240;
-  const seg = 230; // assez fin pour des berges nettes le long de l'eau réelle
+  // Maille < 11 m sur le Grand Lyon : assez fine pour qu'aucun triangle de
+  // colline ne puisse ponter les 24–60 m d'un fleuve étroit comme la Saône.
+  const seg = 320;
   const geo = new THREE.PlaneGeometry(size, size, seg, seg);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
