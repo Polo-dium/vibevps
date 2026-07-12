@@ -1147,9 +1147,12 @@ function buildAlps(ctx, bound, rand) {
 
   // Arc de ~110° centré plein est (+x, côté Part-Dieu/aérodrome), au-delà
   // de la couronne de collines mais dans le champ de la caméra (far = 3×bound)
-  const R = bound * 2.1;
-  const HGT = bound * 0.34;
-  const arc = 2.5; // élargi : la chaîne court sur ~143° d'horizon
+  // Plus loin, plus bas et beaucoup plus large : depuis les toits, la chaîne
+  // paraît désormais posée sur l'horizon au lieu de dominer immédiatement
+  // la ville. Les reliefs latéraux décroissants occupent près de 200°.
+  const R = bound * 2.2;
+  const HGT = bound * 0.2;
+  const arc = 3.45;
   const geo = new THREE.CylinderGeometry(R, R, HGT, 32, 1, true, Math.PI / 2 - arc / 2, arc);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.y = HGT / 2 - 6;
@@ -1162,7 +1165,7 @@ function buildAlps(ctx, bound, rand) {
   // se fondent dedans par chevauchement, extrémités qui s'aplatissent puis
   // disparaissent. Plaquage simple, aucune répétition à l'exécution.
   // Si le fichier manque, la version peinte reste en place.
-  new THREE.TextureLoader().load('/pano/alpes-v2.webp', (t) => {
+  new THREE.TextureLoader().load('/pano/alpes-v3.webp', (t) => {
     t.colorSpace = THREE.SRGBColorSpace;
     mat.map = t;
     mat.needsUpdate = true;
