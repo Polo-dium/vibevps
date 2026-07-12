@@ -304,36 +304,104 @@ function buildQuayEdges(ctx, mask) {
   const { grid, n, res, bound } = mask;
   const at = (r, c) => (r < 0 || c < 0 || r >= n || c >= n ? 1 : grid[r * n + c]);
   const TOP = 0.42, BOT = BED_Y - 0.3;
-  const pos = [];
-  const wall = (x1, z1, x2, z2, capDx, capDz) => {
-    pos.push(
-      x1, BOT, z1, x2, BOT, z2, x2, TOP, z2,
-      x1, BOT, z1, x2, TOP, z2, x1, TOP, z1,
-      // couvre-mur : petit méplat de 0,55 m côté terre
-      x1, TOP, z1, x2, TOP, z2, x2 + capDx, TOP, z2 + capDz,
-      x1, TOP, z1, x2 + capDx, TOP, z2 + capDz, x1 + capDx, TOP, z1 + capDz
-    );
-  };
+
+  // 1) Soupe de segments : chaque arête de cellule entre eau et terre,
+  // en coordonnées de COINS de grille (entiers → chaînage exact).
+  const segs = [];
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
       if (grid[r * n + c] !== 1) continue;
-      const x0 = -bound + c * res, x1 = x0 + res;
-      const z0 = -bound + r * res, z1 = z0 + res;
-      if (!at(r, c - 1)) wall(x0, z0, x0, z1, -0.55, 0); // terre à l'ouest
-      if (!at(r, c + 1)) wall(x1, z0, x1, z1, 0.55, 0); // terre à l'est
-      if (!at(r - 1, c)) wall(x0, z0, x1, z0, 0, -0.55); // terre au nord
-      if (!at(r + 1, c)) wall(x0, z1, x1, z1, 0, 0.55); // terre au sud
+      if (!at(r, c - 1)) segs.push([c, r, c, r + 1]);
+      if (!at(r, c + 1)) segs.push([c + 1, r, c + 1, r + 1]);
+      if (!at(r - 1, c)) segs.push([c, r, c + 1, r]);
+      if (!at(r + 1, c)) segs.push([c, r + 1, c + 1, r + 1]);
     }
   }
-  if (!pos.length) return;
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
-    color: 0x968f7d, side: THREE.DoubleSide,
-  }));
-  mesh.userData.noShadow = true;
-  ctx.scene.add(mesh);
+
+  // 2) Chaînage des segments en polylignes (par correspondance de coins)
+  const key = (x, y) => x * 100000 + y;
+  const byEnd = new Map();
+  segs.forEach((s, i) => {
+    for (const k of [key(s[0], s[1]), key(s[2], s[3])]) {
+      if (!byEnd.has(k)) byEnd.set(k, []);
+      byEnd.get(k).push(i);
+    }
+  });
+  const used = new Uint8Array(segs.length);
+  const chains = [];
+  for (let i = 0; i < segs.length; i++) {
+    if (used[i]) continue;
+    used[i] = 1;
+    const chain = [[segs[i][0], segs[i][1]], [segs[i][2], segs[i][3]]];
+    for (;;) {
+      const tail = chain[chain.length - 1];
+      const cands = (byEnd.get(key(tail[0], tail[1])) ?? []).filter((j) => !used[j]);
+      if (!cands.length) break;
+      const j = cands[0];
+      used[j] = 1;
+      const s = segs[j];
+      chain.push(s[0] === tail[0] && s[1] === tail[1] ? [s[2], s[3]] : [s[0], s[1]]);
+    }
+    if (chain.length > 3) chains.push(chain);
+  }
+
+  // 3) Lissage de Chaikin ×2 : les marches d'escalier de la grille (4 m)
+  // deviennent des courbes de berge fluides.
+  const chaikin = (pts) => {
+    const out = [pts[0]];
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
+      out.push([ax * 0.75 + bx * 0.25, ay * 0.75 + by * 0.25]);
+      out.push([ax * 0.25 + bx * 0.75, ay * 0.25 + by * 0.75]);
+    }
+    out.push(pts[pts.length - 1]);
+    return out;
+  };
+
+  // 4) Muret vertical + couvre-mur + PROMENADE DE QUAI (5 m côté terre)
+  // le long de chaque contour lissé.
+  const wallPos = [], walkPos = [];
+  const toWorld = ([cx2, rz]) => [-bound + cx2 * res, -bound + rz * res];
+  for (const chainRaw of chains) {
+    const pts = chaikin(chaikin(chainRaw)).map(toWorld);
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const [x1, z1] = pts[i], [x2, z2] = pts[i + 1];
+      const dx = x2 - x1, dz = z2 - z1;
+      const len = Math.hypot(dx, dz);
+      if (len < 0.05) continue;
+      let px = -dz / len, pz = dx / len; // perpendiculaire
+      // côté TERRE : on sonde à 2,5 m — si c'est de l'eau, on retourne
+      if (mask.isWater((x1 + x2) / 2 + px * 2.5, (z1 + z2) / 2 + pz * 2.5)) {
+        px = -px; pz = -pz;
+      }
+      wallPos.push(
+        x1, BOT, z1, x2, BOT, z2, x2, TOP, z2,
+        x1, BOT, z1, x2, TOP, z2, x1, TOP, z1,
+        // couvre-mur de 0,55 m côté terre
+        x1, TOP, z1, x2, TOP, z2, x2 + px * 0.55, TOP, z2 + pz * 0.55,
+        x1, TOP, z1, x2 + px * 0.55, TOP, z2 + pz * 0.55, x1 + px * 0.55, TOP, z1 + pz * 0.55
+      );
+      // promenade : bande dallée de 5 m qui suit la berge
+      const wy = 0.03;
+      walkPos.push(
+        x1, wy, z1, x2, wy, z2, x2 + px * 5, wy, z2 + pz * 5,
+        x1, wy, z1, x2 + px * 5, wy, z2 + pz * 5, x1 + px * 5, wy, z1 + pz * 5
+      );
+    }
+  }
+  if (!wallPos.length) return;
+  const mk = (arr, color) => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+      color, side: THREE.DoubleSide,
+    }));
+    mesh.userData.noShadow = true;
+    ctx.scene.add(mesh);
+  };
+  mk(wallPos, 0x968f7d);
+  mk(walkPos, 0x9a9383); // dallage de promenade, pierre claire
 }
 
 // Rend l'eau DIRECTEMENT depuis les polygones OSM (forme exacte, virages et
@@ -672,10 +740,29 @@ export function buildRealCity(ctx, data) {
     // que zones réservées, portes et bornes suivent.
     BELLE_RECT = BELLECOUR_REAL;
     ctx.bellecourRect = BELLECOUR_REAL;
+
+    // AXE DE LA PRESQU'ÎLE : la vraie place Bellecour n'est pas alignée
+    // nord-sud, elle est PERPENDICULAIRE aux fleuves (et aux avenues qui
+    // les suivent). On mesure la pente moyenne des deux tracés au niveau
+    // de la place et on tourne toute la place de cet angle (voir belleCtx).
+    const slopeOf = (b) => (b?.cx ? (b.cx(150) - b.cx(-150)) / 300 : 0); // fenêtre large : l'axe des avenues, pas le méandre local
+    const mAvg = (slopeOf(west) + slopeOf(east)) / 2;
+    const bcx0 = (BELLECOUR_REAL.minX + BELLECOUR_REAL.maxX) / 2;
+    const bcz0 = (BELLECOUR_REAL.minZ + BELLECOUR_REAL.maxZ) / 2;
+    const bYaw = Math.atan(mAvg);
+    const bCos = Math.cos(bYaw), bSin = Math.sin(bYaw);
+    ctx.belleRot = {
+      yaw: bYaw,
+      apply(x, z) {
+        const dx = x - bcx0, dz = z - bcz0;
+        return [bcx0 + dx * bCos + dz * bSin, bcz0 - dx * bSin + dz * bCos];
+      },
+    };
+
     // Pavillon au centre-OUEST : à bonne distance de la grande roue (20,20)
-    // et de la prairie qui occupe l'est de la place.
-    ARCADE.x = -48;
-    ARCADE.z = 3;
+    // et de la prairie qui occupe l'est de la place. Position tournée avec
+    // la place (portes/bornes/zones réservées suivent).
+    [ARCADE.x, ARCADE.z] = ctx.belleRot.apply(-48, 3);
     // Basilique RECULÉE de 18 m vers le cœur de la colline (elle débordait
     // dans le vide au bord de la pente) ; esplanade dégagée autour, et parc
     // du Rosaire qui descend vers Saint-Jean (sans bâtiments, planté d'arbres).
@@ -734,10 +821,13 @@ export function buildRealCity(ctx, data) {
 
   // Lieux de gameplay (zones déjà déblayées des bâtiments OSM)
   const BELLE = BELLE_RECT ?? BELLECOUR;
-  buildBellecour(ctx, BELLE, full);
+  buildBellecour(belleCtx(ctx), BELLE, full);
   // Jetpack sur la place, côté sud-ouest près du jardin (à l'écart du
-  // cercle de spawn et du pavillon arcade)
-  buildJetpackPad(ctx, full ? BELLE.minX + 10 : BELLE.maxX - 8, BELLE.maxZ - 10);
+  // cercle de spawn et du pavillon arcade) — position tournée avec la place
+  const [jpX, jpZ] = ctx.belleRot
+    ? ctx.belleRot.apply(BELLE.minX + 10, BELLE.maxZ - 10)
+    : [full ? BELLE.minX + 10 : BELLE.maxX - 8, BELLE.maxZ - 10];
+  buildJetpackPad(ctx, jpX, jpZ);
   buildMurPeint(ctx);
   buildGrandeRoue(ctx);
   buildFountain(ctx);
@@ -830,7 +920,10 @@ function buildTerrainMesh(ctx, bound, data) {
   const pos = geo.attributes.position;
   const colors = new Float32Array(pos.count * 3);
   const c = new THREE.Color();
-  const asphalt = new THREE.Color(0x4a505d);
+  // Socle urbain CLAIR (béton/dalle) : les rubans d'asphalte foncé des rues
+  // OSM (buildOsmRoads) ressortent enfin — avant, sol et chaussée avaient
+  // quasi la même teinte sombre et les rues étaient invisibles.
+  const asphalt = new THREE.Color(0x83817a);
   const grass = new THREE.Color(0x4d6b43);
   const forest = new THREE.Color(0x36512e);
   const bedC = new THREE.Color(0x27352b);
@@ -1117,9 +1210,10 @@ function lampSpotsOsm(ctx, data, full = false, zConf = null) {
     // Tour de Bellecour (petit rect en legacy, place à l'échelle en full)
     const B = ctx.bellecourRect ?? BELLECOUR;
     const n = ctx.bellecourRect ? 11 : 8;
+    const rot = ctx.belleRot ? ctx.belleRot.apply : (x, z) => [x, z];
     for (let i = 0; i < n; i++) {
       const x = B.minX + 6 + i * ((B.maxX - B.minX - 12) / (n - 1));
-      spots.push([x, B.minZ + 1.5], [x, B.maxZ - 1.5]);
+      spots.push(rot(x, B.minZ + 1.5), rot(x, B.maxZ - 1.5));
     }
   }
   const inWater = (x, z) => (ctx.waterMask ? ctx.waterMask.isWater(x, z) : nearRiver(data.water, x, z, 4));
@@ -1243,11 +1337,59 @@ function buildWater(ctx, bands, bound, zConf = null) {
   }
 }
 
+// Ctx « tourné » pour la place Bellecour : tout ce que buildBellecour ajoute
+// (meshes, colliders, interactables, POI) est pivoté de l'angle de la
+// Presqu'île autour du centre de la place. Les meshes passent par un groupe
+// tourné ; les colliders AABB sont ré-englobés après rotation des coins
+// (approximation par excès, très acceptable pour bancs/bornes/statue).
+function belleCtx(ctx) {
+  const R = ctx.belleRot;
+  if (!R || Math.abs(R.yaw) < 0.01) return ctx;
+  const group = new THREE.Group();
+  // world = C + Ry(yaw)·(p − C)  ⇔  group.rotation.y = yaw,
+  // group.position = C − Ry(yaw)·C
+  const c = Math.cos(R.yaw), s = Math.sin(R.yaw);
+  const [cx0, cz0] = R.apply(0, 0); // = C − Ry·C appliqué à l'origine
+  group.rotation.y = R.yaw;
+  group.position.set(cx0 - 0, 0, cz0 - 0);
+  ctx.scene.add(group);
+  return {
+    ...ctx,
+    scene: group,
+    colliders: {
+      push(b) {
+        const pts = [[b.minX, b.minZ], [b.maxX, b.minZ], [b.minX, b.maxZ], [b.maxX, b.maxZ]]
+          .map(([x, z]) => R.apply(x, z));
+        ctx.colliders.push({
+          minX: Math.min(...pts.map((p) => p[0])), maxX: Math.max(...pts.map((p) => p[0])),
+          minZ: Math.min(...pts.map((p) => p[1])), maxZ: Math.max(...pts.map((p) => p[1])),
+          minY: b.minY, maxY: b.maxY,
+        });
+      },
+    },
+    interactables: {
+      push(it) {
+        const [x, z] = R.apply(it.x, it.z);
+        ctx.interactables.push({ ...it, x, z });
+      },
+    },
+    pois: {
+      push(p) {
+        const [x, z] = R.apply(p.x, p.z);
+        ctx.pois.push({ ...p, x, z });
+      },
+    },
+  };
+}
+
 // Zones réservées au gameplay : on retire les bâtiments OSM qui les chevauchent
 function reservedRects() {
   const B = BELLE_RECT ?? BELLECOUR;
+  // Place à l'échelle : marge élargie — la place est TOURNÉE de l'angle de
+  // la Presqu'île, ses coins débordent du rect axial d'environ sin(yaw)·D/2
+  const pB = BELLE_RECT ? 24 : 2;
   const rects = [
-    { minX: B.minX - 2, maxX: B.maxX + 2, minZ: B.minZ - 2, maxZ: B.maxZ + 2 },
+    { minX: B.minX - pB, maxX: B.maxX + pB, minZ: B.minZ - pB, maxZ: B.maxZ + pB },
     { minX: ARCADE.x - ARCADE.w / 2 - 9, maxX: ARCADE.x + ARCADE.w / 2 + 9, minZ: ARCADE.z - ARCADE.d / 2 - 11, maxZ: ARCADE.z + ARCADE.d / 2 + 11 },
     { minX: RANGE.x - RANGE.width / 2 - 7, maxX: RANGE.x + RANGE.width / 2 + 7, minZ: RANGE.backZ - 7, maxZ: RANGE.counterZ + 10 },
     { minX: MUR_PEINT.x - MUR_PEINT.w / 2 - 5, maxX: MUR_PEINT.x + MUR_PEINT.w / 2 + 5, minZ: MUR_PEINT.z - 8, maxZ: MUR_PEINT.z + 8 },
@@ -1326,10 +1468,15 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     }
     // Pas de bâtiment sur l'eau ni sur l'avenue de quai (distance au tracé, par z)
     if (nearRiver(data.water, cx, cz, 14)) continue;
-    // …ni sur l'eau réelle (masque : couvre aussi les bras est-ouest)
-    if (ctx.waterMask && (ctx.waterMask.isWater(cx, cz) ||
-        ctx.waterMask.isWater(minX, minZ) || ctx.waterMask.isWater(maxX, maxZ) ||
-        ctx.waterMask.isWater(minX, maxZ) || ctx.waterMask.isWater(maxX, minZ))) continue;
+    // …ni sur l'eau réelle NI À MOINS DE 8 M de la berge (masque dilaté) :
+    // la promenade de quai passe entre l'eau et les premières façades.
+    if (ctx.waterMask) {
+      const nearW = (x, z) => ctx.waterMask.isWater(x, z) ||
+        ctx.waterMask.isWater(x + 8, z) || ctx.waterMask.isWater(x - 8, z) ||
+        ctx.waterMask.isWater(x, z + 8) || ctx.waterMask.isWater(x, z - 8);
+      if (nearW(cx, cz) || nearW(minX, minZ) || nearW(maxX, maxZ) ||
+          nearW(minX, maxZ) || nearW(maxX, minZ)) continue;
+    }
 
     // Sens horaire (vu de dessus) pour des normales de murs vers l'extérieur
     let area = 0;
@@ -1737,10 +1884,13 @@ function buildGreenery(ctx, data, rand, full = false) {
   // l'intérieur de la place, comme en vrai (même bypass que les parcs)
   if (ctx.bellecourRect) {
     const B = ctx.bellecourRect;
+    const rot = ctx.belleRot ? ctx.belleRot.apply : (x, z) => [x, z];
     for (let x = B.minX + 6; x < B.maxX - 6; x += 7) {
       for (const off of [4.5, 9.5]) {
-        valid.push([x + (rand() - 0.5) * 1.5, B.minZ + off, 0.85 + rand() * 0.4, 0]);
-        valid.push([x + (rand() - 0.5) * 1.5, B.maxZ - off, 0.85 + rand() * 0.4, 0]);
+        const [xa, za] = rot(x + (rand() - 0.5) * 1.5, B.minZ + off);
+        const [xb, zb] = rot(x + (rand() - 0.5) * 1.5, B.maxZ - off);
+        valid.push([xa, za, 0.85 + rand() * 0.4, 0]);
+        valid.push([xb, zb, 0.85 + rand() * 0.4, 0]);
       }
     }
   }
