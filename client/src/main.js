@@ -109,7 +109,8 @@ async function boot() {
 
   // --- Cycle jour/nuit ---------------------------------------------------
   // Basé sur l'horloge (Date.now()) : tous les joueurs voient la même heure
-  // sans aucune synchro serveur. Cycle de 10 min (~6,5 min jour, 3,5 min nuit).
+  // sans aucune synchro serveur. Cycle exact de 10 min : 8 min de jour,
+  // puis 2 min de nuit, transitions comprises.
   const DAY_CYCLE_MS = 10 * 60 * 1000;
   const ENV_DAY = {
     top: new THREE.Color(0x2e63b8), mid: new THREE.Color(0x7fa8dd),
@@ -124,11 +125,14 @@ async function boot() {
     sun: new THREE.Color(0xa8bce8),
   };
   const DUSK_TINT = new THREE.Color(0xff8a4d);
-  // phase 0..1 → position du soleil ; la nuit dure 30 % du temps de jour
-  // (jour ≈ 77 % du cycle, nuit ≈ 23 %)
+  const DAY_SHARE = 0.8;
+  // phase 0..1 → position du soleil. La demi-orbite visible est parcourue
+  // sur 80 % du temps, la demi-orbite sous l'horizon sur les 20 % restants.
   function envPhase() {
     const raw = (Date.now() % DAY_CYCLE_MS) / DAY_CYCLE_MS;
-    return raw < 0.77 ? (raw / 0.77) * 0.5 : 0.5 + ((raw - 0.77) / 0.23) * 0.5;
+    return raw < DAY_SHARE
+      ? (raw / DAY_SHARE) * 0.5
+      : 0.5 + ((raw - DAY_SHARE) / (1 - DAY_SHARE)) * 0.5;
   }
   const env = { daylight: 1, night: 0, dusk: 0, sunDir: new THREE.Vector3(0, 1, 0) };
 
@@ -196,10 +200,17 @@ async function boot() {
   scene.add(halo);
   const moonMesh = new THREE.Mesh(
     new THREE.SphereGeometry(16, 16, 16),
-    new THREE.MeshBasicMaterial({ color: 0xdfe6f5, fog: false })
+    new THREE.MeshBasicMaterial({ color: 0xf2f5ff, fog: false })
   );
   moonMesh.visible = false;
   scene.add(moonMesh);
+  const moonHalo = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: makeHaloTexture(), color: 0xbfd2ff,
+    transparent: true, opacity: 0.42,
+    depthWrite: false, fog: false,
+  }));
+  moonHalo.visible = false;
+  scene.add(moonHalo);
 
   // --- Construction du monde ---
   const ctx = {
@@ -341,13 +352,23 @@ async function boot() {
     // astres restaient à 620 m du joueur et pouvaient donc surgir au milieu
     // du Grand Lyon quand on se déplaçait sur la carte.
     const astroRadius = Math.max(900, (ctx.worldBound ?? 500) * 1.55);
+    // L'éloignement ne doit pas réduire leur taille apparente : on compense
+    // proportionnellement la taille des sphères et de leurs halos.
+    const astroScale = astroRadius / 620;
     sunMesh.position.copy(env.sunDir).multiplyScalar(astroRadius);
+    sunMesh.scale.setScalar(astroScale);
     sunMesh.visible = elev > -0.12;
     halo.position.copy(sunMesh.position);
+    halo.scale.setScalar(220 * astroScale);
     halo.material.opacity = Math.max(0, Math.min(1, elev * 3 + 0.25));
     halo.visible = sunMesh.visible;
     moonMesh.position.copy(env.sunDir).multiplyScalar(-astroRadius);
+    moonMesh.scale.setScalar(astroScale * 1.5);
     moonMesh.visible = elev < 0.1;
+    moonHalo.position.copy(moonMesh.position);
+    moonHalo.scale.setScalar(120 * astroScale);
+    moonHalo.material.opacity = THREE.MathUtils.clamp(-elev * 2 + 0.25, 0.18, 0.48);
+    moonHalo.visible = moonMesh.visible;
   }
 
   // --- Progression : XP, niveaux, succès ---
