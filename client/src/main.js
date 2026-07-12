@@ -17,7 +17,7 @@ import { createArms } from './player/arms.js';
 import { createRemotePlayers } from './player/remotes.js';
 import { createVoice } from './player/voice.js';
 import { createTouchControls } from './ui/touch.js';
-import { SPAWN, spawnPoint } from './world/layout.js';
+import { ARCADE, SPAWN, spawnPoint } from './world/layout.js';
 import { createNpcs } from './world/npcs.js';
 import { createQuenelle } from './world/quenelle.js';
 import { createRace } from './world/race.js';
@@ -30,8 +30,28 @@ import { createUi } from './ui/hud.js';
 import { createProgress } from './progress.js';
 import { createCapture } from './capture.js';
 import { createQuality } from './quality.js';
+import { createLoadingScreen, nextPaint } from './ui/loading.js';
+import { createTutorial } from './ui/tutorial.js';
 
 async function boot() {
+  const loading = createLoadingScreen();
+  // Les deux ressources les plus lourdes partent ensemble pendant que le
+  // joueur choisit son pseudo. L'OSM reste optionnel et ne bloque jamais.
+  const worldStatePromise = apiFetch('/state').then(
+    (data) => {
+      loading.set('Les gones sont synchronisés…', 38);
+      return { data };
+    },
+    (error) => ({ error })
+  );
+  const osmPromise = fetch('/lyon-osm.json')
+    .then((res) => res.ok ? res.json() : null)
+    .then((data) => {
+      loading.set(data ? 'La carte du Grand Lyon est arrivée…' : 'Plan B : Lyon procédural…', 62);
+      return data;
+    })
+    .catch(() => null);
+
   const ui = createUi();
   await ui.ensureAuth();
 
@@ -40,7 +60,16 @@ async function boot() {
   const inviteFriend = new URLSearchParams(location.search).get('ami');
 
   // État partagé du monde
-  const worldState = await apiFetch('/state');
+  loading.set('Chargement de Bellecour…', 68);
+  let worldState;
+  try {
+    const result = await worldStatePromise;
+    if (result.error) throw result.error;
+    worldState = result.data;
+  } catch (err) {
+    loading.fail(`Impossible de joindre Lyon : ${err.message}`);
+    return;
+  }
   state.games = worldState.games;
   state.leaderboards = worldState.leaderboards;
   state.tags = worldState.tags;
@@ -231,11 +260,9 @@ async function boot() {
 
   // Vrai Lyon (données OpenStreetMap) si le fichier a été généré sur le
   // serveur avec tools/fetch-osm.mjs, sinon ville procédurale.
-  let osmData = null;
-  try {
-    const res = await fetch('/lyon-osm.json');
-    if (res.ok) osmData = await res.json();
-  } catch { /* pas de données : ville procédurale */ }
+  loading.set('Construction des quais et des rues…', 74);
+  await nextPaint();
+  const osmData = await osmPromise;
 
   if (osmData?.buildings?.length > 50) {
     buildRealCity(ctx, osmData);
@@ -394,6 +421,7 @@ async function boot() {
     camera, renderer.domElement, ctx.colliders,
     (x, z) => ctx.terrainHeight?.(x, z) ?? 0
   );
+  const tutorial = createTutorial({ isTouch: IS_TOUCH });
   // Hook de debug (derrière ?debug) : téléportation/inspection pour les tests
   if (new URLSearchParams(location.search).has('debug')) {
     window.__game = { controls, ctx, state, camera, ui, renderer, quality };
@@ -435,6 +463,7 @@ async function boot() {
       ui.setTagMode(on ? paintColor : null);
     },
     onSaved: (res) => {
+      tutorial.tagSaved();
       if (res.xp != null) {
         ui.setXp(res.xp);
         audio.reward();
@@ -967,9 +996,12 @@ async function boot() {
       ui.setInfo({ fps: fpsValue, players: remotes.count(), pos: controls.position });
     }
 
+    tutorial.update(controls.position, ARCADE);
     renderer.render(scene, camera);
   }
   loop();
+  loading.done();
+  tutorial.start();
 
   ui.toast('Bienvenue à Lyon ! La salle d’arcade est au nord de Bellecour.');
   // Signale le palier auto-détecté seulement s'il a réduit la qualité (rien

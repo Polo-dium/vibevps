@@ -333,9 +333,21 @@ export function createUi() {
       overlay.className = 'overlay';
       overlay.innerHTML = `
         <div class="panel home-panel">
+          <div class="home-visual" aria-hidden="true">
+            <div class="home-moon"></div>
+            <div class="home-fourviere">✦</div>
+            <div class="home-crayon"></div>
+            <div class="home-buildings"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="home-river"></div>
+            <div class="home-player">▲</div>
+          </div>
           <div class="home-title">LYON <span>ARCADE</span></div>
           <p class="sub">Lyon en low-poly, direct dans ton navigateur : tague Bellecour,
           pilote un avion, joue aux bornes et défie les gones.</p>
+          <div class="home-features" aria-label="Fonctionnalités du jeu">
+            <span>🏙️ Lyon ouvert</span><span>👥 Multijoueur</span><span>🎨 Graffiti</span><span>🕹️ Mini-jeux</span>
+          </div>
+          <p class="home-meta">GRATUIT · PC ET MOBILE · AUCUN TÉLÉCHARGEMENT</p>
           <div id="home-resume" class="hidden">
             <button id="home-play">▶ JOUER</button>
             <div class="home-links">
@@ -343,14 +355,14 @@ export function createUi() {
               <a href="#" id="home-protect">🔒 protéger mon pseudo</a>
             </div>
             <div id="home-pinrow" class="hidden">
-              <input type="password" id="home-newpin" placeholder="Choisis un code secret (4 car. min)" maxlength="24">
+              <input type="password" id="home-newpin" aria-label="Nouveau code secret" autocomplete="new-password" placeholder="Choisis un code secret (4 car. min)" maxlength="24">
               <div class="err" id="home-pinerr"></div>
               <button id="home-pinsave">ENREGISTRER LE CODE</button>
             </div>
           </div>
           <div id="home-form" class="hidden">
-            <input type="text" id="name-input" placeholder="Ton pseudo" maxlength="16">
-            <input type="password" id="pin-input" placeholder="Code secret (facultatif)" maxlength="24">
+            <input type="text" id="name-input" aria-label="Ton pseudo" autocomplete="username" placeholder="Ton pseudo" maxlength="16">
+            <input type="password" id="pin-input" aria-label="Code secret facultatif" autocomplete="current-password" placeholder="Code secret (facultatif)" maxlength="24">
             <p class="home-note">Avec un code secret, ton pseudo est protégé : tu le retrouves
             sur n'importe quel appareil, personne ne peut te le piquer.</p>
             <div class="err" id="name-err"></div>
