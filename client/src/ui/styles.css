@@ -264,6 +264,62 @@ button.ghost {
   background: rgba(0, 255, 213, 0.45);
   border: 2px solid rgba(255, 255, 255, 0.6);
 }
+/* Cockpit tactile : deux manches fixes, visibles uniquement dans l'avion. */
+.plane-stick {
+  display: none; position: fixed; z-index: 22;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  width: 142px; height: 142px; border-radius: 50%;
+  border: 2px solid rgba(127, 216, 255, 0.52);
+  background:
+    linear-gradient(90deg, transparent 49%, rgba(127,216,255,.18) 50%, transparent 51%),
+    linear-gradient(0deg, transparent 49%, rgba(127,216,255,.18) 50%, transparent 51%),
+    rgba(5, 10, 22, 0.48);
+  box-shadow: inset 0 0 24px rgba(0,0,0,.45), 0 0 18px rgba(0,255,213,.12);
+  pointer-events: none;
+}
+#plane-stick-left { left: calc(24px + env(safe-area-inset-left)); }
+#plane-stick-right { right: calc(24px + env(safe-area-inset-right)); }
+.plane-stick-knob {
+  position: absolute; left: 50%; top: 50%;
+  width: 58px; height: 58px; margin: -29px; border-radius: 50%;
+  background: rgba(0, 255, 213, 0.48);
+  border: 2px solid rgba(255,255,255,.72);
+  box-shadow: 0 0 16px rgba(0,255,213,.35);
+}
+#plane-stick-right .plane-stick-knob {
+  background: rgba(255, 61, 240, 0.42);
+  box-shadow: 0 0 16px rgba(255,61,240,.3);
+}
+.plane-stick-label {
+  position: absolute; color: rgba(220,239,250,.72);
+  font: 700 9px/1 monospace; letter-spacing: .6px; white-space: nowrap;
+}
+.plane-stick-top { left: 50%; top: 8px; transform: translateX(-50%); }
+.plane-stick-bottom { left: 50%; bottom: 8px; transform: translateX(-50%); }
+.plane-stick-left-label { left: 7px; top: 50%; transform: translateY(-50%) rotate(-90deg); }
+.plane-stick-right-label { right: 5px; top: 50%; transform: translateY(-50%) rotate(90deg); }
+#plane-instruments {
+  display: none; position: fixed; z-index: 22;
+  left: 50%; top: calc(12px + env(safe-area-inset-top)); transform: translateX(-50%);
+  padding: 7px 13px; border: 1px solid rgba(127,216,255,.45); border-radius: 7px;
+  background: rgba(5,10,22,.72); color: #d9eff8;
+  font: 700 11px/1 monospace; letter-spacing: .4px; white-space: nowrap;
+  text-shadow: 0 0 8px rgba(0,255,213,.4);
+}
+#touch-ui.plane-mode .plane-stick, #touch-ui.plane-mode #plane-instruments { display: block; }
+#touch-ui.plane-mode #joy-base { display: none !important; }
+#touch-ui.plane-mode .touch-actions {
+  right: 50%; bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(50%); display: block;
+}
+#touch-ui.plane-mode .touch-actions .tbtn:not(#tb-fire) { display: none; }
+#touch-ui.plane-mode #tb-fire { width: 72px; height: 72px; font-size: 16px; }
+#touch-ui.plane-mode #hud-ammo { bottom: 94px; }
+@media (max-height: 500px) {
+  .plane-stick { width: 124px; height: 124px; }
+  #plane-stick-left { left: 14px; }
+  #plane-stick-right { right: 14px; }
+}
 /* Boutons utilitaires en haut à droite (rangée horizontale) */
 .touch-top {
   position: fixed;

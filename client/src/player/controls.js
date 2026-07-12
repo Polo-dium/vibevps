@@ -23,6 +23,10 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   const keys = new Set();
   // Entrées tactiles (mobile)
   const touchMove = { fwd: 0, strafe: 0 };
+  // Avion : manche gauche = gaz/lacet, manche droit = tangage/roulis.
+  // Les gaz sont une commande de variation : le régime reste là où on l'a
+  // réglé lorsque le pouce revient au centre.
+  const touchPlane = { throttle: 0, yaw: 0, pitch: 0, roll: 0 };
   let wantJump = false;
   // Mode véhicule : quand il est défini, update() conduit au lieu de marcher
   // ({ heading, speed, onHorn, onCrash } — la position reste `pos`)
@@ -32,6 +36,13 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   let flying = false;
   let flyThrust = false; // poussée active cette frame (pour les particules)
   let touchThrust = false; // bouton de poussée tactile
+  // Objets temporaires réutilisés par la physique de vol (zéro allocation
+  // par frame, important sur mobile).
+  const planeEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  const planeForward = new THREE.Vector3(0, 0, -1);
+  const planeUp = new THREE.Vector3(0, 1, 0);
+  const planeDesired = new THREE.Vector3();
+  const planeCamTarget = new THREE.Vector3();
 
   if (!IS_TOUCH) {
     domElement.addEventListener('click', () => {
@@ -134,10 +145,10 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     // Direction souhaitée dans le plan horizontal
     let fwd = 0, strafe = 0;
     if (active) {
-      if (keys.has('KeyW') || keys.has('ArrowUp')) fwd += 1;
-      if (keys.has('KeyS') || keys.has('ArrowDown')) fwd -= 1;
-      if (keys.has('KeyD') || keys.has('ArrowRight')) strafe += 1;
-      if (keys.has('KeyA') || keys.has('ArrowLeft')) strafe -= 1;
+      if (keys.has('KeyW') || (!vehicle?.plane && keys.has('ArrowUp'))) fwd += 1;
+      if (keys.has('KeyS') || (!vehicle?.plane && keys.has('ArrowDown'))) fwd -= 1;
+      if (keys.has('KeyD') || (!vehicle?.plane && keys.has('ArrowRight'))) strafe += 1;
+      if (keys.has('KeyA') || (!vehicle?.plane && keys.has('ArrowLeft'))) strafe -= 1;
       fwd += touchMove.fwd;
       strafe += touchMove.strafe;
     }
@@ -148,23 +159,69 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       const gLevel = terrain ? terrain(pos.x, pos.z) : 0;
 
       if (v.plane) {
-        // --- Avion : W plein gaz, S frein, A/D vire, ESPACE pour monter.
-        // Assez rapide (> 17 m/s) l'avion porte : Espace fait monter, sinon
-        // il plane en descendant doucement. Trop lent : il décroche.
-        v.speed += fwd * (fwd > 0 ? 15 : 24) * dt;
-        v.speed *= 1 - 0.22 * dt; // traînée
-        v.speed = Math.max(0, Math.min(56, v.speed));
-        const grip = Math.min(1, v.speed / 6);
-        v.heading -= strafe * (1.5 - v.speed / 90) * grip * dt;
+        // --- Avion 4 axes -------------------------------------------------
+        // W/S ou manche gauche vertical : régime moteur persistant.
+        // A/D ou manche gauche horizontal : lacet.
+        // Flèches / manche droit : tangage et roulis continus, donc loopings
+        // et tonneaux complets au lieu d'une simple montée artificielle.
+        const clampInput = (n) => THREE.MathUtils.clamp(n, -1, 1);
+        const throttleCmd = active ? clampInput(fwd + touchPlane.throttle) : 0;
+        const yawCmd = active ? clampInput(strafe + touchPlane.yaw) : 0;
+        const pitchKeys = (keys.has('ArrowDown') ? 1 : 0) - (keys.has('ArrowUp') ? 1 : 0);
+        const rollKeys = (keys.has('ArrowRight') ? 1 : 0) - (keys.has('ArrowLeft') ? 1 : 0);
+        const pitchCmd = active ? clampInput(pitchKeys + touchPlane.pitch) : 0;
+        const rollCmd = active ? clampInput(rollKeys + touchPlane.roll) : 0;
 
-        const airborne = pos.y > gLevel + 0.4;
-        const lift = v.speed > 17;
-        const thrustUp = active && (keys.has('Space') || wantJump || touchThrust);
-        let targetVy;
-        if (lift && thrustUp) targetVy = 11;
-        else if (lift) targetVy = airborne ? -3.5 : 0; // plané
-        else targetVy = -13; // décrochage
-        vel.y += (targetVy - vel.y) * (1 - Math.exp(-2.5 * dt));
+        v.throttle = THREE.MathUtils.clamp((v.throttle ?? 0) + throttleCmd * 0.48 * dt, 0, 1);
+        const targetSpeed = v.throttle * 68;
+        const speedResponse = targetSpeed > v.speed ? 0.72 : 0.42;
+        v.speed += (targetSpeed - v.speed) * (1 - Math.exp(-speedResponse * dt));
+        v.speed = THREE.MathUtils.clamp(v.speed, 0, 72);
+
+        const grounded = pos.y <= gLevel + 0.16;
+        const authority = THREE.MathUtils.clamp(v.speed / 18, 0.12, 1);
+        const rateResponse = 1 - Math.exp(-5.5 * dt);
+        v.pitchRate = (v.pitchRate ?? 0) +
+          (pitchCmd * 1.5 * authority - (v.pitchRate ?? 0)) * rateResponse;
+        // Manche à droite = aile droite qui descend, donc rotation Z négative.
+        v.rollRate = (v.rollRate ?? 0) +
+          (-rollCmd * 2.45 * authority - (v.rollRate ?? 0)) * rateResponse;
+        v.yawRate = (v.yawRate ?? 0) +
+          (-yawCmd * 0.95 * authority - (v.yawRate ?? 0)) * rateResponse;
+        v.pitch = (v.pitch ?? 0) + v.pitchRate * dt;
+        v.roll = (v.roll ?? 0) + v.rollRate * dt;
+        v.heading += v.yawRate * dt;
+        // Un avion incliné vire naturellement, même sans palonnier.
+        v.heading -= Math.sin(v.roll) * 0.5 * authority * dt;
+
+        if (grounded) {
+          // Le train empêche le tonneau sur la piste, mais le manche peut
+          // lever le nez dès que la vitesse de décollage est atteinte.
+          v.roll *= Math.exp(-7 * dt);
+          v.pitch = THREE.MathUtils.clamp(v.pitch, -0.08, v.speed > 15 ? 0.36 : 0.12);
+        }
+        // Garde les angles numériquement petits après plusieurs acrobaties.
+        if (Math.abs(v.pitch) > Math.PI * 2) v.pitch %= Math.PI * 2;
+        if (Math.abs(v.roll) > Math.PI * 2) v.roll %= Math.PI * 2;
+        if (Math.abs(v.heading) > Math.PI * 2) v.heading %= Math.PI * 2;
+
+        planeEuler.set(v.pitch, v.heading, v.roll, 'YXZ');
+        v.orientation.setFromEuler(planeEuler);
+        planeForward.set(0, 0, -1).applyQuaternion(v.orientation).normalize();
+        planeUp.set(0, 1, 0).applyQuaternion(v.orientation).normalize();
+
+        const airflow = THREE.MathUtils.clamp((v.speed - 10) / 20, 0, 1);
+        planeDesired.copy(planeForward).multiplyScalar(v.speed);
+        // L'inertie augmente en vol ; au sol l'avion colle encore à la piste.
+        const velocityResponse = grounded ? 8 : 1.7 + airflow * 1.8;
+        vel.lerp(planeDesired, 1 - Math.exp(-velocityResponse * dt));
+        if (!grounded) {
+          // Sous la vitesse de portance, le nez reste contrôlable mais la
+          // cellule s'enfonce franchement : vrai risque de décrochage.
+          vel.y -= (2 + (1 - airflow) * 12) * dt;
+        } else if (vel.y < 0) {
+          vel.y = 0;
+        }
         wantJump = false;
       } else {
         // --- Voiture : W/S accélère et freine, A/D braque, Espace klaxonne
@@ -187,14 +244,16 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         vel.y -= GRAVITY * dt;
       }
 
-      vel.x = -Math.sin(v.heading) * v.speed;
-      vel.z = -Math.cos(v.heading) * v.speed;
+      if (!v.plane) {
+        vel.x = -Math.sin(v.heading) * v.speed;
+        vel.z = -Math.cos(v.heading) * v.speed;
+      }
 
       onGround = false;
       hitWall = false;
       resolveAxis('y', vel.y * dt);
       if (pos.y <= gLevel) { pos.y = gLevel; vel.y = 0; onGround = true; }
-      if (v.plane && pos.y > 320) { pos.y = 320; vel.y = Math.min(vel.y, 0); } // plafond
+      if (v.plane && pos.y > 520) { pos.y = 520; vel.y = Math.min(vel.y, 0); } // plafond
       resolveAxis('x', vel.x * dt);
       resolveAxis('z', vel.z * dt);
       if (hitWall && Math.abs(v.speed) > 2.5) {
@@ -208,13 +267,27 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         // Caméra de poursuite (berlines, avions) : derrière et au-dessus,
         // regard sur le véhicule — le braquage tourne la caméra avec le cap
         const back = v.camBack ?? 8.2, up = v.camUp ?? 3.4;
-        camera.position.set(
-          pos.x + Math.sin(v.heading) * back,
-          pos.y + up,
-          pos.z + Math.cos(v.heading) * back
-        );
-        camera.rotation.order = 'YXZ';
-        camera.lookAt(pos.x, pos.y + 1.3, pos.z);
+        if (v.plane && v.orientation) {
+          // Caméra solidaire de la cellule : elle suit tangage et roulis,
+          // indispensable pour lire un looping ou un tonneau.
+          camera.up.copy(planeUp);
+          camera.position.copy(pos)
+            .addScaledVector(planeForward, -back)
+            .addScaledVector(planeUp, up);
+          planeCamTarget.copy(pos)
+            .addScaledVector(planeForward, 8)
+            .addScaledVector(planeUp, 1.1);
+          camera.lookAt(planeCamTarget);
+        } else {
+          camera.up.set(0, 1, 0);
+          camera.position.set(
+            pos.x + Math.sin(v.heading) * back,
+            pos.y + up,
+            pos.z + Math.cos(v.heading) * back
+          );
+          camera.rotation.order = 'YXZ';
+          camera.lookAt(pos.x, pos.y + 1.3, pos.z);
+        }
       } else {
         // Assis au volant (décapotables) : caméra relevée, côté conducteur
         camera.position.set(
@@ -307,14 +380,44 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       touchMove.fwd = fwd;
       touchMove.strafe = strafe;
     },
+    setTouchPlane(throttle, yaw, planePitch, roll) {
+      touchPlane.throttle = THREE.MathUtils.clamp(throttle, -1, 1);
+      touchPlane.yaw = THREE.MathUtils.clamp(yaw, -1, 1);
+      touchPlane.pitch = THREE.MathUtils.clamp(planePitch, -1, 1);
+      touchPlane.roll = THREE.MathUtils.clamp(roll, -1, 1);
+    },
     jump() { wantJump = true; },
     // Entrer/sortir du mode véhicule ({ heading, speed, onHorn, onCrash })
     setVehicle(v) {
       vehicle = v;
       bodyHalf = v ? 1.05 : HALF_W;
-      if (v) yaw = v.heading; // on regarde d'abord la route
+      camera.up.set(0, 1, 0);
+      if (v) {
+        yaw = v.heading; // on regarde d'abord la route
+        if (v.plane) {
+          v.pitch = 0;
+          v.roll = 0;
+          v.pitchRate = 0;
+          v.rollRate = 0;
+          v.yawRate = 0;
+          v.throttle = 0;
+          v.orientation = new THREE.Quaternion().setFromEuler(
+            new THREE.Euler(0, v.heading, 0, 'YXZ')
+          );
+        }
+      } else {
+        touchPlane.throttle = touchPlane.yaw = touchPlane.pitch = touchPlane.roll = 0;
+      }
     },
     get vehicle() { return vehicle; },
+    get flightTelemetry() {
+      if (!vehicle?.plane) return null;
+      return {
+        throttle: vehicle.throttle ?? 0,
+        speed: vehicle.speed ?? 0,
+        altitude: Math.max(0, pos.y - (terrain ? terrain(pos.x, pos.z) : 0)),
+      };
+    },
     // Jetpack
     setFlying(on) {
       flying = on;
@@ -339,6 +442,10 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       if (vehicle) {
         s.veh = vehicle.plane ? 2 : 1;
         s.vry = Math.round(vehicle.heading * 1000) / 1000;
+        if (vehicle.plane) {
+          s.vpx = Math.round((vehicle.pitch ?? 0) * 1000) / 1000;
+          s.vrz = Math.round((vehicle.roll ?? 0) * 1000) / 1000;
+        }
       }
       // Enceinte portable allumée : les autres l'entendent (champ optionnel)
       if (state.boombox) s.mus = state.boombox;

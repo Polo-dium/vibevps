@@ -84,10 +84,14 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
   net.on('chat', (msg) => showChat(msg.id, msg.text));
   net.on('states', (msg) => {
     const now = performance.now() / 1000;
-    for (const [id, x, y, z, ry, , veh, vry, mus] of msg.s) {
+    for (const [id, x, y, z, ry, , veh, vry, mus, vpx, vrz] of msg.s) {
       const r = remotes.get(id);
       if (!r) continue;
-      r.buffer.push({ t: now, p: [x, y, z], ry, veh: veh ?? 0, vry: vry ?? 0, mus: mus ?? 0 });
+      r.buffer.push({
+        t: now, p: [x, y, z], ry,
+        veh: veh ?? 0, vry: vry ?? 0, mus: mus ?? 0,
+        vpx: vpx ?? 0, vrz: vrz ?? 0,
+      });
       if (r.buffer.length > 30) r.buffer.shift();
     }
   });
@@ -148,6 +152,14 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
       while (dvry > Math.PI) dvry -= Math.PI * 2;
       while (dvry < -Math.PI) dvry += Math.PI * 2;
       const vry = (a.vry ?? 0) + dvry * alpha;
+      let dvpx = (b.vpx ?? 0) - (a.vpx ?? 0);
+      let dvrz = (b.vrz ?? 0) - (a.vrz ?? 0);
+      while (dvpx > Math.PI) dvpx -= Math.PI * 2;
+      while (dvpx < -Math.PI) dvpx += Math.PI * 2;
+      while (dvrz > Math.PI) dvrz -= Math.PI * 2;
+      while (dvrz < -Math.PI) dvrz += Math.PI * 2;
+      const vpx = (a.vpx ?? 0) + dvpx * alpha;
+      const vrz = (a.vrz ?? 0) + dvrz * alpha;
       if (r.car) {
         r.car.visible = vehCode === 1;
         if (r.car.visible) {
@@ -159,7 +171,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
         r.plane.visible = vehCode === 2;
         if (r.plane.visible) {
           r.plane.position.copy(g.position);
-          r.plane.rotation.y = vry;
+          r.plane.rotation.set(vpx, vry, vrz, 'YXZ');
           r.plane.userData.prop.rotation.z += frameDt * 25;
         }
       }

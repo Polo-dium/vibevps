@@ -106,6 +106,11 @@ export function setupWs(httpServer) {
         me.mus = Math.min(3, Math.max(0, Math.floor(Number(msg.mus) || 0)));
         const vry = Number(msg.vry);
         me.vry = Number.isFinite(vry) ? vry : 0;
+        // Assiette de l'avion (champs optionnels rétro-compatibles) : permet
+        // aux autres joueurs de voir loopings et tonneaux, pas un avion plat.
+        const vpx = Number(msg.vpx), vrz = Number(msg.vrz);
+        me.vpx = Number.isFinite(vpx) ? vpx : 0;
+        me.vrz = Number.isFinite(vrz) ? vrz : 0;
         me.dirty = true;
         return;
       }
@@ -301,6 +306,8 @@ export function setupWs(httpServer) {
         Math.round(entry.ry * 1000) / 1000, entry.m,
         entry.veh ?? 0, Math.round((entry.vry ?? 0) * 1000) / 1000,
         entry.mus ?? 0, // enceinte portable (les vieux clients l'ignorent)
+        Math.round((entry.vpx ?? 0) * 1000) / 1000,
+        Math.round((entry.vrz ?? 0) * 1000) / 1000,
       ]);
     }
     if (states.length > 0) broadcast({ t: 'states', s: states });
