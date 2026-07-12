@@ -54,6 +54,23 @@ async function boot() {
 
   const ui = createUi();
   await ui.ensureAuth();
+  state.hasJetpack = state.inventory.includes('jetpack');
+  state.hasRcPlane = state.inventory.includes('rc-plane');
+
+  // Déblocages persistants liés au compte. L'ajout local est immédiat pour
+  // ne jamais interrompre un ramassage si le réseau met quelques secondes.
+  function rememberInventoryItem(id) {
+    if (state.inventory.includes(id)) return false;
+    state.inventory.push(id);
+    apiFetch('/me/inventory', {
+      method: 'POST', body: JSON.stringify({ id }),
+    }).then((res) => {
+      for (const saved of res.inventory ?? []) {
+        if (!state.inventory.includes(saved)) state.inventory.push(saved);
+      }
+    }).catch(() => ui.toast('⚠️ Objet gardé pour cette partie, mais la sauvegarde du compte a échoué.'));
+    return true;
+  }
 
   // Lien d'invitation (?ami=Pseudo) : si l'ami est en ligne, le serveur nous
   // renvoie sa position dans le message 'hello' et on atterrit à côté de lui
@@ -229,6 +246,7 @@ async function boot() {
     abortRides: [], // les manèges (Grande Roue, ficelle…) s'y inscrivent
     playerPos: () => controls.position, // lu par le trafic (voitures)
     isDriving: () => state.driving,
+    hasInventoryItem: (id) => state.inventory.includes(id),
     // Écrasé par une voiture du trafic : dégâts validés côté serveur
     onRunOver: () => {
       net.send({ t: 'ouch', dmg: 15, by: 'un chauffard lyonnais' });
@@ -238,11 +256,21 @@ async function boot() {
     onJetpackPickup: () => {
       if (!state.hasJetpack) {
         state.hasJetpack = true;
+        rememberInventoryItem('jetpack');
         ui.toast('🚀 Jetpack enfilé ! Appuie sur J pour décoller, Espace pour monter.');
         ui.spawnConfetti(20);
       } else {
         toggleJetpack();
       }
+    },
+    // La première utilisation du pupitre de l'aéroport range aussi l'avion
+    // RC dans l'inventaire ; il pourra ensuite être déployé depuis le menu.
+    onRcPlanePickup: () => {
+      if (state.hasRcPlane) return;
+      state.hasRcPlane = true;
+      rememberInventoryItem('rc-plane');
+      ui.toast('📡 Avion RC trouvé ! Il est maintenant disponible dans ton inventaire.');
+      ui.spawnConfetti(20);
     },
     // Conduite des décapotables (voir world/traffic.js)
     startDrive: (car, group) => {
@@ -478,6 +506,11 @@ async function boot() {
     // marche de rayon grossière, appelée une fois par coup tiré
     worldHit: worldHitDistance,
   });
+  // Les armes déjà ramassées lors d'une précédente session reviennent dans
+  // l'inventaire sans être automatiquement sorties au démarrage.
+  for (const item of state.inventory) {
+    if (item.startsWith('weapon:')) weapon.give(item.slice(7), { equip: false });
+  }
   if (window.__game) window.__game.weapon = weapon; // hook de debug (?debug)
   const remotes = createRemotePlayers(scene, ctx.shootables, {
     getListenerPos: () => controls.position, // enceintes des autres joueurs
@@ -659,6 +692,7 @@ async function boot() {
   buildLoot(ctx, {
     onPickup: (id) => {
       audio.reward();
+      rememberInventoryItem(`weapon:${id}`);
       weapon.give(id); // équipe (toast via onWeaponChange) ou recharge
     },
   });
@@ -811,6 +845,32 @@ async function boot() {
     jetModel.visible = on;
     if (on) { audio.jetStart(); ui.toast('🚀 Jetpack sorti, décollage ! Espace pour monter, J pour ranger.'); }
     else { audio.jetStop(); ui.toast('🎒 Jetpack rangé.'); }
+  }
+
+  function toggleRcPlane() {
+    if (!state.hasRcPlane) {
+      ui.toast('📡 Trouve le petit avion et son pupitre sur le tarmac de l’aéroport !');
+      return;
+    }
+    const rc = ctx.rcPlaneController;
+    if (!rc) return;
+    if (rc.active) {
+      rc.stop();
+      ui.toast('📡 Avion RC rangé dans l’inventaire.');
+      return;
+    }
+    if (state.driving || controls.flying) {
+      ui.toast('Range d’abord ton véhicule ou ton jetpack.');
+      return;
+    }
+    if (state.weaponEquipped) weapon.toggle(false);
+    const p = controls.position;
+    const heading = controls.yaw;
+    rc.startAt(
+      p.x - Math.sin(heading) * 2.2,
+      p.z - Math.cos(heading) * 2.2,
+      heading
+    );
   }
   function spawnJetParticles() {
     const p = controls.position;
@@ -1032,9 +1092,12 @@ async function boot() {
     createTouchControls({
       controls, weapon, spray, tagEditor, ui, voice, capture, emote,
       jetpack: () => toggleJetpack(),
+      rcPlane: () => toggleRcPlane(),
       interact: () => nearestInteractable?.action(),
       map: () => poiMap.toggle(),
       radio: () => cycleBoombox(),
+      invite: () => ui.invite(),
+      quality,
     });
     // Le prompt « ▶ JOUER » est lui-même tactile : plus besoin de viser le bouton E.
     ui.onPromptTap(() => nearestInteractable?.action());

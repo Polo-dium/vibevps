@@ -310,6 +310,7 @@ function makeRemoteControlPlane(ctx, px, pz, ry) {
   const group = buildRcPlaneModel();
   const ground = ctx.terrainHeight?.(px, pz) ?? 0;
   const launch = new THREE.Vector3(px, ground + 0.04, pz);
+  let launchHeading = ry;
   group.position.copy(launch);
   group.rotation.y = ry;
   ctx.scene.add(group);
@@ -359,39 +360,71 @@ function makeRemoteControlPlane(ctx, px, pz, ry) {
     car.throttle = 0;
     car.velocity.set(0, 0, 0);
     car.position.copy(launch);
-    car.heading = ry;
+    car.heading = launchHeading;
     car.pitch = car.roll = 0;
-    car.orientation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0, 'YXZ'));
+    car.orientation = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(0, launchHeading, 0, 'YXZ')
+    );
     car.thirdPerson = false;
     group.position.copy(launch);
     group.quaternion.copy(car.orientation);
   }
 
+  function refreshGateLabel() {
+    gate.label = controlling
+      ? 'E — Ranger la radiocommande'
+      : ctx.hasInventoryItem?.('rc-plane')
+        ? 'E — Piloter l’avion radiocommandé'
+        : 'E — Récupérer l’avion radiocommandé';
+  }
+
+  function startAt(x = px, z = pz, heading = ry) {
+    if (controlling) return;
+    launchHeading = heading;
+    launch.set(x, (ctx.terrainHeight?.(x, z) ?? 0) + 0.04, z);
+    controlling = true;
+    resetModel();
+    refreshGateLabel();
+    ctx.startDrive?.(car, group);
+    ctx.notify?.('📡 Avion RC : mêmes manches, 50 km/h max · CAM pour vue poursuite · SAUTER pour revenir au joueur.');
+  }
+
+  function stop() {
+    if (!controlling) return;
+    controlling = false;
+    ctx.stopDrive?.(car, group);
+    resetModel();
+    refreshGateLabel();
+  }
+
   const gate = {
     x: consoleGroup.position.x, z: consoleGroup.position.z, r: 4.5,
-    label: 'E — Piloter l’avion radiocommandé',
+    label: '',
     action: () => {
       if (!controlling) {
-        controlling = true;
-        resetModel();
-        gate.label = 'E — Ranger la radiocommande';
-        ctx.startDrive?.(car, group);
-        ctx.notify?.('📡 Avion RC : mêmes manches, 50 km/h max · CAM pour vue poursuite · SAUTER pour revenir au joueur.');
+        if (!ctx.hasInventoryItem?.('rc-plane')) ctx.onRcPlanePickup?.();
+        startAt(px, pz, ry);
       } else {
-        controlling = false;
-        gate.label = 'E — Piloter l’avion radiocommandé';
-        ctx.stopDrive?.(car, group);
-        resetModel();
+        stop();
       }
     },
+  };
+  refreshGateLabel();
+  // L'inventaire peut déployer le modèle devant le joueur sans qu'il ait à
+  // retourner au pupitre de l'aéroport. Il reste toutefois nécessaire de le
+  // découvrir une première fois sur place.
+  ctx.rcPlaneController = {
+    startAt,
+    stop,
+    get active() { return controlling; },
   };
   ctx.interactables.push(gate);
   ctx.pois?.push({ id: 'avion-rc', nom: 'Avion radiocommandé', emoji: '📡', x: px, z: pz });
   ctx.abortRides?.push(() => {
     if (!controlling) return;
     controlling = false;
-    gate.label = 'E — Piloter l’avion radiocommandé';
     resetModel();
+    refreshGateLabel();
   });
 
   ctx.updatables.push((dt) => {

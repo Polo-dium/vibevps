@@ -2,7 +2,10 @@ import { state } from '../state.js';
 
 // Contrôles tactiles : joystick gauche (déplacement), glisser à droite (regard),
 // boutons d'action. Activé uniquement sur écran tactile.
-export function createTouchControls({ controls, weapon, spray, tagEditor, ui, voice, capture, emote, jetpack, interact, map, radio }) {
+export function createTouchControls({
+  controls, weapon, spray, tagEditor, ui, voice, capture, emote,
+  jetpack, rcPlane, interact, map, radio, invite, quality,
+}) {
   const root = document.createElement('div');
   root.id = 'touch-ui';
   root.innerHTML = `
@@ -27,18 +30,62 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
     <div class="touch-top" id="touch-top">
       <button class="tbtn tbtn-small" id="tb-menu">☰</button>
       <div id="touch-menu" class="hidden">
-        <button class="tbtn tbtn-small" id="tb-gun">🔫</button>
-        <button class="tbtn tbtn-small" id="tb-tag">🎨</button>
-        <button class="tbtn tbtn-small" id="tb-color">🌈</button>
-        <button class="tbtn tbtn-small" id="tb-chat">💬</button>
-        <button class="tbtn tbtn-small" id="tb-mic">🎤</button>
-        <button class="tbtn tbtn-small" id="tb-photo">📸</button>
-        <button class="tbtn tbtn-small" id="tb-jet">🚀</button>
-        <button class="tbtn tbtn-small" id="tb-map">🗺️</button>
-        <button class="tbtn tbtn-small" id="tb-arme">🔁</button>
-        <button class="tbtn tbtn-small" id="tb-radio">📻</button>
-        <button class="tbtn tbtn-small" id="tb-lb">🏆</button>
-        <button class="tbtn tbtn-small" id="tb-fs">⛶</button>
+        <div class="touch-menu-shell">
+          <header class="touch-menu-head">
+            <div><strong>LYON ARCADE</strong><span id="menu-player"></span></div>
+            <button id="tb-menu-close" aria-label="Fermer le menu">×</button>
+          </header>
+          <nav class="touch-menu-tabs" aria-label="Pages du menu">
+            <button class="menu-tab active" data-menu-tab="inventory">INVENTAIRE</button>
+            <button class="menu-tab" data-menu-tab="actions">ACTIONS</button>
+            <button class="menu-tab" data-menu-tab="settings">RÉGLAGES</button>
+          </nav>
+          <div class="touch-menu-content">
+            <section class="menu-page" data-menu-page="inventory">
+              <div class="menu-page-title"><strong>ÉQUIPEMENT TROUVÉ</strong><span>Choisis un objet pour l’utiliser</span></div>
+              <div id="menu-inventory" class="inventory-grid"></div>
+            </section>
+            <section class="menu-page hidden" data-menu-page="actions">
+              <div class="menu-page-title"><strong>ACTIONS RAPIDES</strong><span>Les outils de ton téléphone</span></div>
+              <div class="menu-action-grid">
+                <button id="tb-map"><b>🗺️</b><span>Carte</span></button>
+                <button id="tb-chat"><b>💬</b><span>Chat</span></button>
+                <button id="tb-photo"><b>📸</b><span>Photo</span></button>
+                <button id="tb-tag"><b>🎨</b><span>Créer un tag</span></button>
+                <button id="tb-color"><b>🌈</b><span>Couleur spray</span></button>
+                <button id="tb-radio"><b>📻</b><span>Radio</span></button>
+                <button id="tb-gun"><b>🔫</b><span>Arme en main</span></button>
+                <button id="tb-arme"><b>🔁</b><span>Arme suivante</span></button>
+                <button id="tb-lb"><b>🏆</b><span>Classements</span></button>
+              </div>
+            </section>
+            <section class="menu-page hidden" data-menu-page="settings">
+              <div class="menu-page-title"><strong>RÉGLAGES</strong><span>Son, amis et affichage</span></div>
+              <div class="settings-list">
+                <div class="setting-row">
+                  <div><b>🎤 Micro de proximité</b><small>Les joueurs proches peuvent t’entendre</small></div>
+                  <button id="tb-mic">ACTIVER</button>
+                </div>
+                <div class="setting-row">
+                  <div><b>👥 Inviter des amis</b><small>Partage un lien qui les fait apparaître près de toi</small></div>
+                  <button id="tb-invite">PARTAGER</button>
+                </div>
+                <div class="setting-row setting-resolution">
+                  <div><b>🖥️ Résolution</b><small>Plus bas = plus fluide, plus haut = plus net</small></div>
+                  <div class="quality-choices">
+                    <button data-quality="bas">BAS</button>
+                    <button data-quality="moyen">MOYEN</button>
+                    <button data-quality="eleve">ÉLEVÉ</button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div><b>⛶ Plein écran</b><small>Verrouille aussi l’affichage en paysage</small></div>
+                  <button id="tb-fs">BASCULER</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
       </div>
     </div>
     <div class="touch-actions" id="touch-actions">
@@ -223,6 +270,7 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
   // Boutons
   const bind = (id, onDown, onUp) => {
     const el = root.querySelector(id);
+    if (!el) return;
     el.addEventListener('touchstart', (e) => { e.preventDefault(); onDown(); }, { passive: false });
     if (onUp) {
       el.addEventListener('touchend', (e) => { e.preventDefault(); onUp(); }, { passive: false });
@@ -230,13 +278,105 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
     }
   };
 
-  // Menu ☰ : replie/déplie la rangée de boutons du haut (dégage la vue)
+  // Menu ☰ : panneau semi-transparent à pages. Tant qu'il est ouvert, les
+  // gestes de pilotage sont bloqués par state.overlayOpen.
   const menu = root.querySelector('#touch-menu');
-  bind('#tb-menu', () => menu.classList.toggle('hidden'));
+  const inventoryGrid = root.querySelector('#menu-inventory');
+
+  function renderInventory() {
+    const specialItems = [
+      {
+        id: 'jetpack', emoji: '🚀', title: 'Jetpack',
+        found: state.hasJetpack, active: controls.flying,
+        hint: 'À trouver à la pointe de la Confluence',
+        action: controls.flying ? 'RANGER' : 'UTILISER',
+      },
+      {
+        id: 'rc-plane', emoji: '📡', title: 'Avion RC',
+        found: state.hasRcPlane, active: Boolean(controls.vehicle?.rcPlane),
+        hint: 'À trouver sur le tarmac de l’aéroport',
+        action: controls.vehicle?.rcPlane ? 'RANGER' : 'PILOTER',
+      },
+    ];
+    const weapons = weapon.inventory.map((item) => ({
+      id: `weapon:${item.id}`, emoji: item.emoji, title: item.nom,
+      found: true, active: item.equipped,
+      hint: item.id === 'ak' ? 'Équipement de départ' : 'Ramassée dans la ville',
+      action: item.equipped ? 'ÉQUIPÉE' : 'ÉQUIPER',
+    }));
+    inventoryGrid.innerHTML = [...specialItems, ...weapons].map((item) => `
+      <article class="inventory-card${item.found ? '' : ' locked'}${item.active ? ' active' : ''}">
+        <span class="inventory-icon">${item.found ? item.emoji : '🔒'}</span>
+        <div class="inventory-copy">
+          <b>${item.title}</b>
+          <small>${item.active ? 'En cours d’utilisation' : item.hint}</small>
+        </div>
+        ${item.found
+          ? `<button data-inventory-action="${item.id}">${item.action}</button>`
+          : '<span class="inventory-locked">NON TROUVÉ</span>'}
+      </article>
+    `).join('');
+  }
+
+  function renderSettings() {
+    root.querySelector('#menu-player').textContent = state.auth?.name ? `JOUEUR · ${state.auth.name}` : '';
+    const mic = root.querySelector('#tb-mic');
+    const micOn = Boolean(voice?.isOn?.());
+    mic.textContent = micOn ? 'COUPER' : 'ACTIVER';
+    mic.classList.toggle('active', micOn);
+    for (const btn of root.querySelectorAll('[data-quality]')) {
+      btn.classList.toggle('active', btn.dataset.quality === quality?.level);
+    }
+  }
+
+  function showMenuPage(name) {
+    for (const tab of root.querySelectorAll('[data-menu-tab]')) {
+      tab.classList.toggle('active', tab.dataset.menuTab === name);
+    }
+    for (const page of root.querySelectorAll('[data-menu-page]')) {
+      page.classList.toggle('hidden', page.dataset.menuPage !== name);
+    }
+    if (name === 'inventory') renderInventory();
+    if (name === 'settings') renderSettings();
+  }
+
+  function setMenuOpen(open) {
+    if (open && state.overlayOpen) return;
+    menu.classList.toggle('hidden', !open);
+    state.overlayOpen = open;
+    if (open) {
+      document.exitPointerLock?.();
+      showMenuPage('inventory');
+      renderSettings();
+    }
+  }
+  const closeMenu = () => setMenuOpen(false);
+  const closeThen = (fn) => () => { closeMenu(); fn?.(); };
+
+  bind('#tb-menu', () => setMenuOpen(true));
+  bind('#tb-menu-close', closeMenu);
+  menu.addEventListener('touchstart', (e) => {
+    if (e.target === menu) { e.preventDefault(); closeMenu(); }
+  }, { passive: false });
+  for (const tab of root.querySelectorAll('[data-menu-tab]')) {
+    tab.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      showMenuPage(tab.dataset.menuTab);
+    }, { passive: false });
+  }
+  inventoryGrid.addEventListener('touchstart', (e) => {
+    const button = e.target.closest?.('[data-inventory-action]');
+    if (!button) return;
+    e.preventDefault();
+    const id = button.dataset.inventoryAction;
+    closeMenu();
+    if (id === 'jetpack') jetpack?.();
+    else if (id === 'rc-plane') rcPlane?.();
+    else if (id.startsWith('weapon:')) weapon.equip(id.slice(7));
+  }, { passive: false });
 
   let emoteIdx = 0;
   bind('#tb-emote', () => emote?.(emoteIdx++ % 3)); // fait défiler les emotes
-  bind('#tb-jet', () => jetpack?.());
   // SAUT : en vol (jetpack ou avion) le maintien = poussée, sinon saut simple
   bind('#tb-jump',
     () => {
@@ -247,16 +387,27 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
   bind('#tb-use', () => interact());
   bind('#tb-spray', () => spray.toggleMode()); // mode bombe de peinture
   bind('#tb-stamp', () => spray.stampTag());
-  bind('#tb-color', () => spray.cycleColor(1));
-  bind('#tb-gun', () => weapon.toggle());
-  bind('#tb-map', () => map?.());
-  bind('#tb-arme', () => weapon.cycle()); // change d'arme (celles ramassées)
-  bind('#tb-radio', () => radio?.()); // enceinte portable (morceau suivant)
-  bind('#tb-tag', () => tagEditor.open());
-  bind('#tb-chat', () => ui.openChat());
-  bind('#tb-mic', () => voice?.toggleMic());
-  bind('#tb-photo', () => capture?.toggleMode()); // mode photo : zoom + 📸
-  bind('#tb-lb', () => ui.toggleLeaderboards());
+  bind('#tb-color', closeThen(() => spray.cycleColor(1)));
+  bind('#tb-gun', closeThen(() => weapon.toggle()));
+  bind('#tb-map', closeThen(() => map?.()));
+  bind('#tb-arme', closeThen(() => weapon.cycle())); // change d'arme (celles ramassées)
+  bind('#tb-radio', closeThen(() => radio?.())); // enceinte portable (morceau suivant)
+  bind('#tb-tag', closeThen(() => tagEditor.open()));
+  bind('#tb-chat', closeThen(() => ui.openChat()));
+  bind('#tb-photo', closeThen(() => capture?.toggleMode())); // mode photo : zoom + 📸
+  bind('#tb-lb', closeThen(() => ui.toggleLeaderboards()));
+  bind('#tb-mic', () => {
+    Promise.resolve(voice?.toggleMic()).finally(() => setTimeout(renderSettings, 50));
+  });
+  bind('#tb-invite', () => invite?.());
+  for (const button of root.querySelectorAll('[data-quality]')) {
+    button.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      quality?.set(button.dataset.quality);
+      renderSettings();
+      ui.toast(`🖥️ Résolution : ${quality?.label}`);
+    }, { passive: false });
+  }
   bind('#tb-fs', () => {
     const el = document.documentElement;
     if (document.fullscreenElement || document.webkitFullscreenElement) {
@@ -299,7 +450,10 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
     fireBtn.addEventListener('touchcancel', fireEnd, { passive: true });
   }
   bind('#tb-bomb', () => controls.dropPlaneBomb());
-  bind('#tb-exit-plane', () => interact());
+  bind('#tb-exit-plane', () => {
+    if (controls.vehicle?.rcPlane) rcPlane?.();
+    else interact();
+  });
   bind('#tb-camera', () => {
     const thirdPerson = controls.togglePlaneCamera();
     ui.toast(thirdPerson ? '📷 Caméra poursuite' : '📷 Caméra embarquée');

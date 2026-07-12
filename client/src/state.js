@@ -17,7 +17,9 @@ export const state = {
   photoMode: false, // mode photo : zoom à la molette, clic = capture
   boombox: 0, // enceinte portable : 0 = coupée, 1..3 = morceau en cours
   driving: false, // au volant d'une décapotable
+  inventory: [], // identifiants des objets trouvés, restaurés depuis le compte
   hasJetpack: false, // jetpack ramassé à la Confluence
+  hasRcPlane: false, // avion radiocommandé trouvé à l'aéroport
   flying: false, // jetpack en cours d'utilisation
 };
 
