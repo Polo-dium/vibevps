@@ -359,33 +359,44 @@ function buildQuayEdges(ctx, mask) {
   };
 
   // 4) Muret vertical + couvre-mur + PROMENADE DE QUAI (5 m côté terre)
-  // le long de chaque contour lissé.
+  // le long de chaque contour lissé. Perpendiculaires MOYENNÉES par point
+  // (joints biseautés) et côté terre décidé UNE FOIS par chaîne : plus de
+  // « dents » ni de quads retournés dans les courbes.
   const wallPos = [], walkPos = [];
   const toWorld = ([cx2, rz]) => [-bound + cx2 * res, -bound + rz * res];
+  ctx.quayContours = []; // consommé par lampSpotsOsm : la VRAIE berge
   for (const chainRaw of chains) {
     const pts = chaikin(chaikin(chainRaw)).map(toWorld);
+    // Perpendiculaire moyenne par point
+    const perps = pts.map((p, i) => {
+      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+      const dx = b[0] - a[0], dz = b[1] - a[1];
+      const l = Math.hypot(dx, dz) || 1;
+      return [-dz / l, dx / l];
+    });
+    // Côté terre : vote majoritaire sur quelques sondes de la chaîne
+    let vote = 0;
+    for (let i = 4; i < pts.length - 4; i += Math.max(4, pts.length >> 3)) {
+      vote += mask.isWater(pts[i][0] + perps[i][0] * 2.5, pts[i][1] + perps[i][1] * 2.5) ? -1 : 1;
+    }
+    const sgn = vote >= 0 ? 1 : -1;
+    ctx.quayContours.push({ pts, perps, sgn });
     for (let i = 0; i + 1 < pts.length; i++) {
       const [x1, z1] = pts[i], [x2, z2] = pts[i + 1];
-      const dx = x2 - x1, dz = z2 - z1;
-      const len = Math.hypot(dx, dz);
-      if (len < 0.05) continue;
-      let px = -dz / len, pz = dx / len; // perpendiculaire
-      // côté TERRE : on sonde à 2,5 m — si c'est de l'eau, on retourne
-      if (mask.isWater((x1 + x2) / 2 + px * 2.5, (z1 + z2) / 2 + pz * 2.5)) {
-        px = -px; pz = -pz;
-      }
+      if (Math.hypot(x2 - x1, z2 - z1) < 0.05) continue;
+      const [p1x, p1z] = [perps[i][0] * sgn, perps[i][1] * sgn];
+      const [p2x, p2z] = [perps[i + 1][0] * sgn, perps[i + 1][1] * sgn];
       wallPos.push(
         x1, BOT, z1, x2, BOT, z2, x2, TOP, z2,
         x1, BOT, z1, x2, TOP, z2, x1, TOP, z1,
-        // couvre-mur de 0,55 m côté terre
-        x1, TOP, z1, x2, TOP, z2, x2 + px * 0.55, TOP, z2 + pz * 0.55,
-        x1, TOP, z1, x2 + px * 0.55, TOP, z2 + pz * 0.55, x1 + px * 0.55, TOP, z1 + pz * 0.55
+        // couvre-mur de 0,55 m côté terre, joints biseautés
+        x1, TOP, z1, x2, TOP, z2, x2 + p2x * 0.55, TOP, z2 + p2z * 0.55,
+        x1, TOP, z1, x2 + p2x * 0.55, TOP, z2 + p2z * 0.55, x1 + p1x * 0.55, TOP, z1 + p1z * 0.55
       );
-      // promenade : bande dallée de 5 m qui suit la berge
       const wy = 0.03;
       walkPos.push(
-        x1, wy, z1, x2, wy, z2, x2 + px * 5, wy, z2 + pz * 5,
-        x1, wy, z1, x2 + px * 5, wy, z2 + pz * 5, x1 + px * 5, wy, z1 + pz * 5
+        x1, wy, z1, x2, wy, z2, x2 + p2x * 5, wy, z2 + p2z * 5,
+        x1, wy, z1, x2 + p2x * 5, wy, z2 + p2z * 5, x1 + p1x * 5, wy, z1 + p1z * 5
       );
     }
   }
@@ -787,7 +798,22 @@ export function buildRealCity(ctx, data) {
       return h;
     };
     if (mask) {
-      ctx.terrainHeight = (x, z) => (mask.isWater(x, z) ? BED_Y : ground(x, z));
+      // ÉCRÊTAGE DES COLLINES PRÈS DE L'EAU : les ellipsoïdes (Fourvière,
+      // Sainte-Foy…) chevauchent les polygones du fleuve — sans ça, un mur
+      // vert plonge dans la Saône. À ≤16 m de l'eau le sol reste au niveau
+      // du quai, jusqu'à 48 m la colline est plafonnée, au-delà elle est
+      // libre. (Sondes sur le masque, seulement quand il y a du relief.)
+      const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]];
+      const shoreMax = (x, z) => {
+        for (const [dx, dz] of DIRS) if (mask.isWater(x + dx * 16, z + dz * 16)) return 0.5;
+        for (const [dx, dz] of DIRS) if (mask.isWater(x + dx * 48, z + dz * 48)) return 12;
+        return Infinity;
+      };
+      ctx.terrainHeight = (x, z) => {
+        if (mask.isWater(x, z)) return BED_Y;
+        const h = ground(x, z);
+        return h > 0.5 ? Math.min(h, shoreMax(x, z)) : h;
+      };
       buildWaterSurfaces(ctx, data.waterPolys);
       buildQuayEdges(ctx, mask); // murets de pierre : fin des débordements
     } else {
@@ -1133,6 +1159,46 @@ function buildAlps(ctx, bound, rand) {
   }, undefined, () => {});
 }
 
+// Texture d'asphalte des chaussées : enrobé sombre, granulats, traces de
+// roulement plus claires sur les deux bandes de circulation, fissures.
+function makeAsphaltTexture() {
+  const S = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = S;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#3b3f48';
+  g.fillRect(0, 0, S, S);
+  // Granulats
+  for (let i = 0; i < 1500; i++) {
+    const v = 46 + Math.random() * 46;
+    g.fillStyle = `rgba(${v}, ${v + 3}, ${v + 8}, 0.5)`;
+    g.fillRect(Math.random() * S, Math.random() * S, 1.5, 1.5);
+  }
+  // Traces de roulement (deux bandes longitudinales légèrement éclaircies)
+  for (const u of [0.28, 0.72]) {
+    const grad = g.createLinearGradient((u - 0.12) * S, 0, (u + 0.12) * S, 0);
+    grad.addColorStop(0, 'rgba(120,124,132,0)');
+    grad.addColorStop(0.5, 'rgba(120,124,132,0.16)');
+    grad.addColorStop(1, 'rgba(120,124,132,0)');
+    g.fillStyle = grad;
+    g.fillRect((u - 0.12) * S, 0, 0.24 * S, S);
+  }
+  // Fissures fines
+  g.strokeStyle = 'rgba(24,26,30,0.5)';
+  g.lineWidth = 1;
+  for (let i = 0; i < 4; i++) {
+    let x = Math.random() * S, y = 0;
+    g.beginPath();
+    g.moveTo(x, y);
+    while (y < S) { x += (Math.random() - 0.5) * 14; y += 10 + Math.random() * 16; g.lineTo(x, y); }
+    g.stroke();
+  }
+  const tex2 = new THREE.CanvasTexture(canvas);
+  tex2.colorSpace = THREE.SRGBColorSpace;
+  tex2.wrapS = tex2.wrapT = THREE.RepeatWrapping;
+  return tex2;
+}
+
 // Tuile de sol urbain : dalles claires + grain, quasi blanche (elle est
 // multipliée par la couleur d'altitude : bitume, herbe, lit des fleuves…)
 function makeGroundDetailTexture() {
@@ -1195,6 +1261,22 @@ function makeGroundDetailTexture() {
 // réel), tour de Bellecour, et un échantillon des grands axes routiers.
 function lampSpotsOsm(ctx, data, full = false, zConf = null) {
   const spots = [];
+  // Vraie berge disponible (contours lissés du masque d'eau) : lampadaires
+  // posés LE LONG DU CONTOUR, à 3,5 m côté terre — fini les lampadaires
+  // les pieds dans l'eau quand la ligne médiane sous-estime la largeur.
+  if (ctx.quayContours?.length) {
+    for (const { pts, perps, sgn } of ctx.quayContours) {
+      let acc = 0;
+      for (let i = 1; i < pts.length; i++) {
+        acc += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+        if (acc < 24) continue;
+        acc = 0;
+        const x = pts[i][0] + perps[i][0] * sgn * 3.5;
+        const z = pts[i][1] + perps[i][1] * sgn * 3.5;
+        if (!ctx.waterMask?.isWater(x, z)) spots.push([x, z]);
+      }
+    }
+  } else
   for (const band of data.water) {
     const half = riverHalf(band);
     const zLo = Math.max(band.zMin ?? (-ctx.worldBound + 12), -ctx.worldBound + 12);
@@ -1701,7 +1783,8 @@ function buildOsmRoads(ctx, data, full = false) {
   const yAt = full
     ? (x, z) => Math.max(0, ctx.terrainHeight?.(x, z) ?? 0) + 0.06
     : () => 0.045;
-  const ribbon = (arr, x1, z1, x2, z2, half, dy) => {
+  const roadUv = []; // UV de la chaussée : u en travers, v le long (asphalte)
+  const ribbon = (arr, x1, z1, x2, z2, half, dy, v0 = null) => {
     const dx = x2 - x1, dz = z2 - z1;
     const len = Math.hypot(dx, dz);
     if (len < 0.1) return len;
@@ -1711,6 +1794,10 @@ function buildOsmRoads(ctx, data, full = false) {
       x1 - px, ya, z1 - pz, x2 - px, yb, z2 - pz, x2 + px, yb, z2 + pz,
       x1 - px, ya, z1 - pz, x2 + px, yb, z2 + pz, x1 + px, ya, z1 + pz
     );
+    if (v0 != null) {
+      const va = v0 / 9, vb = (v0 + len) / 9; // une tuile d'asphalte ≈ 9 m
+      roadUv.push(0, va, 0, vb, 1, vb, 0, va, 1, vb, 1, va);
+    }
     return len;
   };
   for (const road of data.roads) {
@@ -1722,7 +1809,7 @@ function buildOsmRoads(ctx, data, full = false) {
       const x2 = road.p[i + 2], z2 = road.p[i + 3];
       // Trottoir un peu plus large et 2 cm plus bas, chaussée par-dessus
       ribbon(walk, x1, z1, x2, z2, half + 1.6, -0.02);
-      const len = ribbon(pos, x1, z1, x2, z2, half, 0);
+      const len = ribbon(pos, x1, z1, x2, z2, half, 0, acc + dashAcc * 0);
       // Passage piéton tous les ~35 m sur les grands axes
       acc += len;
       if (road.w >= 6 && acc > 35) {
@@ -1741,18 +1828,21 @@ function buildOsmRoads(ctx, data, full = false) {
     }
   }
   if (pos.length === 0) return;
-  const addMesh = (arr, mat) => {
+  const addMesh = (arr, mat, uvs = null) => {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+    if (uvs) geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geo.computeVertexNormals();
     const mesh = new THREE.Mesh(geo, mat);
     mesh.userData.noShadow = true;
     ctx.scene.add(mesh);
   };
   addMesh(walk, new THREE.MeshLambertMaterial({ color: 0x7e828b })); // trottoirs
+  const asphaltTex = makeAsphaltTexture();
   addMesh(pos, new THREE.MeshLambertMaterial({
-    color: 0x343943, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
-  }));
+    map: asphaltTex,
+    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+  }), roadUv);
   if (zebra.length) {
     addMesh(zebra, new THREE.MeshLambertMaterial({
       color: 0xd7dccb, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
