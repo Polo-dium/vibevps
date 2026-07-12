@@ -122,7 +122,7 @@ export function buildRiverWorks(ctx, band, {
   const half = riverHalf(band);
   const W = half * 2;
   const cxAt = (z) => riverCx(band, z);
-  const STEP = 6; // pas de tessellation du ruban courbe
+  const STEP = 3; // pas fin : virages lisses, pas de facettes visibles
 
   // Ruban horizontal (lit / eau) qui suit le tracé du fleuve
   function flatRibbon(y) {

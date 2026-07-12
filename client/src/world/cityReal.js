@@ -605,7 +605,7 @@ export function buildRealCity(ctx, data) {
     const r = rivers[i];
     if (!r || r.pts.length < 3) { delete band.center; return; }
     // Lissage du tracé (moyenne glissante) pour un lit fluide
-    const WIN = 2, src = r.pts;
+    const WIN = 6, src = r.pts; // fenêtre large : virages fluides, fini le zigzag
     const pts = src.map((p, k) => {
       let sx = 0, n = 0;
       for (let j = Math.max(0, k - WIN); j <= Math.min(src.length - 1, k + WIN); j++) { sx += src[j][1]; n++; }
