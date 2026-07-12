@@ -86,8 +86,10 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
       planeAxes.throttle = -dy / JOY_R;
       planeAxes.yaw = dx / JOY_R;
     } else {
-      // Comme un vrai manche : tirer vers soi (bas) fait cabrer.
-      planeAxes.pitch = -dy / JOY_R;
+      // Sur l'écran, dy est positif vers le bas. Le moteur Three.js utilise
+      // un tangage positif pour lever le nez : tirer le manche vers soi
+      // (vers CABRÉ) doit donc envoyer une valeur positive, sans inversion.
+      planeAxes.pitch = dy / JOY_R;
       planeAxes.roll = dx / JOY_R;
     }
     controls.setTouchPlane(planeAxes.throttle, planeAxes.yaw, planeAxes.pitch, planeAxes.roll);
