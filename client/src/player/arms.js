@@ -15,8 +15,12 @@ const SLEEVE = 0x3c4a5e; // manche de blouson, assortie au reste du perso
 
 // Poses canoniques côté DROIT uniquement (position de l'origine du groupe +
 // rotation). Le côté gauche est dérivé par mirror() ci-dessous.
+// - repos : bras COMPLÈTEMENT baissés le long du corps → hors champ (on ne
+//   voit pas ses avant-bras en regardant droit devant, comme en vrai)
+// - course : bras remontés qui pompent en alternance (voir update)
 const RIGHT_POSES = {
-  idle: { pos: [0.15, -0.32, -0.32], rot: [0.5, -0.2, 0.12] },
+  idle: { pos: [0.26, -0.62, -0.18], rot: [1.25, -0.15, 0.1] }, // baissés, hors champ
+  run: { pos: [0.2, -0.34, -0.3], rot: [0.62, -0.2, 0.12] }, // remontés pour courir
   boombox: { pos: [-0.14, -0.28, -0.5], rot: [0.4, -0.55, 0.18] },
   jetpack: { pos: [0.14, -0.16, -0.28], rot: [0.15, -0.35, 0.22] },
 };
@@ -131,22 +135,24 @@ export function createArms(camera) {
       attachedTo = camera;
     }
 
-    const target = RIGHT_POSES[mode] ? mode : 'idle';
+    // Au repos les bras tombent le long du corps (hors champ) ; ils ne
+    // remontent que pour courir ou tenir quelque chose.
+    const target = RIGHT_POSES[mode] ? mode : (isMoving ? 'run' : 'idle');
     lerpTo(cur.r, RIGHT_POSES[target], k);
     lerpTo(cur.l, mirror(RIGHT_POSES[target]), k);
 
     bobTime += dt * (isMoving ? 9 : 1.6);
-    const bobAmp = isMoving ? 0.012 : 0.003;
-    const bobX = Math.sin(bobTime) * bobAmp;
-    // Bras en opposition de phase : quand l'un descend l'autre remonte,
-    // comme un vrai balancement de marche — au lieu de plonger ensemble.
-    const bobYr = Math.sin(bobTime) * bobAmp;
-    const bobYl = -bobYr;
+    // Pompage de course en OPPOSITION DE PHASE, surtout avant/arrière (z)
+    // comme un vrai jogging, avec un peu de vertical — presque rien à l'arrêt.
+    const amp = isMoving ? 1 : 0.12;
+    const swing = Math.sin(bobTime);
+    const zR = swing * 0.085 * amp, zL = -zR;
+    const yR = Math.cos(bobTime * 2) * 0.015 * amp;
 
-    right.position.set(cur.r.pos.x + bobX, cur.r.pos.y + bobYr, cur.r.pos.z);
-    right.rotation.set(cur.r.rot.x, cur.r.rot.y, cur.r.rot.z);
-    left.position.set(cur.l.pos.x - bobX, cur.l.pos.y + bobYl, cur.l.pos.z);
-    left.rotation.set(cur.l.rot.x, cur.l.rot.y, cur.l.rot.z);
+    right.position.set(cur.r.pos.x, cur.r.pos.y + yR, cur.r.pos.z + zR);
+    right.rotation.set(cur.r.rot.x + swing * 0.22 * amp, cur.r.rot.y, cur.r.rot.z);
+    left.position.set(cur.l.pos.x, cur.l.pos.y - yR, cur.l.pos.z + zL);
+    left.rotation.set(cur.l.rot.x - swing * 0.22 * amp, cur.l.rot.y, cur.l.rot.z);
   }
 
   return {

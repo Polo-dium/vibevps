@@ -23,13 +23,17 @@ function buildCourse(ctx) {
   const add = (x, z, y = null) => pts.push([x, y ?? ground(x, z) + 1.8, z]);
 
   if (saone && rhone && saone !== rhone) {
+    // Boucle LOGIQUE, sans retour en arrière : ouest vers la Saône, remontée
+    // du Vieux Lyon plein nord, re-traversée, diagonale de Presqu'île vers le
+    // Rhône, redescente du quai plein sud, re-traversée, retour à la statue.
     add(B.minX + 20, B.minZ + 14); // sortie nord-ouest de la place
-    add(cxOf(saone, 40) + halfOf(saone) + 5, 40); // quai est de la Saône
+    add(cxOf(saone, 20) + halfOf(saone) + 5, 20); // quai est de la Saône
     add(cxOf(saone, 0), 0, 3.4); // pont de la Saône
-    add(cxOf(saone, -60) - halfOf(saone) - 6, -60); // Vieux Lyon, rive droite
-    add(cxOf(saone, -170), -170, 3.4); // re-pont plus au nord
-    add((cxOf(saone, -120) + cxOf(rhone, -120)) / 2, -120); // cœur de Presqu'île
-    add(cxOf(rhone, -60) - halfOf(rhone) - 5, -60); // quai ouest du Rhône
+    add(cxOf(saone, -80) - halfOf(saone) - 6, -80); // Vieux Lyon, plein nord
+    add(cxOf(saone, -170), -170, 3.4); // re-pont, toujours vers le nord
+    add((cxOf(saone, -140) + cxOf(rhone, -140)) / 2, -140); // Presqu'île, cap est
+    add(cxOf(rhone, -90) - halfOf(rhone) - 5, -90); // quai ouest du Rhône
+    add(cxOf(rhone, -40) - halfOf(rhone) - 5, -40); // on redescend plein sud
     add(cxOf(rhone, 0), 0, 3.4); // pont du Rhône
     add(B.maxX - 16, B.minZ + 20); // retour sur la place
   } else {

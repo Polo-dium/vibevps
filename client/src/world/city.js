@@ -237,6 +237,70 @@ export function buildRiverWorks(ctx, band, {
   const pileMat = new THREE.MeshLambertMaterial({ color: 0x7a7264 });
   for (const bz of bridgesZ) {
     const bcx = cxAt(bz);
+
+    // --- Vraie eau OSM (masque) : pont PERPENDICULAIRE au tracé local et
+    // longueur MESURÉE berge à berge — fini les tabliers de travers qui
+    // dépassent trop (ou pas assez) du lit.
+    if (ctx.waterMask) {
+      const m = (cxAt(bz + 10) - cxAt(bz - 10)) / 20; // pente locale dx/dz
+      const yaw = Math.atan(m);
+      const px = Math.cos(yaw), pz = -Math.sin(yaw); // axe du tablier
+      const reach = (dir) => {
+        let s = 2;
+        while (s < half + 60 && ctx.waterMask.isWater(bcx + dir * px * s, bz + dir * pz * s)) s += 2;
+        return s;
+      };
+      const endR = reach(1), endL = reach(-1);
+      const OVER = 5.5; // le tablier mord sur chaque berge
+      const len = endL + endR + OVER * 2;
+      const midS = (endR - endL) / 2; // centre réel du fleuve à ce z
+      const cx0 = bcx + px * midS, cz0 = bz + pz * midS;
+      const place = (mesh, s, y) => {
+        mesh.position.set(cx0 + px * s, y, cz0 + pz * s);
+        mesh.rotation.y = yaw;
+        mesh.userData.noShadow = false;
+        ctx.scene.add(mesh);
+      };
+      const deck = new THREE.Mesh(new THREE.BoxGeometry(len, 0.4, 9.5),
+        new THREE.MeshLambertMaterial({ color: 0x8b8f99 }));
+      place(deck, 0, DECK_Y);
+      // Collision : AABB englobante du tablier tourné (marchable dessus)
+      const ex = Math.abs(px) * len / 2 + Math.abs(pz) * 4.75;
+      const ez = Math.abs(pz) * len / 2 + Math.abs(px) * 4.75;
+      ctx.colliders.push({
+        minX: cx0 - ex, maxX: cx0 + ex, minY: BED_Y, maxY: DECK_Y + 0.2,
+        minZ: cz0 - ez, maxZ: cz0 + ez,
+      });
+      // Garde-corps le long du tablier
+      for (const side of [-4.4, 4.4]) {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(len, 0.95, 0.4),
+          new THREE.MeshLambertMaterial({ color: 0x6f7884 }));
+        rail.position.set(cx0 + px * 0 - pz * side, DECK_Y + 0.6, cz0 + pz * 0 + px * side);
+        rail.rotation.y = yaw;
+        ctx.scene.add(rail);
+      }
+      // Rampes d'accès en escalier aux deux extrémités (sur la berge)
+      for (const dir of [-1, 1]) {
+        const s0 = dir * (len / 2 - OVER / 2);
+        for (let i = 1; i <= 6; i++) {
+          const step = new THREE.Mesh(new THREE.BoxGeometry(0.9, i * 0.275, 9.5),
+            new THREE.MeshLambertMaterial({ color: 0x7d828c }));
+          place(step, s0 + dir * (4.2 + (6 - i) * 0.85), (i * 0.275) / 2);
+          const sx = cx0 + px * (s0 + dir * (4.2 + (6 - i) * 0.85));
+          const sz2 = cz0 + pz * (s0 + dir * (4.2 + (6 - i) * 0.85));
+          ctx.colliders.push({
+            minX: sx - 0.8, maxX: sx + 0.8, minY: 0, maxY: i * 0.275,
+            minZ: sz2 - 4.9, maxZ: sz2 + 4.9,
+          });
+        }
+      }
+      // Piles dans l'eau
+      for (const s of [-len / 4, len / 4]) {
+        const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.1, DECK_Y - BED_Y, 8), pileMat);
+        place(pile, s, (DECK_Y + BED_Y) / 2);
+      }
+      continue;
+    }
     addBox(ctx, { x: bcx, y: DECK_Y, z: bz, w: W + 9, h: 0.4, d: 9.5, color: 0x8b8f99 });
     for (const [edge, out] of [[bcx - half, -1], [bcx + half, 1]]) {
       for (let i = 1; i <= 6; i++) {
