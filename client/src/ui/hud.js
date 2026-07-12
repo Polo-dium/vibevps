@@ -322,6 +322,7 @@ export function createUi() {
         state.auth = JSON.parse(saved);
         me = await apiFetch('/me');
         state.isAdmin = Boolean(me.admin);
+        state.inventory = Array.isArray(me.inventory) ? me.inventory : [];
       } catch {
         state.auth = null;
         localStorage.removeItem('vibevps_auth');
@@ -426,11 +427,13 @@ export function createUi() {
       const go = async () => {
         err.textContent = '';
         try {
-          const auth = await apiFetch('/register', {
+          const response = await apiFetch('/register', {
             method: 'POST',
             body: JSON.stringify({ name: input.value, pin: pinInput.value }),
           });
+          const { inventory = [], ...auth } = response;
           state.auth = auth;
+          state.inventory = Array.isArray(inventory) ? inventory : [];
           state.isAdmin = false;
           localStorage.setItem('vibevps_auth', JSON.stringify(auth));
           done(auth);

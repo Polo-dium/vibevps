@@ -10,6 +10,21 @@ export const api = Router();
 const GAME_COOLDOWN_MS = 120_000;
 const MAX_CUSTOM_GAMES = 30;
 const MAX_IMAGE_BYTES = 400_000;
+const INVENTORY_ITEMS = new Set([
+  'jetpack', 'rc-plane',
+  'weapon:marteau', 'weapon:pompe', 'weapon:minigun', 'weapon:bazooka',
+]);
+
+function playerInventory(player) {
+  try {
+    const items = JSON.parse(player?.inventory || '[]');
+    return Array.isArray(items)
+      ? [...new Set(items.filter((id) => typeof id === 'string' && INVENTORY_ITEMS.has(id)))]
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 function auth(req, res, next) {
   const header = req.headers.authorization || '';
@@ -52,7 +67,10 @@ api.post('/register', (req, res) => {
   if (existing) {
     // Pseudo protégé + bon code secret → c'est une CONNEXION
     if (pin && existing.pin_hash && existing.pin_hash === hashPin(existing.id, pin)) {
-      return res.json({ id: existing.id, name: existing.name, token: existing.token });
+      return res.json({
+        id: existing.id, name: existing.name, token: existing.token,
+        inventory: playerInventory(existing),
+      });
     }
     return res.status(409).json({
       error: existing.pin_hash
@@ -64,7 +82,7 @@ api.post('/register', (req, res) => {
   const token = crypto.randomBytes(24).toString('hex');
   q.createPlayer.run(id, name, token, Date.now());
   if (pin) q.setPin.run(hashPin(id, pin), id);
-  res.json({ id, name, token });
+  res.json({ id, name, token, inventory: [] });
 });
 
 // Protéger (ou changer le code de) son pseudo une fois connecté
@@ -83,7 +101,23 @@ api.get('/me', auth, (req, res) => {
     name: req.player.name,
     admin: Boolean(req.player.is_admin),
     protected: Boolean(req.player.pin_hash),
+    inventory: playerInventory(req.player),
   });
+});
+
+// Un objet est ajouté une seule fois. Le serveur garde la source de vérité
+// afin que l'inventaire suive un pseudo protégé sur un nouvel appareil.
+api.post('/me/inventory', auth, (req, res) => {
+  const id = String(req.body?.id ?? '');
+  if (!INVENTORY_ITEMS.has(id)) {
+    return res.status(400).json({ error: 'Objet inconnu.' });
+  }
+  const inventory = playerInventory(req.player);
+  if (!inventory.includes(id)) {
+    inventory.push(id);
+    q.setInventory.run(JSON.stringify(inventory), req.player.id);
+  }
+  res.json({ ok: true, inventory });
 });
 
 // --- Administration -------------------------------------------------------

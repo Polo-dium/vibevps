@@ -263,11 +263,19 @@ export function createWeapon(camera, scene, shootables, {
   }
 
   // Ramassage d'une arme sur la map : ajoutée à l'inventaire et équipée
-  function give(id) {
+  function give(id, { equip = true } = {}) {
     if (!WEAPONS[id]) return;
     if (!owned.includes(id)) owned.push(id);
+    if (!equip) return;
     if (id === curId) { ammo = spec.mag; onAmmoChange(ammo, reloading > 0, spec); return; }
     select(id);
+  }
+
+  function equip(id) {
+    if (!owned.includes(id)) return false;
+    if (id === curId) toggle(true);
+    else select(id);
+    return true;
   }
 
   function shoot() {
@@ -459,11 +467,15 @@ export function createWeapon(camera, scene, shootables, {
     toggle,
     reload,
     give,
+    equip,
     cycle,
     setTrigger(down) { triggerDown = down; },
     fx: { spawnTracer, spawnImpact, spawnExplosion },
     get ammo() { return ammo; },
     get spec() { return spec; },
+    get inventory() {
+      return owned.map((id) => ({ id, ...WEAPONS[id], equipped: id === curId && state.weaponEquipped }));
+    },
     get damage() { return spec.dmg; },
     // Le porte-arme lui-même : les bras (arms.js) lisent sa position/rotation
     // en direct chaque frame pour rester parfaitement calés sur le recul,

@@ -356,21 +356,119 @@ button.ghost {
   #touch-ui.plane-mode #tb-fire,
   #touch-ui.plane-mode #tb-fire-left { bottom: calc(157px + env(safe-area-inset-bottom)); }
 }
-/* Boutons utilitaires en haut à droite (rangée horizontale) */
+/* Bouton menu et panneau mobile semi-transparent. */
 .touch-top {
   position: fixed;
   top: calc(10px + env(safe-area-inset-top));
   right: calc(12px + env(safe-area-inset-right));
-  display: flex; flex-direction: row; align-items: flex-start; gap: 8px;
-  pointer-events: none; z-index: 21;
+  pointer-events: none; z-index: 30;
 }
-/* Menu déroulant des boutons du haut (replié par défaut, dégage la vue) */
 #touch-menu {
-  display: flex; flex-direction: row; flex-wrap: wrap; justify-content: flex-end;
-  gap: 8px; max-width: 62vw;
+  position: fixed; inset: 0; z-index: 45;
+  display: flex; align-items: center; justify-content: center;
+  padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+    max(10px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  background: rgba(2, 6, 15, 0.56);
+  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+  pointer-events: auto;
 }
 #touch-menu.hidden { display: none; }
-#tb-menu { order: 2; } /* le ☰ reste à droite, le menu se déplie à sa gauche */
+.touch-menu-shell {
+  display: flex; flex-direction: column;
+  width: min(820px, calc(100vw - 24px));
+  height: min(470px, calc(100vh - 20px));
+  overflow: hidden;
+  border: 1px solid rgba(0,255,213,.52); border-radius: 18px;
+  background: linear-gradient(145deg, rgba(8,16,31,.93), rgba(10,12,26,.84));
+  box-shadow: 0 20px 70px rgba(0,0,0,.55), inset 0 0 60px rgba(0,160,255,.04);
+  pointer-events: auto;
+}
+.touch-menu-shell button { touch-action: none; -webkit-tap-highlight-color: transparent; }
+.touch-menu-head {
+  min-height: 52px; padding: 9px 14px 7px 18px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid rgba(127,216,255,.16);
+}
+.touch-menu-head div { display: flex; flex-direction: column; }
+.touch-menu-head strong {
+  color: var(--neon); font: 800 17px/1.1 'Courier New', monospace; letter-spacing: 2px;
+  text-shadow: 0 0 12px rgba(0,255,213,.42);
+}
+#menu-player { color: #7894aa; font: 700 9px/1.3 monospace; letter-spacing: 1px; margin-top: 3px; }
+#tb-menu-close {
+  width: 36px; height: 36px; padding: 0; border-radius: 50%;
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.2);
+  color: #dcecff; font-size: 25px; line-height: 1;
+}
+.touch-menu-tabs {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  padding: 0 14px; border-bottom: 1px solid rgba(127,216,255,.14);
+}
+.menu-tab {
+  height: 42px; padding: 0 8px; border-radius: 0; border-bottom: 3px solid transparent;
+  background: transparent; color: #7f9caf; font: 800 11px/1 monospace; letter-spacing: 1px;
+}
+.menu-tab.active { color: #fff; border-bottom-color: var(--neon); filter: none; }
+.touch-menu-content { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 13px 16px 16px; }
+.menu-page-title { display: flex; align-items: baseline; gap: 12px; margin-bottom: 11px; }
+.menu-page-title strong { color: #dffbff; font: 800 13px/1 monospace; letter-spacing: 1px; }
+.menu-page-title span { color: #7691a5; font-size: 11px; }
+.inventory-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.inventory-card {
+  min-height: 74px; padding: 10px 11px;
+  display: grid; grid-template-columns: 43px 1fr auto; align-items: center; gap: 9px;
+  border: 1px solid rgba(127,216,255,.22); border-radius: 12px;
+  background: rgba(19,34,53,.62);
+}
+.inventory-card.active { border-color: var(--neon); box-shadow: inset 3px 0 0 var(--neon); }
+.inventory-card.locked { opacity: .55; background: rgba(10,17,28,.5); }
+.inventory-icon { font-size: 27px; text-align: center; }
+.inventory-copy { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.inventory-copy b { color: #ecfaff; font-size: 13px; }
+.inventory-copy small { color: #7893a8; font-size: 9px; line-height: 1.25; }
+.inventory-card button, .inventory-locked {
+  min-width: 67px; padding: 8px 9px; border-radius: 8px;
+  font: 800 9px/1 monospace; letter-spacing: .4px; text-align: center;
+}
+.inventory-card button { color: #041719; background: linear-gradient(135deg, #35ebca, #4aaeff); }
+.inventory-card.active button { background: rgba(255,255,255,.09); color: #b9d4df; border: 1px solid rgba(255,255,255,.16); }
+.inventory-locked { color: #738491; border: 1px solid rgba(255,255,255,.12); }
+.menu-action-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+.menu-action-grid button {
+  min-height: 72px; padding: 9px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  background: rgba(20,37,57,.68); border: 1px solid rgba(127,216,255,.24); color: #dff6ff;
+}
+.menu-action-grid button b { font-size: 24px; line-height: 1; }
+.menu-action-grid button span { font-size: 10px; }
+.settings-list { display: flex; flex-direction: column; gap: 8px; }
+.setting-row {
+  min-height: 57px; padding: 8px 10px 8px 13px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border: 1px solid rgba(127,216,255,.18); border-radius: 11px; background: rgba(17,31,49,.58);
+}
+.setting-row > div:first-child { display: flex; flex-direction: column; gap: 3px; }
+.setting-row b { color: #e6f8ff; font-size: 12px; }
+.setting-row small { color: #7893a8; font-size: 9px; }
+.setting-row > button, .quality-choices button {
+  min-width: 82px; padding: 8px 10px; border-radius: 8px;
+  background: rgba(127,216,255,.1); border: 1px solid rgba(127,216,255,.28);
+  color: #a8d5e6; font: 800 9px/1 monospace;
+}
+.setting-row > button.active, .quality-choices button.active {
+  background: linear-gradient(135deg, #35ebca, #4aaeff); color: #041719; border-color: transparent;
+}
+.quality-choices { display: flex !important; flex-direction: row !important; gap: 5px !important; }
+.quality-choices button { min-width: 52px; }
+@media (max-height: 430px) {
+  .touch-menu-shell { height: calc(100vh - 12px); }
+  .touch-menu-head { min-height: 43px; padding-top: 5px; padding-bottom: 4px; }
+  .touch-menu-tabs { padding: 0 10px; }
+  .menu-tab { height: 35px; }
+  .touch-menu-content { padding: 9px 12px 12px; }
+  .inventory-card { min-height: 64px; padding: 7px 9px; }
+  .menu-action-grid button { min-height: 58px; }
+  .setting-row { min-height: 49px; padding-top: 5px; padding-bottom: 5px; }
+}
 /* Boutons d'action en bas à droite, en grille 2 colonnes (tient en paysage) */
 .touch-actions {
   position: fixed;

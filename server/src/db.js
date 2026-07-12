@@ -99,6 +99,7 @@ for (const col of [
   `streak_current INTEGER NOT NULL DEFAULT 0`, // défis quotidiens : série en cours
   `streak_best INTEGER NOT NULL DEFAULT 0`,
   `streak_last_date TEXT`, // dernier jour où les 3 défis ont été bouclés
+  `inventory TEXT NOT NULL DEFAULT '[]'`, // objets trouvés, conservés avec le compte
 ]) {
   try {
     db.exec(`ALTER TABLE players ADD COLUMN ${col}`);
@@ -114,6 +115,7 @@ export const q = {
   playerByName: db.prepare(`SELECT * FROM players WHERE name = ?`),
   playerByToken: db.prepare(`SELECT * FROM players WHERE token = ?`),
   setPin: db.prepare(`UPDATE players SET pin_hash = ? WHERE id = ?`),
+  setInventory: db.prepare(`UPDATE players SET inventory = ? WHERE id = ?`),
 
   listGames: db.prepare(
     `SELECT g.id, g.title, g.builtin, g.prompt, g.created_at, p.name AS creator
