@@ -924,26 +924,49 @@ export function buildRealCity(ctx, data) {
   }
 }
 
-// Grille d'urbanisation (cellules de 48 m) : marque les cellules contenant
-// des sommets de bâtiments, dilatées d'une cellule — sert à ne peindre le
-// terrain plat en bitume QUE dans la ville réelle. Avant ça, la règle
-// « plat = bitume » peignait toute la plaine hors ville en gris jusqu'à
-// l'horizon.
-function buildUrbanGrid(data, bound) {
-  const CELL = 48;
-  const off = bound + 120;
-  const set = new Set();
-  const mark = (x, z) => {
+// Champ d'urbanisation CONTINU. L'ancienne grille booléenne de 48 m peignait
+// de grands carrés gris parfaitement visibles au niveau du sol. On indexe
+// désormais bâtiments et grands axes dans une grille spatiale, mais la
+// couleur finale dépend de leur distance réelle avec un fondu doux.
+function buildUrbanField(data, bound) {
+  const CELL = 72;
+  const off = bound + 160;
+  const buckets = new Map();
+  const key = (cx, cz) => `${cx}:${cz}`;
+  const add = (x, z) => {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return;
     const cx = Math.floor((x + off) / CELL), cz = Math.floor((z + off) / CELL);
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dz = -1; dz <= 1; dz++) set.add((cx + dx) * 4096 + (cz + dz));
-    }
+    const k = key(cx, cz);
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k).push([x, z]);
   };
-  for (const b of data.buildings) {
-    for (let i = 0; i < b.p.length; i += 4) mark(b.p[i], b.p[i + 1]);
+  for (const b of data.buildings ?? []) {
+    let sx = 0, sz = 0, n = 0;
+    for (let i = 0; i + 1 < b.p.length; i += 2) {
+      sx += b.p[i]; sz += b.p[i + 1]; n++;
+    }
+    if (n) add(sx / n, sz / n);
   }
-  return (x, z) =>
-    set.has(Math.floor((x + off) / CELL) * 4096 + Math.floor((z + off) / CELL));
+  // Les avenues relient naturellement les îlots et évitent des poches de
+  // campagne entre deux pâtés de maisons espacés.
+  for (const road of data.roads ?? []) {
+    if (road.w < 5) continue;
+    for (let i = 0; i + 1 < road.p.length; i += 12) add(road.p[i], road.p[i + 1]);
+  }
+  return (x, z) => {
+    const cx = Math.floor((x + off) / CELL), cz = Math.floor((z + off) / CELL);
+    let d2 = Infinity;
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        for (const p of buckets.get(key(cx + dx, cz + dz)) ?? []) {
+          const px = x - p[0], pz = z - p[1];
+          d2 = Math.min(d2, px * px + pz * pz);
+        }
+      }
+    }
+    const t = THREE.MathUtils.clamp((Math.sqrt(d2) - 32) / 105, 0, 1);
+    return 1 - t * t * (3 - 2 * t); // smoothstep inversé, sans bord carré
+  };
 }
 
 // Terrain continu de la ville complète : un seul maillage déplacé par la
@@ -965,12 +988,22 @@ function buildTerrainMesh(ctx, bound, data) {
   const bedC = new THREE.Color(0x27352b);
   const meadow = new THREE.Color(0x5d7a4a);
   const parks = ctx.parkRects ?? [];
-  const urban = buildUrbanGrid(data, bound);
+  const urban = buildUrbanField(data, bound);
   // Berges/quais : bitume conservé près des fleuves même sans bâtiment
   const bands = ctx.waterBands ?? [];
-  const nearQuay = (x, z) => bands.some((b) =>
-    x > (b.minX ?? Infinity) - 26 && x < (b.maxX ?? -Infinity) + 26 &&
-    z > (b.zMin ?? -bound) - 26 && z < (b.zMax ?? bound) + 26);
+  const quayBlend = (x, z) => {
+    let best = 0;
+    for (const b of bands) {
+      const minX = b.minX ?? Infinity, maxX = b.maxX ?? -Infinity;
+      const minZ = b.zMin ?? -bound, maxZ = b.zMax ?? bound;
+      const dx = x < minX ? minX - x : x > maxX ? x - maxX : 0;
+      const dz = z < minZ ? minZ - z : z > maxZ ? z - maxZ : 0;
+      const d = Math.hypot(dx, dz);
+      const t = THREE.MathUtils.clamp((d - 10) / 30, 0, 1);
+      best = Math.max(best, 1 - t * t * (3 - 2 * t));
+    }
+    return best * 0.82;
+  };
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
     const h = ctx.terrainHeight(x, z);
@@ -979,12 +1012,11 @@ function buildTerrainMesh(ctx, bound, data) {
     if (h < -0.5) c.copy(bedC);
     else if (inPark) c.copy(grass).lerp(forest, 0.25); // parcs toujours en herbe
     else if (h < 1.4) {
-      if (urban(x, z) || nearQuay(x, z)) c.copy(asphalt);
-      else {
-        // Campagne : patchwork de champs (teinte stable par parcelle de 64 m)
-        const hsh = ((Math.floor(x / 64) * 73856093) ^ (Math.floor(z / 64) * 19349663)) >>> 0;
-        c.copy(meadow).offsetHSL(((hsh % 13) - 6) * 0.004, 0, ((hsh % 7) - 3) * 0.02);
-      }
+      // Campagne : patchwork de champs, puis transition progressive vers le
+      // socle urbain. Plus aucun cadre de cellule visible.
+      const hsh = ((Math.floor(x / 64) * 73856093) ^ (Math.floor(z / 64) * 19349663)) >>> 0;
+      c.copy(meadow).offsetHSL(((hsh % 13) - 6) * 0.004, 0, ((hsh % 7) - 3) * 0.02);
+      c.lerp(asphalt, Math.max(urban(x, z), quayBlend(x, z)));
     } else c.copy(grass).lerp(forest, Math.min(1, (h - 1.4) / 32));
     colors[i * 3] = c.r;
     colors[i * 3 + 1] = c.g;
@@ -1212,57 +1244,69 @@ function makeAsphaltTexture() {
   return tex2;
 }
 
-// Tuile de sol urbain : dalles claires + grain, quasi blanche (elle est
-// multipliée par la couleur d'altitude : bitume, herbe, lit des fleuves…)
+// Micro-texture de sol SANS CADRE : l'ancienne tuile dessinait une grille de
+// dalles complète tous les 14 m, y compris sous l'herbe, ce qui révélait le
+// raccord du matériau. Ici le bruit est périodique et les détails restent
+// assez fins pour enrichir béton, terre et prairie sans motif lisible.
 function makeGroundDetailTexture() {
   const S = 256;
-  const CELL = S / 4; // 4×4 dalles par tuile (≈ 3,5 m par dalle au sol)
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = S;
   const g = canvas.getContext('2d');
-  g.fillStyle = '#f2f1ee';
+  const image = g.createImageData(S, S);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      // Fréquences entières : la valeur est identique aux bords opposés.
+      const wave = Math.sin(x / S * Math.PI * 12) * 2.2 +
+        Math.sin(y / S * Math.PI * 18) * 1.8 +
+        Math.sin((x + y) / S * Math.PI * 8) * 1.4;
+      const grain = ((x * 17 + y * 31 + (x * y) % 19) % 11) - 5;
+      const v = Math.round(238 + wave + grain * 0.55);
+      const i = (y * S + x) * 4;
+      image.data[i] = v;
+      image.data[i + 1] = v;
+      image.data[i + 2] = v - 3;
+      image.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(image, 0, 0);
+  // Petits granulats sans forme assez grande pour trahir la répétition.
+  for (let i = 0; i < 1600; i++) {
+    const v = 175 + (i * 37) % 65;
+    g.fillStyle = `rgba(${v},${v},${v},0.22)`;
+    g.fillRect((i * 73) % S, (i * 151) % S, 1, 1);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+// Béton de trottoir distinct de la chaussée : petites plaques décalées,
+// joints fins et teintes chaudes. Les bords opposés utilisent la même base,
+// donc le raccord de tuile reste discret.
+function makeSidewalkTexture() {
+  const S = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = S;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#a9a49a';
   g.fillRect(0, 0, S, S);
-  // Chaque dalle a sa propre nuance : le sol cesse d'être un aplat uni
-  for (let ix = 0; ix < 4; ix++) {
-    for (let iz = 0; iz < 4; iz++) {
-      const v = 228 + Math.floor(Math.random() * 26) - 8;
-      g.fillStyle = `rgb(${v}, ${v}, ${v - 5})`;
-      g.fillRect(ix * CELL, iz * CELL, CELL, CELL);
+  for (let y = 0; y < S; y += 32) {
+    g.fillStyle = y % 64 === 0 ? '#aaa69e' : '#9e9b94';
+    g.fillRect(0, y + 1, S, 30);
+    g.strokeStyle = 'rgba(52,52,50,.38)';
+    g.lineWidth = 1;
+    g.beginPath(); g.moveTo(0, y + 0.5); g.lineTo(S, y + 0.5); g.stroke();
+    const off = y % 64 === 0 ? 0 : 24;
+    for (let x = off; x < S; x += 48) {
+      g.beginPath(); g.moveTo(x + 0.5, y); g.lineTo(x + 0.5, y + 32); g.stroke();
     }
   }
-  // Grain (usure, gravillons)
-  for (let i = 0; i < 2200; i++) {
-    const v = 205 + Math.random() * 50;
-    g.fillStyle = `rgba(${v}, ${v}, ${v - 6}, 0.35)`;
-    g.fillRect(Math.random() * S, Math.random() * S, 2, 2);
-  }
-  // Taches sombres diffuses (pluie, vieux chewing-gums de gones)
-  for (let i = 0; i < 10; i++) {
-    g.fillStyle = `rgba(120, 118, 112, ${0.05 + Math.random() * 0.07})`;
-    g.beginPath();
-    g.arc(Math.random() * S, Math.random() * S, 8 + Math.random() * 22, 0, Math.PI * 2);
-    g.fill();
-  }
-  // Joints de dalles bien marqués
-  g.strokeStyle = 'rgba(120, 120, 114, 0.65)';
-  g.lineWidth = 2;
-  for (let i = 0; i <= 4; i++) {
-    g.beginPath(); g.moveTo(i * CELL + 0.5, 0); g.lineTo(i * CELL + 0.5, S); g.stroke();
-    g.beginPath(); g.moveTo(0, i * CELL + 0.5); g.lineTo(S, i * CELL + 0.5); g.stroke();
-  }
-  // Quelques fissures qui traversent les dalles
-  g.strokeStyle = 'rgba(130, 128, 122, 0.5)';
-  g.lineWidth = 1;
-  for (let i = 0; i < 7; i++) {
-    let x = Math.random() * S, y = Math.random() * S;
-    g.beginPath();
-    g.moveTo(x, y);
-    for (let k = 0; k < 5; k++) {
-      x += (Math.random() - 0.5) * 34;
-      y += (Math.random() - 0.5) * 34;
-      g.lineTo(x, y);
-    }
-    g.stroke();
+  for (let i = 0; i < 500; i++) {
+    const v = 90 + (i * 29) % 80;
+    g.fillStyle = `rgba(${v},${v},${v},.16)`;
+    g.fillRect((i * 47) % S, (i * 83) % S, 1, 1);
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -1509,6 +1553,9 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     wallMat.emissiveIntensity = Math.max(0, (ctx.env?.night ?? 0) * 1.1 - 0.1) * 0.8;
   });
   const roofMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  // Devantures séparées, fusionnées dans un unique mesh : la ville prend vie
+  // au niveau des yeux sans multiplier les draw calls par immeuble.
+  const shopPos = [], shopUv = [];
 
   // Accumulateurs par tuile spatiale (plus grandes sur la ville complète :
   // moins de draw calls pour une carte 4× plus vaste)
@@ -1630,6 +1677,20 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       );
       tile.wuv.push(0, 0, u, 0, u, v, 0, 0, u, v, 0, v);
       for (let k = 0; k < 6; k++) tile.wc.push(wallColor.r, wallColor.g, wallColor.b);
+
+      // Rez-de-chaussée actif sur une partie déterministe des façades : baie,
+      // porte, enseigne et store. Le polygonOffset du matériau évite tout
+      // scintillement avec le mur existant.
+      if (full && h > 7 && len > 4 && hash2(bi * 37 + i * 11) % 100 < 48) {
+        const ys0 = yBase + 0.08;
+        const ys1 = Math.min(yBase + 3.15, y1 - 0.15);
+        const units = Math.max(1, Math.round(len / 4.5));
+        shopPos.push(
+          x1, ys0, z1, x2, ys0, z2, x2, ys1, z2,
+          x1, ys0, z1, x2, ys1, z2, x1, ys1, z1
+        );
+        shopUv.push(0, 0, units, 0, units, 1, 0, 0, units, 1, 0, 1);
+      }
     }
 
     // Toit (triangulation de l'empreinte)
@@ -1784,20 +1845,42 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     }
   }
 
+  if (shopPos.length) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(shopPos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(shopUv, 2));
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshLambertMaterial({
+      map: makeShopfrontTexture(),
+      emissive: 0xffc46b, emissiveIntensity: 0,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    });
+    ctx.updatables.push(() => {
+      mat.emissiveIntensity = Math.max(0, (ctx.env?.night ?? 0) - 0.15) * 0.38;
+    });
+    const shops = new THREE.Mesh(geo, mat);
+    shops.userData.noShadow = true;
+    ctx.scene.add(shops);
+  }
+
   console.log(`Lyon OSM : ${kept} bâtiments dans ${tiles.size} tuiles.`);
 }
 
 function buildOsmRoads(ctx, data, full = false) {
   const pos = [];        // chaussée
   const walk = [];       // trottoirs (rubans élargis clairs, sous la chaussée)
+  const sidewalkTop = []; // deux bandes surélevées de chaque côté
   const zebra = [];      // passages piétons (quads rayés)
   const lines = [];      // marquage central pointillé des grands axes
+  const walkUv = [];
+  const sidewalkUv = [];
+  const streetDetails = []; // [x,z,y,perpX,perpZ,demiLargeur]
   // Sur la ville complète, les rubans de route épousent le terrain
   const yAt = full
     ? (x, z) => Math.max(0, ctx.terrainHeight?.(x, z) ?? 0) + 0.06
     : () => 0.045;
   const roadUv = []; // UV de la chaussée : u en travers, v le long (asphalte)
-  const ribbon = (arr, x1, z1, x2, z2, half, dy, v0 = null) => {
+  const ribbon = (arr, x1, z1, x2, z2, half, dy, v0 = null, uvTarget = null) => {
     const dx = x2 - x1, dz = z2 - z1;
     const len = Math.hypot(dx, dz);
     if (len < 0.1) return len;
@@ -1807,26 +1890,49 @@ function buildOsmRoads(ctx, data, full = false) {
       x1 - px, ya, z1 - pz, x2 - px, yb, z2 - pz, x2 + px, yb, z2 + pz,
       x1 - px, ya, z1 - pz, x2 + px, yb, z2 + pz, x1 + px, ya, z1 + pz
     );
-    if (v0 != null) {
+    if (v0 != null && uvTarget) {
       const va = v0 / 9, vb = (v0 + len) / 9; // une tuile d'asphalte ≈ 9 m
-      roadUv.push(0, va, 0, vb, 1, vb, 0, va, 1, vb, 1, va);
+      uvTarget.push(0, va, 0, vb, 1, vb, 0, va, 1, vb, 1, va);
     }
     return len;
   };
+  const sideStrips = (x1, z1, x2, z2, inner, outer, dy, v0) => {
+    const dx = x2 - x1, dz = z2 - z1;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.1) return;
+    const px = -dz / len, pz = dx / len;
+    const ya = yAt(x1, z1) + dy, yb = yAt(x2, z2) + dy;
+    const va = v0 / 9, vb = (v0 + len) / 9;
+    for (const side of [-1, 1]) {
+      const aix = x1 + px * inner * side, aiz = z1 + pz * inner * side;
+      const aox = x1 + px * outer * side, aoz = z1 + pz * outer * side;
+      const bix = x2 + px * inner * side, biz = z2 + pz * inner * side;
+      const box = x2 + px * outer * side, boz = z2 + pz * outer * side;
+      sidewalkTop.push(
+        aix, ya, aiz, bix, yb, biz, box, yb, boz,
+        aix, ya, aiz, box, yb, boz, aox, ya, aoz
+      );
+      sidewalkUv.push(0, va, 0, vb, 1, vb, 0, va, 1, vb, 1, va);
+    }
+  };
   for (const road of data.roads) {
     const half = road.w / 2;
-    let acc = 0;
+    let crossingAcc = 0;
+    let uvAcc = 0;
     let dashAcc = 0;
+    let detailAcc = 0;
     for (let i = 0; i + 3 < road.p.length; i += 2) {
       const x1 = road.p[i], z1 = road.p[i + 1];
       const x2 = road.p[i + 2], z2 = road.p[i + 3];
       // Trottoir un peu plus large et 2 cm plus bas, chaussée par-dessus
-      ribbon(walk, x1, z1, x2, z2, half + 1.6, -0.02);
-      const len = ribbon(pos, x1, z1, x2, z2, half, 0, acc + dashAcc * 0);
+      ribbon(walk, x1, z1, x2, z2, half + 1.6, -0.02, uvAcc, walkUv);
+      sideStrips(x1, z1, x2, z2, half + 0.05, half + 1.55, 0.055, uvAcc);
+      const len = ribbon(pos, x1, z1, x2, z2, half, 0, uvAcc, roadUv);
+      uvAcc += len;
       // Passage piéton tous les ~35 m sur les grands axes
-      acc += len;
-      if (road.w >= 6 && acc > 35) {
-        acc = 0;
+      crossingAcc += len;
+      if (road.w >= 6 && crossingAcc > 35) {
+        crossingAcc = 0;
         const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
         ribbon(zebra, mx, mz, mx + (x2 - x1) / (len || 1) * 2.6, mz + (z2 - z1) / (len || 1) * 2.6, half, 0.02);
       }
@@ -1837,6 +1943,16 @@ function buildOsmRoads(ctx, data, full = false) {
           ribbon(lines, x1 + ux * d, z1 + uz * d, x1 + ux * (d + 2.6), z1 + uz * (d + 2.6), 0.14, 0.015);
         }
         dashAcc = (dashAcc + len) % 8;
+      }
+      // Mobilier léger tous les ~48 m : assez dense au niveau de la rue,
+      // plafonné implicitement par l'espacement et rendu en deux draw calls.
+      detailAcc += len;
+      if (full && road.w >= 6 && detailAcc > 48 && len > 0.1) {
+        detailAcc = 0;
+        const dx = (x2 - x1) / len, dz = (z2 - z1) / len;
+        const px = -dz, pz = dx;
+        const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
+        streetDetails.push([mx, mz, yAt(mx, mz) + 0.045, px, pz, half]);
       }
     }
   }
@@ -1850,7 +1966,12 @@ function buildOsmRoads(ctx, data, full = false) {
     mesh.userData.noShadow = true;
     ctx.scene.add(mesh);
   };
-  addMesh(walk, new THREE.MeshLambertMaterial({ color: 0x7e828b })); // trottoirs
+  const sidewalkTex = makeSidewalkTexture();
+  addMesh(walk, new THREE.MeshLambertMaterial({ map: sidewalkTex }), walkUv);
+  addMesh(sidewalkTop, new THREE.MeshLambertMaterial({
+    map: sidewalkTex,
+    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+  }), sidewalkUv);
   const asphaltTex = makeAsphaltTexture();
   addMesh(pos, new THREE.MeshLambertMaterial({
     map: asphaltTex,
@@ -1865,6 +1986,37 @@ function buildOsmRoads(ctx, data, full = false) {
     addMesh(lines, new THREE.MeshBasicMaterial({
       color: 0xe9e4c8, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
     }));
+  }
+  if (streetDetails.length) {
+    const manholeGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.035, 12);
+    const manholes = new THREE.InstancedMesh(
+      manholeGeo,
+      new THREE.MeshStandardMaterial({ color: 0x353b3d, metalness: 0.25, roughness: 0.72 }),
+      streetDetails.length
+    );
+    const bollardGeo = new THREE.CylinderGeometry(0.085, 0.12, 0.78, 8);
+    const bollards = new THREE.InstancedMesh(
+      bollardGeo,
+      new THREE.MeshLambertMaterial({ color: 0x303943 }),
+      streetDetails.length * 2
+    );
+    const m = new THREE.Matrix4();
+    streetDetails.forEach(([x, z, y, px, pz, half], i) => {
+      m.makeTranslation(x, y, z);
+      manholes.setMatrixAt(i, m);
+      for (const side of [-1, 1]) {
+        m.makeTranslation(
+          x + px * (half + 1.25) * side,
+          y + 0.39,
+          z + pz * (half + 1.25) * side
+        );
+        bollards.setMatrixAt(i * 2 + (side > 0 ? 1 : 0), m);
+      }
+    });
+    manholes.instanceMatrix.needsUpdate = true;
+    bollards.instanceMatrix.needsUpdate = true;
+    manholes.userData.noShadow = true;
+    ctx.scene.add(manholes, bollards);
   }
 }
 
@@ -2023,6 +2175,46 @@ function buildGreenery(ctx, data, rand, full = false) {
   foliage.instanceMatrix.needsUpdate = true;
   if (foliage.instanceColor) foliage.instanceColor.needsUpdate = true;
   ctx.scene.add(trunks, foliage);
+}
+
+// Cellule de commerce répétable : vitrine profonde, porte, enseigne et store.
+// Une unité représente environ 4,5 m de façade.
+function makeShopfrontTexture() {
+  const W = 192, H = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#77736b'; g.fillRect(0, 0, W, H);
+  // Bandeau d'enseigne, suffisamment contrasté pour être lisible de loin
+  g.fillStyle = '#26394a'; g.fillRect(3, 5, W - 6, 27);
+  g.fillStyle = '#f2c45f';
+  for (let x = 14; x < W - 10; x += 22) g.fillRect(x, 14, 12, 4);
+  // Store rayé
+  for (let x = 3; x < W - 3; x += 16) {
+    g.fillStyle = (x / 16) % 2 ? '#c64f45' : '#eee4cf';
+    g.fillRect(x, 32, 16, 13);
+  }
+  // Vitrines, reflets et intérieur chaud
+  g.fillStyle = '#182839'; g.fillRect(7, 48, 116, 72);
+  const grad = g.createLinearGradient(7, 48, 123, 120);
+  grad.addColorStop(0, 'rgba(126,194,220,.7)');
+  grad.addColorStop(0.45, 'rgba(28,53,75,.25)');
+  grad.addColorStop(1, 'rgba(255,188,92,.45)');
+  g.fillStyle = grad; g.fillRect(10, 51, 110, 66);
+  g.strokeStyle = '#beb6a6'; g.lineWidth = 4;
+  g.strokeRect(7, 48, 116, 72);
+  g.beginPath(); g.moveTo(65, 49); g.lineTo(65, 119); g.stroke();
+  // Porte vitrée et poignée
+  g.fillStyle = '#24323c'; g.fillRect(132, 43, 53, 77);
+  g.fillStyle = '#7394a5'; g.fillRect(138, 49, 41, 55);
+  g.fillStyle = '#d9c88d'; g.fillRect(141, 108, 35, 5);
+  g.fillStyle = '#f0d57b'; g.fillRect(169, 77, 4, 9);
+  // Seuil + ombre de contact
+  g.fillStyle = '#343331'; g.fillRect(0, 120, W, 8);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
 }
 
 // Cellule de fenêtre unique, répétée tous les 3 m. Quasi blanche : elle est

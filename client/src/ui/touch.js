@@ -7,6 +7,19 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
   root.id = 'touch-ui';
   root.innerHTML = `
     <div id="joy-base"><div id="joy-knob"></div></div>
+    <div class="plane-stick" id="plane-stick-left">
+      <span class="plane-stick-label plane-stick-top">GAZ +</span>
+      <span class="plane-stick-label plane-stick-bottom">GAZ −</span>
+      <span class="plane-stick-label plane-stick-left-label">LACET</span>
+      <div class="plane-stick-knob"></div>
+    </div>
+    <div class="plane-stick" id="plane-stick-right">
+      <span class="plane-stick-label plane-stick-top">PIQUÉ</span>
+      <span class="plane-stick-label plane-stick-bottom">CABRÉ</span>
+      <span class="plane-stick-label plane-stick-right-label">ROULIS</span>
+      <div class="plane-stick-knob"></div>
+    </div>
+    <div id="plane-instruments">GAZ 0% · 0 km/h · ALT 0 m</div>
     <div class="touch-top" id="touch-top">
       <button class="tbtn tbtn-small" id="tb-menu">☰</button>
       <div id="touch-menu" class="hidden">
@@ -37,6 +50,11 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
   const joyBase = root.querySelector('#joy-base');
   const joyKnob = root.querySelector('#joy-knob');
   const JOY_R = 55;
+  const planeLeft = root.querySelector('#plane-stick-left');
+  const planeRight = root.querySelector('#plane-stick-right');
+  const planeLeftKnob = planeLeft.querySelector('.plane-stick-knob');
+  const planeRightKnob = planeRight.querySelector('.plane-stick-knob');
+  const planeInstruments = root.querySelector('#plane-instruments');
 
   let joyTouchId = null;
   let joyOrigin = null;
@@ -45,6 +63,46 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
   // Le doigt posé sur TIR sert aussi à viser : glisser tout en tirant
   let fireTouchId = null;
   let fireLast = null;
+  let planeLeftId = null;
+  let planeRightId = null;
+  const planeAxes = { throttle: 0, yaw: 0, pitch: 0, roll: 0 };
+
+  function planeMode() { return Boolean(controls.vehicle?.plane); }
+
+  function stickOrigin(el) {
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
+
+  function movePlaneStick(t, el, knob, side) {
+    const o = stickOrigin(el);
+    let dx = t.clientX - o.x, dy = t.clientY - o.y;
+    const len = Math.hypot(dx, dy);
+    if (len > JOY_R) { dx = dx / len * JOY_R; dy = dy / len * JOY_R; }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    if (side === 'left') {
+      planeAxes.throttle = -dy / JOY_R;
+      planeAxes.yaw = dx / JOY_R;
+    } else {
+      // Comme un vrai manche : tirer vers soi (bas) fait cabrer.
+      planeAxes.pitch = dy / JOY_R;
+      planeAxes.roll = dx / JOY_R;
+    }
+    controls.setTouchPlane(planeAxes.throttle, planeAxes.yaw, planeAxes.pitch, planeAxes.roll);
+  }
+
+  function resetPlaneStick(side) {
+    if (side === 'left') {
+      planeLeftId = null;
+      planeAxes.throttle = planeAxes.yaw = 0;
+      planeLeftKnob.style.transform = 'translate(0px, 0px)';
+    } else {
+      planeRightId = null;
+      planeAxes.pitch = planeAxes.roll = 0;
+      planeRightKnob.style.transform = 'translate(0px, 0px)';
+    }
+    controls.setTouchPlane(planeAxes.throttle, planeAxes.yaw, planeAxes.pitch, planeAxes.roll);
+  }
 
   function isButton(target) {
     return target.closest?.('.tbtn');
@@ -54,6 +112,16 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
     if (state.overlayOpen) return;
     for (const t of e.changedTouches) {
       if (isButton(t.target)) continue;
+      if (planeMode()) {
+        if (t.clientX < window.innerWidth / 2 && planeLeftId === null) {
+          planeLeftId = t.identifier;
+          movePlaneStick(t, planeLeft, planeLeftKnob, 'left');
+        } else if (planeRightId === null) {
+          planeRightId = t.identifier;
+          movePlaneStick(t, planeRight, planeRightKnob, 'right');
+        }
+        continue;
+      }
       if (t.clientX < window.innerWidth * 0.45 && joyTouchId === null) {
         joyTouchId = t.identifier;
         joyOrigin = { x: t.clientX, y: t.clientY };
@@ -70,7 +138,11 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
 
   document.addEventListener('touchmove', (e) => {
     for (const t of e.changedTouches) {
-      if (t.identifier === joyTouchId && joyOrigin) {
+      if (t.identifier === planeLeftId) {
+        movePlaneStick(t, planeLeft, planeLeftKnob, 'left');
+      } else if (t.identifier === planeRightId) {
+        movePlaneStick(t, planeRight, planeRightKnob, 'right');
+      } else if (t.identifier === joyTouchId && joyOrigin) {
         let dx = t.clientX - joyOrigin.x;
         let dy = t.clientY - joyOrigin.y;
         const len = Math.hypot(dx, dy);
@@ -85,7 +157,9 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
         lookLast = { x: t.clientX, y: t.clientY };
       } else if (t.identifier === fireTouchId && fireLast) {
         // Visée pendant le tir : le glisser du pouce déplace la caméra
-        controls.addLook((t.clientX - fireLast.x) * 2.4, (t.clientY - fireLast.y) * 2.4);
+        if (!planeMode()) {
+          controls.addLook((t.clientX - fireLast.x) * 2.4, (t.clientY - fireLast.y) * 2.4);
+        }
         fireLast = { x: t.clientX, y: t.clientY };
       }
     }
@@ -93,6 +167,8 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
 
   function endTouch(e) {
     for (const t of e.changedTouches) {
+      if (t.identifier === planeLeftId) resetPlaneStick('left');
+      if (t.identifier === planeRightId) resetPlaneStick('right');
       if (t.identifier === joyTouchId) {
         joyTouchId = null;
         joyOrigin = null;
@@ -107,6 +183,29 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
   }
   document.addEventListener('touchend', endTouch, { passive: true });
   document.addEventListener('touchcancel', endTouch, { passive: true });
+
+  // Le cockpit tactile apparaît/disparaît automatiquement à l'entrée/sortie
+  // de l'avion. Dans ce mode, tous les gros boutons d'action sauf TIR sont
+  // masqués pour libérer les deux pouces.
+  let wasPlane = false;
+  function syncPlaneUi() {
+    const isPlane = planeMode();
+    root.classList.toggle('plane-mode', isPlane);
+    if (wasPlane && !isPlane) {
+      resetPlaneStick('left');
+      resetPlaneStick('right');
+    }
+    wasPlane = isPlane;
+    if (isPlane) {
+      const f = controls.flightTelemetry;
+      if (f) {
+        planeInstruments.textContent =
+          `GAZ ${Math.round(f.throttle * 100)}% · ${Math.round(f.speed * 3.6)} km/h · ALT ${Math.round(f.altitude)} m`;
+      }
+    }
+    requestAnimationFrame(syncPlaneUi);
+  }
+  syncPlaneUi();
 
   // Boutons
   const bind = (id, onDown, onUp) => {

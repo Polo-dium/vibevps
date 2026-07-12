@@ -6,8 +6,8 @@ import { makeTextTexture } from './utils.js';
 //   (horloge partagée : même position chez tous les joueurs, zéro trafic
 //   réseau — même motif que le silure et le cycle jour/nuit).
 // - L'aérodrome de l'Est (le Lyon-Bron du pauvre) : piste, tour, hangar,
-//   manche à air, et des avions PILOTABLES (gaz Z, virage Q/D, ESPACE pour
-//   monter — physique dans player/controls.js, branche `v.plane`).
+//   manche à air, et des avions PILOTABLES à quatre axes : gaz, lacet,
+//   tangage et roulis (physique dans player/controls.js, branche `v.plane`).
 
 // Clin d'œil au silure géant qui remonte le Rhône toutes les 4 minutes
 const BANNER_TEXT = 'BAIGNADE INTERDITE : LE SILURE A ENCORE FAIM 🐟';
@@ -237,10 +237,10 @@ function makeFlyablePlane(ctx, px, pz, ry, color) {
 
   const car = {
     heading: ry, speed: 0,
+    pitch: 0, roll: 0, throttle: 0,
     plane: true, thirdPerson: true, camBack: 13, camUp: 5.2,
   };
   let driving = false;
-  let prevY = gy;
 
   function park() {
     driving = false;
@@ -249,8 +249,7 @@ function makeFlyablePlane(ctx, px, pz, ry, color) {
     const gx = group.position.x, gz = group.position.z;
     const ground = ctx.terrainHeight?.(gx, gz) ?? 0;
     group.position.y = Math.max(0, ground);
-    group.rotation.x = 0;
-    group.rotation.z = 0;
+    group.rotation.set(0, car.heading, 0);
     gate.x = gx;
     gate.z = gz;
     box = planeBox(gx, gz, group.position.y);
@@ -267,7 +266,7 @@ function makeFlyablePlane(ctx, px, pz, ry, color) {
         gate.label = 'E — Sauter de l’avion';
         car.speed = 0;
         ctx.startDrive?.(car, group);
-        ctx.notify?.('🛩️ Plein gaz avec Z, vire avec Q/D — au-dessus de 60 km/h, ESPACE pour prendre les airs !');
+        ctx.notify?.('🛩️ Mobile : gauche gaz/lacet, droite tangage/roulis · Clavier : Z/S, Q/D et flèches. Tire le manche après 60 km/h !');
       } else {
         // On saute : l'avion redescend se poser, le joueur tombe (jetpack ?)
         park();
@@ -288,12 +287,8 @@ function makeFlyablePlane(ctx, px, pz, ry, color) {
     const q = ctx.playerPos?.();
     if (!q) return;
     group.position.set(q.x, q.y, q.z);
-    group.rotation.y = car.heading;
-    // Assiette : cabré quand ça monte, piqué quand ça descend (visuel)
-    const vy = dt > 0 ? (q.y - prevY) / dt : 0;
-    prevY = q.y;
-    const pitch = THREE.MathUtils.clamp(vy / 16, -1, 1) * 0.38;
-    group.rotation.x += (-pitch - group.rotation.x) * Math.min(1, 4 * dt);
+    if (car.orientation) group.quaternion.copy(car.orientation);
+    else group.rotation.set(car.pitch ?? 0, car.heading, car.roll ?? 0, 'YXZ');
     gate.x = q.x;
     gate.z = q.z;
   });
