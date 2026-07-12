@@ -66,6 +66,12 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   });
   window.addEventListener('keyup', (e) => keys.delete(e.code));
   window.addEventListener('blur', () => keys.clear());
+  window.addEventListener('mousedown', (e) => {
+    if (e.button === 0 && vehicle?.plane) vehicle.trigger = true;
+  });
+  window.addEventListener('mouseup', (e) => {
+    if (e.button === 0 && vehicle?.plane) vehicle.trigger = false;
+  });
 
   function addLook(dx, dy) {
     yaw -= dx * 0.0023;
@@ -173,10 +179,11 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         const rollCmd = active ? clampInput(rollKeys + touchPlane.roll) : 0;
 
         v.throttle = THREE.MathUtils.clamp((v.throttle ?? 0) + throttleCmd * 0.48 * dt, 0, 1);
-        const targetSpeed = v.throttle * 68;
-        const speedResponse = targetSpeed > v.speed ? 0.72 : 0.42;
+        const maxSpeed = v.maxSpeed ?? 68;
+        const targetSpeed = v.throttle * maxSpeed;
+        const speedResponse = targetSpeed > v.speed ? (v.acceleration ?? 0.72) : 0.42;
         v.speed += (targetSpeed - v.speed) * (1 - Math.exp(-speedResponse * dt));
-        v.speed = THREE.MathUtils.clamp(v.speed, 0, 72);
+        v.speed = THREE.MathUtils.clamp(v.speed, 0, maxSpeed * 1.06);
 
         const grounded = pos.y <= gLevel + 0.16;
         const authority = THREE.MathUtils.clamp(v.speed / 18, 0.12, 1);
@@ -253,7 +260,8 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       hitWall = false;
       resolveAxis('y', vel.y * dt);
       if (pos.y <= gLevel) { pos.y = gLevel; vel.y = 0; onGround = true; }
-      if (v.plane && pos.y > 520) { pos.y = 520; vel.y = Math.min(vel.y, 0); } // plafond
+      const ceiling = v.ceiling ?? 520;
+      if (v.plane && pos.y > ceiling) { pos.y = ceiling; vel.y = Math.min(vel.y, 0); }
       resolveAxis('x', vel.x * dt);
       resolveAxis('z', vel.z * dt);
       if (hitWall && Math.abs(v.speed) > 2.5) {
@@ -386,9 +394,16 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       touchPlane.pitch = THREE.MathUtils.clamp(planePitch, -1, 1);
       touchPlane.roll = THREE.MathUtils.clamp(roll, -1, 1);
     },
+    setPlaneTrigger(on) {
+      if (vehicle?.plane) vehicle.trigger = Boolean(on);
+    },
+    dropPlaneBomb() {
+      if (vehicle?.plane && vehicle.jet) vehicle.dropBomb?.();
+    },
     jump() { wantJump = true; },
     // Entrer/sortir du mode véhicule ({ heading, speed, onHorn, onCrash })
     setVehicle(v) {
+      if (vehicle?.plane) vehicle.trigger = false;
       vehicle = v;
       bodyHalf = v ? 1.05 : HALF_W;
       camera.up.set(0, 1, 0);
@@ -445,6 +460,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         if (vehicle.plane) {
           s.vpx = Math.round((vehicle.pitch ?? 0) * 1000) / 1000;
           s.vrz = Math.round((vehicle.roll ?? 0) * 1000) / 1000;
+          s.vjet = vehicle.jet ? 1 : 0;
         }
       }
       // Enceinte portable allumée : les autres l'entendent (champ optionnel)

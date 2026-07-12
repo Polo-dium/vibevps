@@ -247,6 +247,7 @@ async function boot() {
     // Conduite des décapotables (voir world/traffic.js)
     startDrive: (car, group) => {
       controls.teleport(group.position.x, group.position.y, group.position.z);
+      if (car.plane && state.weaponEquipped) weapon.toggle(false);
       car.onHorn = () => audio.horn();
       car.onCrash = () => {
         audio.crash();
@@ -450,6 +451,19 @@ async function boot() {
   if (new URLSearchParams(location.search).has('debug')) {
     window.__game = { controls, ctx, state, camera, ui, renderer, quality };
   }
+  // Distance du premier mur ou du sol le long d'un rayon. Mutualisée entre
+  // l'arme à pied et les mitrailleuses de bord.
+  const worldHitDistance = (origin, dir, maxDist) => {
+    for (let d = 1; d < maxDist; d += 1.5) {
+      const x = origin.x + dir.x * d, y = origin.y + dir.y * d, z = origin.z + dir.z * d;
+      if (y <= (ctx.terrainHeight?.(x, z) ?? 0)) return d;
+      for (const b of ctx.colliders.nearby(x, z, 1)) {
+        if (x > b.minX && x < b.maxX && y > b.minY && y < b.maxY &&
+            z > b.minZ && z < b.maxZ) return d;
+      }
+    }
+    return Infinity;
+  };
   const weapon = createWeapon(camera, scene, ctx.shootables, {
     onAmmoChange: (ammo, reloading, spec) => ui.setAmmo(ammo, reloading, state.weaponEquipped, spec),
     onShot: (a, b) => net.send({ t: 'shot', a, b }),
@@ -457,29 +471,62 @@ async function boot() {
     onWeaponChange: (spec) => ui.toast(`${spec.emoji} ${spec.nom} en main ! (2 pour changer d'arme)`),
     // Les tirs s'arrêtent sur les murs et le sol (boîtes de collision) :
     // marche de rayon grossière, appelée une fois par coup tiré
-    worldHit: (origin, dir, maxDist) => {
-      for (let d = 1; d < maxDist; d += 1.5) {
-        const x = origin.x + dir.x * d, y = origin.y + dir.y * d, z = origin.z + dir.z * d;
-        if (y <= (ctx.terrainHeight?.(x, z) ?? 0)) return d;
-        for (const b of ctx.colliders.nearby(x, z, 1)) {
-          if (x > b.minX && x < b.maxX && y > b.minY && y < b.maxY &&
-              z > b.minZ && z < b.maxZ) return d;
-        }
-      }
-      return Infinity;
-    },
+    worldHit: worldHitDistance,
   });
   if (window.__game) window.__game.weapon = weapon; // hook de debug (?debug)
   const remotes = createRemotePlayers(scene, ctx.shootables, {
     getListenerPos: () => controls.position, // enceintes des autres joueurs
-    onHitRemote: (id) => {
+    onHitRemote: (id, hit) => {
       audio.hitmarker();
       ui.hitmarker();
       navigator.vibrate?.(18);
-      // dmg selon l'arme en main — borné et rythmé côté serveur
-      net.send({ t: 'hit', target: id, dmg: weapon.damage });
+      // Les mitrailleuses de bord ne dépendent jamais de l'arme rangée du
+      // personnage. Le Mirage frappe un peu plus fort que le coucou.
+      const dmg = hit?.aircraft ? (hit.jet ? 32 : 25) : weapon.damage;
+      net.send({ t: 'hit', target: id, dmg });
     },
   });
+  const planeRaycaster = new THREE.Raycaster();
+  ctx.onPlaneVolley = (origins, direction, aircraft) => {
+    if (state.overlayOpen || state.photoMode || state.sanctuary) return;
+    const range = aircraft.jet ? 520 : 280;
+    const hitObjects = new Set();
+    let relayEnd = null;
+    for (const origin of origins) {
+      planeRaycaster.set(origin, direction);
+      planeRaycaster.far = range;
+      const wallD = worldHitDistance(origin, direction, range);
+      const hits = planeRaycaster.intersectObjects(ctx.shootables, false);
+      let end;
+      if (hits.length && hits[0].distance <= wallD) {
+        const hit = hits[0];
+        end = hit.point.clone();
+        hit.aircraft = true;
+        hit.jet = Boolean(aircraft.jet);
+        if (!hitObjects.has(hit.object)) {
+          hitObjects.add(hit.object);
+          hit.object.userData.onHit?.(hit);
+        }
+        weapon.fx.spawnImpact(end);
+      } else if (wallD <= range) {
+        end = planeRaycaster.ray.at(wallD, new THREE.Vector3());
+        weapon.fx.spawnImpact(end);
+      } else {
+        end = planeRaycaster.ray.at(range, new THREE.Vector3());
+      }
+      weapon.fx.spawnTracer(origin.toArray(), end.toArray());
+      relayEnd ??= end;
+    }
+    if (origins[0] && relayEnd) net.send({ t: 'shot', a: origins[0].toArray(), b: relayEnd.toArray() });
+    audio.gunshot();
+    navigator.vibrate?.(8);
+  };
+  ctx.onPlaneBomb = (point) => {
+    weapon.fx.spawnExplosion(point);
+    audio.explosion();
+    navigator.vibrate?.([70, 30, 120]);
+    net.send({ t: 'bomb', p: point.toArray() });
+  };
   const spray = createSpray(scene, camera, ctx.taggables, {
     onToast: ui.toast,
     onModeChange: (on, paintColor) => {
@@ -755,6 +802,11 @@ async function boot() {
     weapon.fx.spawnTracer(msg.a, msg.b);
     weapon.fx.spawnImpact(msg.b);
   });
+  net.on('explosion', (msg) => {
+    weapon.fx.spawnExplosion(msg.p);
+    audio.explosion();
+    navigator.vibrate?.([60, 25, 90]);
+  });
   net.on('hp', (msg) => {
     if (msg.id === myNetId) {
       ui.setHp(msg.hp);
@@ -856,6 +908,7 @@ async function boot() {
       else capture.toggleMode(true);
     }
     if (e.code === 'KeyJ') toggleJetpack();
+    if (e.code === 'KeyK' && controls.vehicle?.jet) controls.dropPlaneBomb();
     if (e.code === 'KeyB') cycleBoombox();
     if (e.code === 'Digit3') emote(0);
     if (e.code === 'Digit4') emote(1);

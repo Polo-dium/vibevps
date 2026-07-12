@@ -46,6 +46,16 @@ export function buildPlaneModel(color = 0xd23b3b) {
   group.add(prop);
   group.userData.prop = prop;
   add(new THREE.SphereGeometry(0.18, 6, 6), dark, 0, 1.15, -2.6);
+  // Deux mitrailleuses de capot, derrière le disque de l'hélice. Les points
+  // de sortie servent aussi à faire partir les traceurs exactement des tubes.
+  for (const dx of [-0.23, 0.23]) {
+    add(new THREE.CylinderGeometry(0.055, 0.065, 0.72, 8), dark,
+      dx, 1.42, -2.18, Math.PI / 2);
+  }
+  group.userData.gunMuzzles = [
+    new THREE.Vector3(-0.23, 1.42, -2.58),
+    new THREE.Vector3(0.23, 1.42, -2.58),
+  ];
   // Train d'atterrissage
   for (const dx of [-0.85, 0.85]) {
     add(new THREE.BoxGeometry(0.08, 0.7, 0.08), dark, dx, 0.5, -0.9, 0, 0, dx > 0 ? -0.35 : 0.35);
@@ -53,6 +63,46 @@ export function buildPlaneModel(color = 0xd23b3b) {
   }
   add(new THREE.CylinderGeometry(0.14, 0.14, 0.1, 8), dark, 0, 0.16, 2.3, 0, 0, Math.PI / 2);
 
+  return group;
+}
+
+// Mirage 2000 low-poly : fuselage long, aile delta, entrées d'air latérales
+// et tuyère. Le nez pointe vers -z, comme les autres véhicules du jeu.
+export function buildMirageModel(color = 0xb8c5d2) {
+  const group = new THREE.Group();
+  const body = new THREE.MeshPhongMaterial({ color, shininess: 65, specular: 0xdde8ef });
+  const dark = new THREE.MeshLambertMaterial({ color: 0x252d36 });
+  const glass = new THREE.MeshPhongMaterial({ color: 0x315a72, shininess: 95, specular: 0xccecff });
+  const accent = new THREE.MeshLambertMaterial({ color: 0x6f7f8d });
+  const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    m.rotation.set(rx, ry, rz);
+    group.add(m);
+    return m;
+  };
+
+  add(new THREE.CylinderGeometry(0.55, 0.82, 7.2, 10), body, 0, 0.92, -0.25, Math.PI / 2);
+  add(new THREE.ConeGeometry(0.55, 3.1, 10), body, 0, 0.92, -5.25, -Math.PI / 2);
+  add(new THREE.CylinderGeometry(0.72, 0.62, 0.65, 12), dark, 0, 0.92, 3.7, Math.PI / 2);
+  add(new THREE.SphereGeometry(0.48, 10, 7), glass, 0, 1.48, -1.35, 0.15, 0, 0);
+
+  const wingGeo = new THREE.BufferGeometry();
+  wingGeo.setAttribute('position', new THREE.Float32BufferAttribute([
+    0, 0, -2.6,  -5.1, 0, 2.25,  0, 0, 1.25,
+    0, 0, -2.6,   0, 0, 1.25,   5.1, 0, 2.25,
+  ], 3));
+  wingGeo.computeVertexNormals();
+  add(wingGeo, body, 0, 0.83, 0);
+  add(new THREE.BoxGeometry(0.13, 1.9, 2.35), body, 0, 1.75, 2.25, -0.08);
+  add(new THREE.BoxGeometry(1.15, 0.42, 1.55), accent, -0.86, 0.82, -0.55, 0.08, 0, 0.04);
+  add(new THREE.BoxGeometry(1.15, 0.42, 1.55), accent, 0.86, 0.82, -0.55, 0.08, 0, -0.04);
+  add(new THREE.CylinderGeometry(0.05, 0.06, 0.95, 8), dark, -0.44, 0.77, -4.0, Math.PI / 2);
+  add(new THREE.CylinderGeometry(0.05, 0.06, 0.95, 8), dark, 0.44, 0.77, -4.0, Math.PI / 2);
+  group.userData.gunMuzzles = [
+    new THREE.Vector3(-0.44, 0.77, -4.55),
+    new THREE.Vector3(0.44, 0.77, -4.55),
+  ];
   return group;
 }
 
@@ -220,13 +270,16 @@ export function buildAirport(ctx) {
   colors.forEach((c, i) => {
     makeFlyablePlane(ctx, ax - 17, az - 22 + i * 22, -Math.PI / 2, c);
   });
+  // Le Mirage est garé plus loin sur le tarmac pour rester accessible sans
+  // bloquer les trois avions à hélice.
+  makeFlyablePlane(ctx, ax - 18, az + 70, -Math.PI / 2, 0xb7c4cf, { jet: true });
 }
 
 // Avion pilotable : même recette que les voitures (ctx.startDrive/stopDrive,
 // caméra de poursuite), mais la branche `plane` de controls.js donne les gaz
 // et l'altitude. Le modèle suit le joueur pendant le vol.
-function makeFlyablePlane(ctx, px, pz, ry, color) {
-  const group = buildPlaneModel(color);
+function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false } = {}) {
+  const group = jet ? buildMirageModel(color) : buildPlaneModel(color);
   const gy = ctx.terrainHeight?.(px, pz) ?? 0;
   group.position.set(px, gy, pz);
   group.rotation.y = ry;
@@ -238,13 +291,22 @@ function makeFlyablePlane(ctx, px, pz, ry, color) {
   const car = {
     heading: ry, speed: 0,
     pitch: 0, roll: 0, throttle: 0,
-    plane: true, thirdPerson: true, camBack: 13, camUp: 5.2,
+    plane: true, jet, thirdPerson: true,
+    camBack: jet ? 18 : 13, camUp: jet ? 6.5 : 5.2,
+    maxSpeed: jet ? 220 : 68,
+    acceleration: jet ? 1.05 : 0.72,
+    ceiling: jet ? 900 : 520,
   };
   let driving = false;
+  let gunCooldown = 0;
+  let lastBombAt = -Infinity;
+  const bombs = [];
+  const gunDirection = new THREE.Vector3();
 
   function park() {
     driving = false;
-    gate.label = "E — Piloter l'avion";
+    car.trigger = false;
+    gate.label = jet ? 'E — Piloter le Mirage 2000' : "E — Piloter l'avion";
     // L'avion se pose là où on l'a laissé (au sol, même si on saute en vol)
     const gx = group.position.x, gz = group.position.z;
     const ground = ctx.terrainHeight?.(gx, gz) ?? 0;
@@ -258,7 +320,7 @@ function makeFlyablePlane(ctx, px, pz, ry, color) {
 
   const gate = {
     x: px, z: pz, r: 4.2,
-    label: "E — Piloter l'avion",
+    label: jet ? 'E — Piloter le Mirage 2000' : "E — Piloter l'avion",
     action: () => {
       if (!driving) {
         driving = true;
@@ -266,7 +328,9 @@ function makeFlyablePlane(ctx, px, pz, ry, color) {
         gate.label = 'E — Sauter de l’avion';
         car.speed = 0;
         ctx.startDrive?.(car, group);
-        ctx.notify?.('🛩️ Mobile : gauche gaz/lacet, droite tangage/roulis · Clavier : Z/S, Q/D et flèches. Tire le manche après 60 km/h !');
+        ctx.notify?.(jet
+          ? '✈️ Mirage 2000 : 790 km/h · double TIR · BOMBE (rayon létal 50 m). Tire le manche vers toi pour monter !'
+          : '🛩️ Gauche : gaz/lacet · droite : tangage/roulis · double TIR. Tire le manche vers toi après 60 km/h !');
       } else {
         // On saute : l'avion redescend se poser, le joueur tombe (jetpack ?)
         park();
@@ -280,9 +344,48 @@ function makeFlyablePlane(ctx, px, pz, ry, color) {
     if (driving) park();
   });
 
+  car.dropBomb = () => {
+    if (!driving || !jet) return;
+    const now = performance.now();
+    if (now - lastBombAt < 3000) {
+      ctx.notify?.('Bombe en rechargement…');
+      return;
+    }
+    lastBombAt = now;
+    const mesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.22, 0.3, 1.35, 8),
+      new THREE.MeshLambertMaterial({ color: 0x2d3431 })
+    );
+    mesh.rotation.x = Math.PI / 2;
+    mesh.position.copy(group.localToWorld(new THREE.Vector3(0, -0.15, 0.55)));
+    const velocity = new THREE.Vector3(0, 0, -1)
+      .applyQuaternion(group.quaternion)
+      .multiplyScalar(Math.max(35, car.speed * 0.96));
+    velocity.y -= 5;
+    ctx.scene.add(mesh);
+    bombs.push({ mesh, velocity, life: 14 });
+  };
+
   ctx.updatables.push((dt) => {
+    for (let i = bombs.length - 1; i >= 0; i--) {
+      const bomb = bombs[i];
+      bomb.life -= dt;
+      bomb.velocity.y -= 18 * dt;
+      bomb.mesh.position.addScaledVector(bomb.velocity, dt);
+      bomb.mesh.rotateY(dt * 4);
+      const ground = ctx.terrainHeight?.(bomb.mesh.position.x, bomb.mesh.position.z) ?? 0;
+      if (bomb.mesh.position.y <= ground + 0.22 || bomb.life <= 0) {
+        const impact = bomb.mesh.position.clone();
+        impact.y = Math.max(ground + 0.25, impact.y);
+        ctx.scene.remove(bomb.mesh);
+        bombs.splice(i, 1);
+        if (bomb.life > 0) ctx.onPlaneBomb?.(impact);
+      }
+    }
     // Hélice : ralenti au sol, plein régime en vol
-    group.userData.prop.rotation.z += dt * (driving ? 10 + car.speed : 1.2);
+    if (group.userData.prop) {
+      group.userData.prop.rotation.z += dt * (driving ? 10 + car.speed : 1.2);
+    }
     if (!driving) return;
     const q = ctx.playerPos?.();
     if (!q) return;
@@ -291,6 +394,15 @@ function makeFlyablePlane(ctx, px, pz, ry, color) {
     else group.rotation.set(car.pitch ?? 0, car.heading, car.roll ?? 0, 'YXZ');
     gate.x = q.x;
     gate.z = q.z;
+
+    gunCooldown -= dt;
+    if (car.trigger && gunCooldown <= 0) {
+      gunCooldown = jet ? 0.075 : 0.09;
+      group.updateMatrixWorld(true);
+      const origins = group.userData.gunMuzzles.map((p) => group.localToWorld(p.clone()));
+      gunDirection.set(0, 0, -1).applyQuaternion(group.quaternion).normalize();
+      ctx.onPlaneVolley?.(origins, gunDirection, car);
+    }
   });
 }
 

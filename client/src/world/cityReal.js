@@ -1869,12 +1869,10 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
 function buildOsmRoads(ctx, data, full = false) {
   const pos = [];        // chaussée
   const walk = [];       // trottoirs (rubans élargis clairs, sous la chaussée)
-  const sidewalkTop = []; // deux bandes surélevées de chaque côté
   const zebra = [];      // passages piétons (quads rayés)
   const lines = [];      // marquage central pointillé des grands axes
   const walkUv = [];
-  const sidewalkUv = [];
-  const streetDetails = []; // [x,z,y,perpX,perpZ,demiLargeur]
+  const streetDetails = []; // [x,z,y] : plaques au centre de la chaussée
   // Sur la ville complète, les rubans de route épousent le terrain
   const yAt = full
     ? (x, z) => Math.max(0, ctx.terrainHeight?.(x, z) ?? 0) + 0.06
@@ -1896,25 +1894,6 @@ function buildOsmRoads(ctx, data, full = false) {
     }
     return len;
   };
-  const sideStrips = (x1, z1, x2, z2, inner, outer, dy, v0) => {
-    const dx = x2 - x1, dz = z2 - z1;
-    const len = Math.hypot(dx, dz);
-    if (len < 0.1) return;
-    const px = -dz / len, pz = dx / len;
-    const ya = yAt(x1, z1) + dy, yb = yAt(x2, z2) + dy;
-    const va = v0 / 9, vb = (v0 + len) / 9;
-    for (const side of [-1, 1]) {
-      const aix = x1 + px * inner * side, aiz = z1 + pz * inner * side;
-      const aox = x1 + px * outer * side, aoz = z1 + pz * outer * side;
-      const bix = x2 + px * inner * side, biz = z2 + pz * inner * side;
-      const box = x2 + px * outer * side, boz = z2 + pz * outer * side;
-      sidewalkTop.push(
-        aix, ya, aiz, bix, yb, biz, box, yb, boz,
-        aix, ya, aiz, box, yb, boz, aox, ya, aoz
-      );
-      sidewalkUv.push(0, va, 0, vb, 1, vb, 0, va, 1, vb, 1, va);
-    }
-  };
   for (const road of data.roads) {
     const half = road.w / 2;
     let crossingAcc = 0;
@@ -1926,7 +1905,6 @@ function buildOsmRoads(ctx, data, full = false) {
       const x2 = road.p[i + 2], z2 = road.p[i + 3];
       // Trottoir un peu plus large et 2 cm plus bas, chaussée par-dessus
       ribbon(walk, x1, z1, x2, z2, half + 1.6, -0.02, uvAcc, walkUv);
-      sideStrips(x1, z1, x2, z2, half + 0.05, half + 1.55, 0.055, uvAcc);
       const len = ribbon(pos, x1, z1, x2, z2, half, 0, uvAcc, roadUv);
       uvAcc += len;
       // Passage piéton tous les ~35 m sur les grands axes
@@ -1949,10 +1927,8 @@ function buildOsmRoads(ctx, data, full = false) {
       detailAcc += len;
       if (full && road.w >= 6 && detailAcc > 48 && len > 0.1) {
         detailAcc = 0;
-        const dx = (x2 - x1) / len, dz = (z2 - z1) / len;
-        const px = -dz, pz = dx;
         const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
-        streetDetails.push([mx, mz, yAt(mx, mz) + 0.045, px, pz, half]);
+        streetDetails.push([mx, mz, yAt(mx, mz) + 0.045]);
       }
     }
   }
@@ -1968,10 +1944,6 @@ function buildOsmRoads(ctx, data, full = false) {
   };
   const sidewalkTex = makeSidewalkTexture();
   addMesh(walk, new THREE.MeshLambertMaterial({ map: sidewalkTex }), walkUv);
-  addMesh(sidewalkTop, new THREE.MeshLambertMaterial({
-    map: sidewalkTex,
-    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
-  }), sidewalkUv);
   const asphaltTex = makeAsphaltTexture();
   addMesh(pos, new THREE.MeshLambertMaterial({
     map: asphaltTex,
@@ -1994,29 +1966,14 @@ function buildOsmRoads(ctx, data, full = false) {
       new THREE.MeshStandardMaterial({ color: 0x353b3d, metalness: 0.25, roughness: 0.72 }),
       streetDetails.length
     );
-    const bollardGeo = new THREE.CylinderGeometry(0.085, 0.12, 0.78, 8);
-    const bollards = new THREE.InstancedMesh(
-      bollardGeo,
-      new THREE.MeshLambertMaterial({ color: 0x303943 }),
-      streetDetails.length * 2
-    );
     const m = new THREE.Matrix4();
-    streetDetails.forEach(([x, z, y, px, pz, half], i) => {
+    streetDetails.forEach(([x, z, y], i) => {
       m.makeTranslation(x, y, z);
       manholes.setMatrixAt(i, m);
-      for (const side of [-1, 1]) {
-        m.makeTranslation(
-          x + px * (half + 1.25) * side,
-          y + 0.39,
-          z + pz * (half + 1.25) * side
-        );
-        bollards.setMatrixAt(i * 2 + (side > 0 ? 1 : 0), m);
-      }
     });
     manholes.instanceMatrix.needsUpdate = true;
-    bollards.instanceMatrix.needsUpdate = true;
     manholes.userData.noShadow = true;
-    ctx.scene.add(manholes, bollards);
+    ctx.scene.add(manholes);
   }
 }
 
