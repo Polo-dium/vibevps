@@ -121,7 +121,7 @@ export function createPoiMap(ctx, { getPlayer, onToast }) {
 
     // Fleuves (mêmes courbes que le monde 3D)
     g.fillStyle = '#1a86c4';
-    for (const band of ctx.waterBands ?? []) {
+    for (const band of [...(ctx.waterBands ?? []), ...(ctx.waterExtensions ?? [])]) {
       const zLo = Math.max(band.zMin ?? -B, -B);
       const zHi = Math.min(band.zMax ?? B, B);
       const half = riverHalf(band);

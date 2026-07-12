@@ -129,7 +129,8 @@ export function setupWs(httpServer) {
         const b = Array.isArray(msg.b) ? msg.b.map(Number) : null;
         if (!a || !b || a.length !== 3 || b.length !== 3) return;
         if ([...a, ...b].some((v) => !Number.isFinite(v) || Math.abs(v) > 2000)) return;
-        broadcast({ t: 'shot', id, a, b }, id);
+        const aircraft = me.veh === 2 && msg.aircraft ? 1 : 0;
+        broadcast({ t: 'shot', id, a, b, aircraft }, id);
         return;
       }
 
