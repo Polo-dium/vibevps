@@ -246,7 +246,9 @@ async function boot() {
     },
     // Conduite des décapotables (voir world/traffic.js)
     startDrive: (car, group) => {
-      controls.teleport(group.position.x, group.position.y, group.position.z);
+      if (!car.remoteControl) {
+        controls.teleport(group.position.x, group.position.y, group.position.z);
+      }
       if (car.plane && state.weaponEquipped) weapon.toggle(false);
       car.onHorn = () => audio.horn();
       car.onCrash = () => {
@@ -261,12 +263,15 @@ async function boot() {
       controls.setVehicle(null);
       state.driving = false;
       audio.engineStop();
-      // On descend côté conducteur
-      controls.teleport(
-        group.position.x + Math.cos(car.heading) * 2,
-        group.position.y,
-        group.position.z - Math.sin(car.heading) * 2
-      );
+      if (!car.remoteControl) {
+        // On descend côté conducteur ; avec une radiocommande, le joueur n'a
+        // jamais quitté son emplacement au sol.
+        controls.teleport(
+          group.position.x + Math.cos(car.heading) * 2,
+          group.position.y,
+          group.position.z - Math.sin(car.heading) * 2
+        );
+      }
     },
   };
 
@@ -1000,6 +1005,7 @@ async function boot() {
     }
     if (e.code === 'KeyJ') toggleJetpack();
     if (e.code === 'KeyK' && controls.vehicle?.jet) controls.dropPlaneBomb();
+    if (e.code === 'KeyH' && controls.vehicle?.plane) controls.togglePlaneCamera();
     if (e.code === 'KeyB') cycleBoombox();
     if (e.code === 'Digit3') emote(0);
     if (e.code === 'Digit4') emote(1);

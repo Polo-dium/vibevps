@@ -162,8 +162,13 @@ export function createControls(camera, domElement, colliders, terrain = null) {
 
     if (vehicle) {
       const v = vehicle;
+      // Un modèle radiocommandé possède sa propre position/vitesse : le corps
+      // du joueur reste au sol pendant que la caméra et la physique suivent
+      // l'appareil. Les véhicules classiques continuent d'utiliser pos/vel.
+      const craftPos = v.remoteControl ? v.position : pos;
+      const craftVel = v.remoteControl ? v.velocity : vel;
       // Le terrain peut être NÉGATIF (lit des fleuves en contrebas)
-      const gLevel = terrain ? terrain(pos.x, pos.z) : 0;
+      const gLevel = terrain ? terrain(craftPos.x, craftPos.z) : 0;
 
       if (v.plane) {
         // --- Avion 4 axes -------------------------------------------------
@@ -186,8 +191,8 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         v.speed += (targetSpeed - v.speed) * (1 - Math.exp(-speedResponse * dt));
         v.speed = THREE.MathUtils.clamp(v.speed, 0, maxSpeed * 1.06);
 
-        const grounded = pos.y <= gLevel + 0.16;
-        const authority = THREE.MathUtils.clamp(v.speed / 18, 0.12, 1);
+        const grounded = craftPos.y <= gLevel + 0.16;
+        const authority = THREE.MathUtils.clamp(v.speed / (v.controlSpeed ?? 18), 0.12, 1);
         const rateResponse = 1 - Math.exp(-5.5 * dt);
         v.pitchRate = (v.pitchRate ?? 0) +
           (pitchCmd * 1.5 * authority - (v.pitchRate ?? 0)) * rateResponse;
@@ -202,7 +207,10 @@ export function createControls(camera, domElement, colliders, terrain = null) {
           v.roll = (v.roll ?? 0) + v.rollRate * dt;
           v.heading += v.yawRate * dt;
           v.roll *= Math.exp(-7 * dt);
-          v.pitch = THREE.MathUtils.clamp(v.pitch, -0.08, v.speed > 15 ? 0.36 : 0.12);
+          const takeoffSpeed = v.takeoffSpeed ?? 15;
+          v.pitch = THREE.MathUtils.clamp(
+            v.pitch, -0.08, v.speed > takeoffSpeed ? (v.groundPitchMax ?? 0.36) : 0.12
+          );
           planeEuler.set(v.pitch, v.heading, v.roll, 'YXZ');
           v.orientation.setFromEuler(planeEuler);
         } else {
@@ -231,19 +239,21 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         planeForward.set(0, 0, -1).applyQuaternion(v.orientation).normalize();
         planeUp.set(0, 1, 0).applyQuaternion(v.orientation).normalize();
 
-        const airflow = THREE.MathUtils.clamp((v.speed - 10) / 20, 0, 1);
+        const airflow = THREE.MathUtils.clamp(
+          (v.speed - (v.stallSpeed ?? 10)) / (v.liftRange ?? 20), 0, 1
+        );
         planeDesired.copy(planeForward).multiplyScalar(v.speed);
         // L'inertie augmente en vol ; au sol l'avion colle encore à la piste.
-        const velocityResponse = grounded ? 8 : 1.7 + airflow * 1.8;
-        vel.lerp(planeDesired, 1 - Math.exp(-velocityResponse * dt));
+        const velocityResponse = grounded ? 8 : (v.velocityResponse ?? 1.7) + airflow * 1.8;
+        craftVel.lerp(planeDesired, 1 - Math.exp(-velocityResponse * dt));
         if (!grounded) {
           // Sous la vitesse de portance, le nez reste contrôlable mais la
           // cellule s'enfonce franchement : vrai risque de décrochage.
           // À vitesse de portance, la trajectoire suit vraiment le nez sans
           // descente verticale artificielle. La chute revient au décrochage.
-          vel.y -= (1 - airflow) * 14 * dt;
-        } else if (vel.y < 0) {
-          vel.y = 0;
+          craftVel.y -= (1 - airflow) * 14 * dt;
+        } else if (craftVel.y < 0) {
+          craftVel.y = 0;
         }
         wantJump = false;
       } else {
@@ -274,19 +284,58 @@ export function createControls(camera, domElement, colliders, terrain = null) {
 
       onGround = false;
       hitWall = false;
-      resolveAxis('y', vel.y * dt);
-      if (pos.y <= gLevel) { pos.y = gLevel; vel.y = 0; onGround = true; }
-      const ceiling = v.ceiling ?? 520;
-      if (v.plane && pos.y > ceiling) { pos.y = ceiling; vel.y = Math.min(vel.y, 0); }
-      resolveAxis('x', vel.x * dt);
-      resolveAxis('z', vel.z * dt);
-      if (hitWall && Math.abs(v.speed) > 2.5) {
-        v.speed *= v.plane ? 0.15 : -0.28; // rebond de tôle
-        v.onCrash?.();
-      } else if (hitWall) {
-        v.speed = 0;
+      if (v.plane && v.remoteControl) {
+        const ox = craftPos.x, oy = craftPos.y, oz = craftPos.z;
+        craftPos.addScaledVector(craftVel, dt);
+        const nextGround = terrain ? terrain(craftPos.x, craftPos.z) : 0;
+        if (craftPos.y <= nextGround) {
+          craftPos.y = nextGround;
+          craftVel.y = Math.max(0, craftVel.y);
+          onGround = true;
+        }
+        const ceiling = v.ceiling ?? 180;
+        if (craftPos.y > ceiling) {
+          craftPos.y = ceiling;
+          craftVel.y = Math.min(craftVel.y, 0);
+        }
+        // Petite sphère de collision adaptée au modèle d'un mètre : elle peut
+        // passer dans les rues, mais rebondit encore sur façades et obstacles.
+        const r = v.collisionRadius ?? 0.38;
+        for (const b of colliders.nearby?.(craftPos.x, craftPos.z, 2) ?? colliders) {
+          if (craftPos.x + r > b.minX && craftPos.x - r < b.maxX &&
+              craftPos.y + r > b.minY && craftPos.y - r < b.maxY &&
+              craftPos.z + r > b.minZ && craftPos.z - r < b.maxZ) {
+            hitWall = true;
+            break;
+          }
+        }
+        if (hitWall) {
+          craftPos.set(ox, oy, oz);
+          craftVel.multiplyScalar(0.08);
+          v.speed *= 0.12;
+          v.throttle *= 0.35;
+          const now = performance.now();
+          if (!v._lastCrashAt || now - v._lastCrashAt > 450) {
+            v._lastCrashAt = now;
+            v.onCrash?.();
+          }
+        }
+      } else {
+        resolveAxis('y', vel.y * dt);
+        if (pos.y <= gLevel) { pos.y = gLevel; vel.y = 0; onGround = true; }
+        const ceiling = v.ceiling ?? 520;
+        if (v.plane && pos.y > ceiling) { pos.y = ceiling; vel.y = Math.min(vel.y, 0); }
+        resolveAxis('x', vel.x * dt);
+        resolveAxis('z', vel.z * dt);
+        if (hitWall && Math.abs(v.speed) > 2.5) {
+          v.speed *= v.plane ? 0.15 : -0.28; // rebond de tôle
+          v.onCrash?.();
+        } else if (hitWall) {
+          v.speed = 0;
+        }
       }
 
+      const viewPos = v.remoteControl ? v.position : pos;
       if (v.thirdPerson) {
         // Caméra de poursuite (berlines, avions) : derrière et au-dessus,
         // regard sur le véhicule — le braquage tourne la caméra avec le cap
@@ -295,10 +344,10 @@ export function createControls(camera, domElement, colliders, terrain = null) {
           // Caméra solidaire de la cellule : elle suit tangage et roulis,
           // indispensable pour lire un looping ou un tonneau.
           camera.up.copy(planeUp);
-          camera.position.copy(pos)
+          camera.position.copy(viewPos)
             .addScaledVector(planeForward, -back)
             .addScaledVector(planeUp, up);
-          planeCamTarget.copy(pos)
+          planeCamTarget.copy(viewPos)
             .addScaledVector(planeForward, 8)
             .addScaledVector(planeUp, 1.1);
           camera.lookAt(planeCamTarget);
@@ -312,6 +361,14 @@ export function createControls(camera, domElement, colliders, terrain = null) {
           camera.rotation.order = 'YXZ';
           camera.lookAt(pos.x, pos.y + 1.3, pos.z);
         }
+      } else if (v.plane && v.orientation) {
+        // Caméra FPV fixée sur le nez du modèle radiocommandé.
+        camera.up.copy(planeUp);
+        camera.position.copy(viewPos)
+          .addScaledVector(planeForward, v.cameraEyeForward ?? 0.2)
+          .addScaledVector(planeUp, v.cameraEyeUp ?? 0.16);
+        planeCamTarget.copy(viewPos).addScaledVector(planeForward, 12);
+        camera.lookAt(planeCamTarget);
       } else {
         // Assis au volant (décapotables) : caméra relevée, côté conducteur
         camera.position.set(
@@ -416,6 +473,11 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     dropPlaneBomb() {
       if (vehicle?.plane && vehicle.jet) vehicle.dropBomb?.();
     },
+    togglePlaneCamera() {
+      if (!vehicle?.plane) return false;
+      vehicle.thirdPerson = !vehicle.thirdPerson;
+      return vehicle.thirdPerson;
+    },
     jump() { wantJump = true; },
     // Entrer/sortir du mode véhicule ({ heading, speed, onHorn, onCrash })
     setVehicle(v) {
@@ -443,10 +505,11 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     get vehicle() { return vehicle; },
     get flightTelemetry() {
       if (!vehicle?.plane) return null;
+      const p = vehicle.remoteControl ? vehicle.position : pos;
       return {
         throttle: vehicle.throttle ?? 0,
         speed: vehicle.speed ?? 0,
-        altitude: Math.max(0, pos.y - (terrain ? terrain(pos.x, pos.z) : 0)),
+        altitude: Math.max(0, p.y - (terrain ? terrain(p.x, p.z) : 0)),
       };
     },
     // Jetpack
@@ -470,7 +533,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       };
       // Au volant : les autres joueurs voient la voiture (champs optionnels,
       // ignorés par les anciens clients/serveurs). 2 = avion.
-      if (vehicle) {
+      if (vehicle && !vehicle.remoteControl) {
         s.veh = vehicle.plane ? 2 : 1;
         s.vry = Math.round(vehicle.heading * 1000) / 1000;
         if (vehicle.plane) {

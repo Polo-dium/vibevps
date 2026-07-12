@@ -106,6 +106,35 @@ export function buildMirageModel(color = 0xb8c5d2) {
   return group;
 }
 
+// Modèle réduit d'environ un mètre d'envergure, lisible malgré sa petite
+// taille grâce au contraste rouge/blanc. Ne possède aucun armement.
+export function buildRcPlaneModel() {
+  const group = new THREE.Group();
+  const red = new THREE.MeshLambertMaterial({ color: 0xe63832 });
+  const white = new THREE.MeshLambertMaterial({ color: 0xf0eee5 });
+  const dark = new THREE.MeshLambertMaterial({ color: 0x20252b });
+  const glass = new THREE.MeshPhongMaterial({ color: 0x4b768b, shininess: 80 });
+  const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => {
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x, y, z);
+    mesh.rotation.set(rx, ry, rz);
+    group.add(mesh);
+    return mesh;
+  };
+  add(new THREE.CylinderGeometry(0.065, 0.09, 0.68, 8), red, 0, 0.13, 0, Math.PI / 2);
+  add(new THREE.SphereGeometry(0.07, 8, 6), red, 0, 0.13, -0.36);
+  add(new THREE.BoxGeometry(1.0, 0.025, 0.18), white, 0, 0.18, -0.05);
+  add(new THREE.BoxGeometry(0.34, 0.018, 0.12), white, 0, 0.17, 0.3);
+  add(new THREE.BoxGeometry(0.025, 0.22, 0.16), red, 0, 0.27, 0.29);
+  add(new THREE.SphereGeometry(0.055, 8, 5), glass, 0, 0.205, -0.13);
+  const prop = add(new THREE.BoxGeometry(0.025, 0.32, 0.012), dark, 0, 0.13, -0.43);
+  group.userData.prop = prop;
+  for (const dx of [-0.16, 0.16]) {
+    add(new THREE.CylinderGeometry(0.025, 0.025, 0.018, 8), dark, dx, 0.035, 0.05, 0, 0, Math.PI / 2);
+  }
+  return group;
+}
+
 // --- L'avion-banderole ----------------------------------------------------
 export function buildBannerPlane(ctx) {
   const bound = ctx.worldBound ?? 140;
@@ -273,6 +302,104 @@ export function buildAirport(ctx) {
   // Le Mirage est garé plus loin sur le tarmac pour rester accessible sans
   // bloquer les trois avions à hélice.
   makeFlyablePlane(ctx, ax - 18, az + 70, -Math.PI / 2, 0xb7c4cf, { jet: true });
+  // Petit terrain d'aéromodélisme sur le bord du tarmac.
+  makeRemoteControlPlane(ctx, ax - 29, az - 45, -Math.PI / 2);
+}
+
+function makeRemoteControlPlane(ctx, px, pz, ry) {
+  const group = buildRcPlaneModel();
+  const ground = ctx.terrainHeight?.(px, pz) ?? 0;
+  const launch = new THREE.Vector3(px, ground + 0.04, pz);
+  group.position.copy(launch);
+  group.rotation.y = ry;
+  ctx.scene.add(group);
+
+  // Pupitre de radiocommande placé à côté du modèle.
+  const consoleGroup = new THREE.Group();
+  const consoleMat = new THREE.MeshLambertMaterial({ color: 0x303944 });
+  const screenMat = new THREE.MeshLambertMaterial({ color: 0x4dd9ca, emissive: 0x0b514c });
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.18, 0.46), consoleMat);
+  panel.position.y = 1.05;
+  panel.rotation.x = -0.22;
+  consoleGroup.add(panel);
+  const screen = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.025, 0.22), screenMat);
+  screen.position.set(0, 1.15, -0.03);
+  screen.rotation.x = -0.22;
+  consoleGroup.add(screen);
+  for (const x of [-0.24, 0.24]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.07, 1.0, 0.07), consoleMat);
+    leg.position.set(x, 0.5, 0);
+    consoleGroup.add(leg);
+  }
+  const antenna = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.012, 0.012, 0.75, 6),
+    new THREE.MeshLambertMaterial({ color: 0xd7dde3 })
+  );
+  antenna.position.set(0.28, 1.48, 0.12);
+  antenna.rotation.z = -0.22;
+  consoleGroup.add(antenna);
+  consoleGroup.position.set(px - 1.6, ground, pz + 0.4);
+  ctx.scene.add(consoleGroup);
+
+  const car = {
+    heading: ry, speed: 0, pitch: 0, roll: 0, throttle: 0,
+    plane: true, rcPlane: true, remoteControl: true,
+    position: launch.clone(), velocity: new THREE.Vector3(),
+    thirdPerson: false, camBack: 2.8, camUp: 1.15,
+    cameraEyeForward: 0.25, cameraEyeUp: 0.13,
+    maxSpeed: 14, acceleration: 1.6, ceiling: 180,
+    controlSpeed: 5, takeoffSpeed: 4, groundPitchMax: 0.42,
+    stallSpeed: 2.5, liftRange: 5.5, velocityResponse: 3.2,
+    collisionRadius: 0.36,
+  };
+  let controlling = false;
+
+  function resetModel() {
+    car.speed = 0;
+    car.throttle = 0;
+    car.velocity.set(0, 0, 0);
+    car.position.copy(launch);
+    car.heading = ry;
+    car.pitch = car.roll = 0;
+    car.orientation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0, 'YXZ'));
+    car.thirdPerson = false;
+    group.position.copy(launch);
+    group.quaternion.copy(car.orientation);
+  }
+
+  const gate = {
+    x: consoleGroup.position.x, z: consoleGroup.position.z, r: 4.5,
+    label: 'E — Piloter l’avion radiocommandé',
+    action: () => {
+      if (!controlling) {
+        controlling = true;
+        resetModel();
+        gate.label = 'E — Ranger la radiocommande';
+        ctx.startDrive?.(car, group);
+        ctx.notify?.('📡 Avion RC : mêmes manches, 50 km/h max · CAM pour vue poursuite · SAUTER pour revenir au joueur.');
+      } else {
+        controlling = false;
+        gate.label = 'E — Piloter l’avion radiocommandé';
+        ctx.stopDrive?.(car, group);
+        resetModel();
+      }
+    },
+  };
+  ctx.interactables.push(gate);
+  ctx.pois?.push({ id: 'avion-rc', nom: 'Avion radiocommandé', emoji: '📡', x: px, z: pz });
+  ctx.abortRides?.push(() => {
+    if (!controlling) return;
+    controlling = false;
+    gate.label = 'E — Piloter l’avion radiocommandé';
+    resetModel();
+  });
+
+  ctx.updatables.push((dt) => {
+    group.userData.prop.rotation.z += dt * (controlling ? 12 + car.speed * 4 : 2);
+    if (!controlling) return;
+    group.position.copy(car.position);
+    if (car.orientation) group.quaternion.copy(car.orientation);
+  });
 }
 
 // Avion pilotable : même recette que les voitures (ctx.startDrive/stopDrive,

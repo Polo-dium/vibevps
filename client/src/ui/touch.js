@@ -22,6 +22,8 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
     <div id="plane-instruments">GAZ 0% · 0 km/h · ALT 0 m</div>
     <button class="tbtn tbtn-fire plane-fire plane-fire-left" id="tb-fire-left">TIR</button>
     <button class="tbtn plane-bomb" id="tb-bomb">BOMBE</button>
+    <button class="tbtn plane-exit" id="tb-exit-plane">SAUTER</button>
+    <button class="tbtn plane-camera" id="tb-camera">CAM</button>
     <div class="touch-top" id="touch-top">
       <button class="tbtn tbtn-small" id="tb-menu">☰</button>
       <div id="touch-menu" class="hidden">
@@ -195,11 +197,12 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
   function syncPlaneUi() {
     const isPlane = planeMode();
     const isJet = Boolean(controls.vehicle?.jet);
+    const isRc = Boolean(controls.vehicle?.rcPlane);
     root.classList.toggle('plane-mode', isPlane);
     root.classList.toggle('jet-mode', isJet);
-    // Le prompt de sortie appartient au HUD, hors de #touch-ui : une classe
-    // sur body permet de le remonter uniquement quand BOMBE est visible.
-    document.body.classList.toggle('jet-touch-mode', isJet);
+    root.classList.toggle('rc-mode', isRc);
+    // Le grand prompt HUD est remplacé par le petit bouton SAUTER du cockpit.
+    document.body.classList.toggle('aircraft-touch-mode', isPlane);
     if (wasPlane && !isPlane) {
       resetPlaneStick('left');
       resetPlaneStick('right');
@@ -208,8 +211,9 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
     if (isPlane) {
       const f = controls.flightTelemetry;
       if (f) {
+        const cameraMode = isRc ? ` · ${controls.vehicle?.thirdPerson ? 'POURSUITE' : 'FPV'}` : '';
         planeInstruments.textContent =
-          `GAZ ${Math.round(f.throttle * 100)}% · ${Math.round(f.speed * 3.6)} km/h · ALT ${Math.round(f.altitude)} m`;
+          `GAZ ${Math.round(f.throttle * 100)}% · ${Math.round(f.speed * 3.6)} km/h · ALT ${Math.round(f.altitude)} m${cameraMode}`;
       }
     }
     requestAnimationFrame(syncPlaneUi);
@@ -295,4 +299,9 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
     fireBtn.addEventListener('touchcancel', fireEnd, { passive: true });
   }
   bind('#tb-bomb', () => controls.dropPlaneBomb());
+  bind('#tb-exit-plane', () => interact());
+  bind('#tb-camera', () => {
+    const thirdPerson = controls.togglePlaneCamera();
+    ui.toast(thirdPerson ? '📷 Caméra poursuite' : '📷 Caméra embarquée');
+  });
 }
