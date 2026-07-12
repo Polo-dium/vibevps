@@ -1162,7 +1162,7 @@ function buildAlps(ctx, bound, rand) {
   // se fondent dedans par chevauchement, extrémités qui s'aplatissent puis
   // disparaissent. Plaquage simple, aucune répétition à l'exécution.
   // Si le fichier manque, la version peinte reste en place.
-  new THREE.TextureLoader().load('/pano/alpes.webp', (t) => {
+  new THREE.TextureLoader().load('/pano/alpes-v2.webp', (t) => {
     t.colorSpace = THREE.SRGBColorSpace;
     mat.map = t;
     mat.needsUpdate = true;
