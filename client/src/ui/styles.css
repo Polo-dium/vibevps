@@ -101,9 +101,9 @@ button.ghost {
     border-color: var(--neon); box-shadow: 0 0 18px rgba(0, 255, 213, 0.35);
     animation: prompt-pulse 1.1s ease-in-out infinite;
   }
-  /* Dans le Mirage, le bouton BOMBE occupe le bas-centre. Le prompt tactile
-     « Sauter de l'avion » remonte au-dessus au lieu de le recouvrir. */
-  body.jet-touch-mode #prompt { bottom: calc(122px + env(safe-area-inset-bottom)); }
+  /* En avion, le grand prompt sur l'appareil est remplacé par le petit bouton
+     SAUTER du cockpit tactile. */
+  body.aircraft-touch-mode #prompt { display: none !important; }
   #prompt:active { transform: translateX(-50%) scale(0.95); }
 }
 @keyframes prompt-pulse {
@@ -315,7 +315,7 @@ button.ghost {
   display: contents;
 }
 #touch-ui.plane-mode .touch-actions .tbtn:not(#tb-fire) { display: none; }
-#tb-fire-left, #tb-bomb { display: none; }
+#tb-fire-left, #tb-bomb, #tb-exit-plane, #tb-camera { display: none; }
 #touch-ui.plane-mode #tb-fire,
 #touch-ui.plane-mode #tb-fire-left {
   display: block; position: fixed; z-index: 23;
@@ -330,6 +330,24 @@ button.ghost {
   transform: translateX(-50%); width: 78px; height: 78px;
   border-color: #ffb52e; color: #ffcf66; font-size: 12px;
 }
+#touch-ui.plane-mode #tb-exit-plane {
+  display: block; position: fixed; z-index: 23;
+  left: 50%; bottom: calc(31px + env(safe-area-inset-bottom));
+  transform: translateX(-50%); width: 58px; height: 58px;
+  border-color: #8fc3d9; color: #d9eff8; font-size: 9px;
+}
+#touch-ui.plane-mode.jet-mode #tb-exit-plane {
+  left: calc(50% + 50px); bottom: calc(38px + env(safe-area-inset-bottom));
+  transform: none; width: 54px; height: 54px;
+}
+#touch-ui.plane-mode.rc-mode #tb-camera {
+  display: block; position: fixed; z-index: 23;
+  left: 50%; top: calc(52px + env(safe-area-inset-top));
+  transform: translateX(-50%); width: 58px; height: 46px;
+  border-radius: 12px; border-color: #d14cff; color: #f0bfff; font-size: 11px;
+}
+#touch-ui.plane-mode.rc-mode #tb-fire,
+#touch-ui.plane-mode.rc-mode #tb-fire-left { display: none; }
 #touch-ui.plane-mode #hud-ammo { bottom: 94px; }
 @media (max-height: 500px) {
   .plane-stick { width: 124px; height: 124px; }
