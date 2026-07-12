@@ -20,6 +20,8 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
       <div class="plane-stick-knob"></div>
     </div>
     <div id="plane-instruments">GAZ 0% · 0 km/h · ALT 0 m</div>
+    <button class="tbtn tbtn-fire plane-fire plane-fire-left" id="tb-fire-left">TIR</button>
+    <button class="tbtn plane-bomb" id="tb-bomb">BOMBE</button>
     <div class="touch-top" id="touch-top">
       <button class="tbtn tbtn-small" id="tb-menu">☰</button>
       <div id="touch-menu" class="hidden">
@@ -85,7 +87,7 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
       planeAxes.yaw = dx / JOY_R;
     } else {
       // Comme un vrai manche : tirer vers soi (bas) fait cabrer.
-      planeAxes.pitch = dy / JOY_R;
+      planeAxes.pitch = -dy / JOY_R;
       planeAxes.roll = dx / JOY_R;
     }
     controls.setTouchPlane(planeAxes.throttle, planeAxes.yaw, planeAxes.pitch, planeAxes.roll);
@@ -191,6 +193,7 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
   function syncPlaneUi() {
     const isPlane = planeMode();
     root.classList.toggle('plane-mode', isPlane);
+    root.classList.toggle('jet-mode', Boolean(controls.vehicle?.jet));
     if (wasPlane && !isPlane) {
       resetPlaneStick('left');
       resetPlaneStick('right');
@@ -253,15 +256,18 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
       if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => {});
     }
   });
-  // En mode bombe, le bouton TIR devient le bouton PEINDRE. Le doigt qui
-  // appuie sert aussi à viser (voir le branchement dans touchmove).
-  const fireBtn = root.querySelector('#tb-fire');
-  fireBtn.addEventListener('touchstart', (e) => {
+  // À pied, TIR équipe l'arme si besoin. Dans un avion, les deux boutons
+  // commandent uniquement les mitrailleuses de bord : aucune arme ni aucun
+  // bras ne ressort devant la caméra.
+  const fireButtons = [root.querySelector('#tb-fire'), root.querySelector('#tb-fire-left')];
+  for (const fireBtn of fireButtons) fireBtn.addEventListener('touchstart', (e) => {
     e.preventDefault();
     const t = e.changedTouches[0];
     fireTouchId = t.identifier;
     fireLast = { x: t.clientX, y: t.clientY };
-    if (state.tagMode) {
+    if (planeMode()) {
+      controls.setPlaneTrigger(true);
+    } else if (state.tagMode) {
       spray.setPaint(true);
     } else {
       if (!state.weaponEquipped) weapon.toggle(true);
@@ -273,10 +279,14 @@ export function createTouchControls({ controls, weapon, spray, tagEditor, ui, vo
       if (t.identifier !== fireTouchId) continue;
       fireTouchId = null;
       fireLast = null;
+      controls.setPlaneTrigger(false);
       spray.setPaint(false);
       weapon.setTrigger(false);
     }
   };
-  fireBtn.addEventListener('touchend', (e) => { e.preventDefault(); fireEnd(e); }, { passive: false });
-  fireBtn.addEventListener('touchcancel', fireEnd, { passive: true });
+  for (const fireBtn of fireButtons) {
+    fireBtn.addEventListener('touchend', (e) => { e.preventDefault(); fireEnd(e); }, { passive: false });
+    fireBtn.addEventListener('touchcancel', fireEnd, { passive: true });
+  }
+  bind('#tb-bomb', () => controls.dropPlaneBomb());
 }

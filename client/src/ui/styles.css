@@ -309,16 +309,31 @@ button.ghost {
 #touch-ui.plane-mode .plane-stick, #touch-ui.plane-mode #plane-instruments { display: block; }
 #touch-ui.plane-mode #joy-base { display: none !important; }
 #touch-ui.plane-mode .touch-actions {
-  right: 50%; bottom: calc(16px + env(safe-area-inset-bottom));
-  transform: translateX(50%); display: block;
+  display: contents;
 }
 #touch-ui.plane-mode .touch-actions .tbtn:not(#tb-fire) { display: none; }
-#touch-ui.plane-mode #tb-fire { width: 72px; height: 72px; font-size: 16px; }
+#tb-fire-left, #tb-bomb { display: none; }
+#touch-ui.plane-mode #tb-fire,
+#touch-ui.plane-mode #tb-fire-left {
+  display: block; position: fixed; z-index: 23;
+  bottom: calc(180px + env(safe-area-inset-bottom));
+  width: 66px; height: 66px; font-size: 15px;
+}
+#touch-ui.plane-mode #tb-fire-left { left: calc(52px + env(safe-area-inset-left)); }
+#touch-ui.plane-mode #tb-fire { right: calc(52px + env(safe-area-inset-right)); }
+#touch-ui.plane-mode.jet-mode #tb-bomb {
+  display: block; position: fixed; z-index: 23;
+  left: 50%; bottom: calc(27px + env(safe-area-inset-bottom));
+  transform: translateX(-50%); width: 78px; height: 78px;
+  border-color: #ffb52e; color: #ffcf66; font-size: 12px;
+}
 #touch-ui.plane-mode #hud-ammo { bottom: 94px; }
 @media (max-height: 500px) {
   .plane-stick { width: 124px; height: 124px; }
   #plane-stick-left { left: 14px; }
   #plane-stick-right { right: 14px; }
+  #touch-ui.plane-mode #tb-fire,
+  #touch-ui.plane-mode #tb-fire-left { bottom: calc(157px + env(safe-area-inset-bottom)); }
 }
 /* Boutons utilitaires en haut à droite (rangée horizontale) */
 .touch-top {

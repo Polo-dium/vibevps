@@ -13,6 +13,8 @@ const SILURE_XP = 120;
 const HIT_DAMAGE = 25;
 const HIT_MIN_INTERVAL_MS = 75; // cadence max de l'AK côté serveur
 const SHOT_MIN_INTERVAL_MS = 60;
+const BOMB_RADIUS = 50;
+const BOMB_MIN_INTERVAL_MS = 3000;
 const CHAT_RANGE = 32; // portée du chat de proximité (mètres)
 const CHAT_MIN_INTERVAL_MS = 500; // anti-spam
 
@@ -56,6 +58,7 @@ export function setupWs(httpServer) {
           kills: 0,
           lastHitAt: 0,
           lastShotAt: 0,
+          lastBombAt: 0,
           lastChatAt: 0,
           lastDamagedAt: 0,
         };
@@ -111,6 +114,8 @@ export function setupWs(httpServer) {
         const vpx = Number(msg.vpx), vrz = Number(msg.vrz);
         me.vpx = Number.isFinite(vpx) ? vpx : 0;
         me.vrz = Number.isFinite(vrz) ? vrz : 0;
+        me.vjet = me.veh === 2 && msg.vjet ? 1 : 0;
+        if (me.vjet) me.lastJetAt = Date.now();
         me.dirty = true;
         return;
       }
@@ -125,6 +130,64 @@ export function setupWs(httpServer) {
         if (!a || !b || a.length !== 3 || b.length !== 3) return;
         if ([...a, ...b].some((v) => !Number.isFinite(v) || Math.abs(v) > 2000)) return;
         broadcast({ t: 'shot', id, a, b }, id);
+        return;
+      }
+
+      // Bombe du Mirage : le client transmet uniquement le point d'impact,
+      // puis le serveur applique lui-même le rayon létal exact de 50 m à
+      // tous les joueurs. Une bombe déjà lâchée reste valide si le pilote
+      // quitte l'avion pendant sa chute.
+      if (msg.t === 'bomb') {
+        const now = Date.now();
+        if (now - me.lastBombAt < BOMB_MIN_INTERVAL_MS) return;
+        if (now - (me.lastJetAt ?? 0) > 15000) return;
+        const p = Array.isArray(msg.p) ? msg.p.map(Number) : null;
+        if (!p || p.length !== 3) return;
+        if (p.some((v) => !Number.isFinite(v) || Math.abs(v) > 4000)) return;
+        if (Math.hypot(p[0] - me.p[0], p[1] - me.p[1], p[2] - me.p[2]) > 2800) return;
+        me.lastBombAt = now;
+        broadcast({ t: 'explosion', p, by: id }, id);
+
+        let awarded = 0;
+        for (const [targetId, target] of players) {
+          const distance = Math.hypot(
+            target.p[0] - p[0], target.p[1] - p[1], target.p[2] - p[2]
+          );
+          if (distance > BOMB_RADIUS) continue;
+          target.hp = 100;
+          target.lastDamagedAt = now;
+          const selfKill = target === me;
+          if (!selfKill) {
+            me.kills += 1;
+            awarded += 1;
+            try {
+              q.addScore.run(me.playerId, 'pvp', me.kills, null, now);
+              q.addXp.run(50, me.playerId);
+              q.bumpKills.run(me.playerId);
+              const daily = bumpDaily(me.playerId, 'kill');
+              if (daily && me.ws.readyState === me.ws.OPEN) {
+                me.ws.send(JSON.stringify({ t: 'daily', ...daily }));
+              }
+            } catch (err) {
+              console.error('Score de bombardement non enregistré :', err);
+            }
+          }
+          broadcast({
+            t: 'death',
+            id: targetId,
+            by: selfKill ? null : id,
+            byName: selfKill ? 'sa propre bombe' : me.name,
+            victimName: target.name,
+            kills: me.kills,
+          });
+        }
+        if (awarded) {
+          try {
+            broadcast({ t: 'leaderboard', gameId: 'pvp', rows: q.leaderboard.all('pvp') });
+          } catch (err) {
+            console.error('Classement après bombardement indisponible :', err);
+          }
+        }
         return;
       }
 
@@ -308,6 +371,7 @@ export function setupWs(httpServer) {
         entry.mus ?? 0, // enceinte portable (les vieux clients l'ignorent)
         Math.round((entry.vpx ?? 0) * 1000) / 1000,
         Math.round((entry.vrz ?? 0) * 1000) / 1000,
+        entry.vjet ?? 0,
       ]);
     }
     if (states.length > 0) broadcast({ t: 'states', s: states });
