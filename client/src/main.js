@@ -17,7 +17,7 @@ import { createArms } from './player/arms.js';
 import { createRemotePlayers } from './player/remotes.js';
 import { createVoice } from './player/voice.js';
 import { createTouchControls } from './ui/touch.js';
-import { ARCADE, SPAWN, spawnPoint } from './world/layout.js';
+import { ARCADE, spawnPoint } from './world/layout.js';
 import { createNpcs } from './world/npcs.js';
 import { createQuenelle } from './world/quenelle.js';
 import { createRace } from './world/race.js';
@@ -330,20 +330,23 @@ async function boot() {
       .lerp(ENV_NIGHT.sun, env.night);
     if (shadowsEnabled) sun.castShadow = daylight > 0.04;
 
-    // La lumière vient du soleil le jour, de la lune la nuit
+    // La lumière vient du soleil le jour, de la lune la nuit. La lune suit
+    // exactement l'orbite opposée au lieu d'utiliser une direction fixe.
     if (elev >= 0.02) _lightDir.copy(env.sunDir);
-    else _lightDir.set(0.5, 0.8, -0.3).normalize();
+    else _lightDir.copy(env.sunDir).multiplyScalar(-1);
     env.lightDir = _lightDir;
 
-    // Astres visibles
-    const p = controls?.position ?? SPAWN;
-    sunMesh.position.set(p.x, 0, p.z).addScaledVector(env.sunDir, 620);
+    // Astres visibles : orbite centrée sur Lyon et assez large pour que les
+    // levers/couchers aient lieu AU-DELÀ des limites jouables. Avant, les
+    // astres restaient à 620 m du joueur et pouvaient donc surgir au milieu
+    // du Grand Lyon quand on se déplaçait sur la carte.
+    const astroRadius = Math.max(900, (ctx.worldBound ?? 500) * 1.55);
+    sunMesh.position.copy(env.sunDir).multiplyScalar(astroRadius);
     sunMesh.visible = elev > -0.12;
     halo.position.copy(sunMesh.position);
     halo.material.opacity = Math.max(0, Math.min(1, elev * 3 + 0.25));
     halo.visible = sunMesh.visible;
-    moonMesh.position.set(p.x, 0, p.z)
-      .addScaledVector(env.sunDir, -620);
+    moonMesh.position.copy(env.sunDir).multiplyScalar(-astroRadius);
     moonMesh.visible = elev < 0.1;
   }
 
