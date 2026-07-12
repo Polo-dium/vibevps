@@ -347,6 +347,16 @@ function buildQuayEdges(ctx, mask) {
 
   // 3) Lissage de Chaikin ×2 : les marches d'escalier de la grille (4 m)
   // deviennent des courbes de berge fluides.
+  // Moyenne glissante : un escalier de grille symétrique converge vers SA
+  // ligne vraie (droite → droite parfaite), une fenêtre de ±3 points
+  // (~12 m) ne touche pas les méandres de 100 m et plus.
+  const avg = (pts, w) => pts.map((_, i) => {
+    let sx = 0, sz = 0, n2 = 0;
+    for (let j = Math.max(0, i - w); j <= Math.min(pts.length - 1, i + w); j++) {
+      sx += pts[j][0]; sz += pts[j][1]; n2++;
+    }
+    return [sx / n2, sz / n2];
+  });
   const chaikin = (pts) => {
     const out = [pts[0]];
     for (let i = 0; i + 1 < pts.length; i++) {
@@ -366,7 +376,7 @@ function buildQuayEdges(ctx, mask) {
   const toWorld = ([cx2, rz]) => [-bound + cx2 * res, -bound + rz * res];
   ctx.quayContours = []; // consommé par lampSpotsOsm : la VRAIE berge
   for (const chainRaw of chains) {
-    const pts = chaikin(chaikin(chainRaw)).map(toWorld);
+    const pts = chaikin(avg(chaikin(avg(chainRaw, 3)), 2)).map(toWorld);
     // Perpendiculaire moyenne par point
     const perps = pts.map((p, i) => {
       const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
