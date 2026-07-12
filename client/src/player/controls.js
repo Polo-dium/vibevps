@@ -39,6 +39,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   // Objets temporaires réutilisés par la physique de vol (zéro allocation
   // par frame, important sur mobile).
   const planeEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  const planeDelta = new THREE.Quaternion();
   const planeForward = new THREE.Vector3(0, 0, -1);
   const planeUp = new THREE.Vector3(0, 1, 0);
   const planeDesired = new THREE.Vector3();
@@ -195,25 +196,38 @@ export function createControls(camera, domElement, colliders, terrain = null) {
           (-rollCmd * 2.45 * authority - (v.rollRate ?? 0)) * rateResponse;
         v.yawRate = (v.yawRate ?? 0) +
           (-yawCmd * 0.95 * authority - (v.yawRate ?? 0)) * rateResponse;
-        v.pitch = (v.pitch ?? 0) + v.pitchRate * dt;
-        v.roll = (v.roll ?? 0) + v.rollRate * dt;
-        v.heading += v.yawRate * dt;
-        // Un avion incliné vire naturellement, même sans palonnier.
-        v.heading -= Math.sin(v.roll) * 0.5 * authority * dt;
-
         if (grounded) {
-          // Le train empêche le tonneau sur la piste, mais le manche peut
-          // lever le nez dès que la vitesse de décollage est atteinte.
+          // Sur la piste, le train impose encore un repère horizontal.
+          v.pitch = (v.pitch ?? 0) + v.pitchRate * dt;
+          v.roll = (v.roll ?? 0) + v.rollRate * dt;
+          v.heading += v.yawRate * dt;
           v.roll *= Math.exp(-7 * dt);
           v.pitch = THREE.MathUtils.clamp(v.pitch, -0.08, v.speed > 15 ? 0.36 : 0.12);
+          planeEuler.set(v.pitch, v.heading, v.roll, 'YXZ');
+          v.orientation.setFromEuler(planeEuler);
+        } else {
+          // En vol, les trois rotations sont appliquées dans le REPÈRE LOCAL
+          // de la cellule. Ainsi, après un roulis de 90°, tirer le manche
+          // courbe la trajectoire horizontalement au lieu de monter sur un
+          // axe fixe du monde. Le quaternion reste la source de vérité.
+          planeEuler.set(
+            v.pitchRate * dt,
+            v.yawRate * dt,
+            v.rollRate * dt,
+            'YXZ'
+          );
+          planeDelta.setFromEuler(planeEuler);
+          v.orientation.multiply(planeDelta).normalize();
+
+          // Angles dérivés uniquement pour le réseau, l'interface et le
+          // stationnement ; ils ne pilotent plus l'orientation en vol.
+          planeEuler.setFromQuaternion(v.orientation, 'YXZ');
+          v.pitch = planeEuler.x;
+          v.heading = planeEuler.y;
+          v.roll = planeEuler.z;
         }
-        // Garde les angles numériquement petits après plusieurs acrobaties.
-        if (Math.abs(v.pitch) > Math.PI * 2) v.pitch %= Math.PI * 2;
-        if (Math.abs(v.roll) > Math.PI * 2) v.roll %= Math.PI * 2;
         if (Math.abs(v.heading) > Math.PI * 2) v.heading %= Math.PI * 2;
 
-        planeEuler.set(v.pitch, v.heading, v.roll, 'YXZ');
-        v.orientation.setFromEuler(planeEuler);
         planeForward.set(0, 0, -1).applyQuaternion(v.orientation).normalize();
         planeUp.set(0, 1, 0).applyQuaternion(v.orientation).normalize();
 
@@ -225,7 +239,9 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         if (!grounded) {
           // Sous la vitesse de portance, le nez reste contrôlable mais la
           // cellule s'enfonce franchement : vrai risque de décrochage.
-          vel.y -= (2 + (1 - airflow) * 12) * dt;
+          // À vitesse de portance, la trajectoire suit vraiment le nez sans
+          // descente verticale artificielle. La chute revient au décrochage.
+          vel.y -= (1 - airflow) * 14 * dt;
         } else if (vel.y < 0) {
           vel.y = 0;
         }
