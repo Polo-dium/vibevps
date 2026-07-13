@@ -21,6 +21,7 @@ export function createUi() {
       <div id="xp-bar"><div id="xp-fill"></div></div>
     </div>
     <div id="hud-daily" class="hidden" title="Défis du jour (L)">🎯 0/3</div>
+    <div id="hud-quest" class="hidden"></div>
     <div id="levelbanner" class="hidden"></div>
     <div id="mic-indicator" class="hidden">🎤 EN DIRECT</div>
     <div id="chatfeed"></div>
@@ -221,6 +222,7 @@ export function createUi() {
   const infoEl = hud.querySelector('#hud-info');
   const rangeEl = hud.querySelector('#hud-range');
   const ammoEl = hud.querySelector('#hud-ammo');
+  const questEl = hud.querySelector('#hud-quest');
   const toastsEl = hud.querySelector('#toasts');
 
   function setPrompt(text) {
@@ -246,6 +248,22 @@ export function createUi() {
       `${players + 1} joueur(s) en ligne · ${fps} fps\n` +
       `x ${pos.x.toFixed(0)}  z ${pos.z.toFixed(0)}`;
     infoEl.style.whiteSpace = 'pre';
+  }
+
+  function setQuest(quest) {
+    if (!quest) {
+      questEl.classList.add('hidden');
+      questEl.innerHTML = '';
+      return;
+    }
+    const done = quest.items.filter((item) => item.done).length;
+    questEl.innerHTML = `
+      <div class="quest-title">${escapeHtml(quest.icon ?? '🧭')} ${escapeHtml(quest.title)}</div>
+      <div class="quest-count">${done}/${quest.items.length}</div>
+      <div class="quest-items">${quest.items.map((item) =>
+        `<span class="${item.done ? 'done' : ''}">${item.done ? '✓' : '○'} ${escapeHtml(item.label)}</span>`
+      ).join('')}</div>`;
+    questEl.classList.remove('hidden');
   }
 
   // Bandeau générique (chrono de course…) : réutilise l'encart du stand de
@@ -323,6 +341,7 @@ export function createUi() {
         me = await apiFetch('/me');
         state.isAdmin = Boolean(me.admin);
         state.inventory = Array.isArray(me.inventory) ? me.inventory : [];
+        state.arsenalQuest = Number(me.arsenalQuest) || 0;
       } catch {
         state.auth = null;
         localStorage.removeItem('vibevps_auth');
@@ -431,9 +450,10 @@ export function createUi() {
             method: 'POST',
             body: JSON.stringify({ name: input.value, pin: pinInput.value }),
           });
-          const { inventory = [], ...auth } = response;
+          const { inventory = [], arsenalQuest = 0, ...auth } = response;
           state.auth = auth;
           state.inventory = Array.isArray(inventory) ? inventory : [];
+          state.arsenalQuest = Number(arsenalQuest) || 0;
           state.isAdmin = false;
           localStorage.setItem('vibevps_auth', JSON.stringify(auth));
           done(auth);
@@ -693,7 +713,7 @@ export function createUi() {
   }
 
   return {
-    ensureAuth, invite, toast, setPrompt, onPromptTap, setInfo, setRange, setBanner, setAmmo,
+    ensureAuth, invite, toast, setPrompt, onPromptTap, setInfo, setQuest, setRange, setBanner, setAmmo,
     setHp, damageFlash, killBanner, setTagMode, hitmarker, deathScreen,
     setXp, spawnConfetti, achievementUnlocked, bindProgress, setDaily,
     toggleLeaderboards, openCreator, toggleAdmin, closeTopOverlay,

@@ -8,6 +8,7 @@ import { ColliderGrid } from './world/grid.js';
 import { buildArcade } from './world/arcade.js';
 import { buildRange } from './world/range.js';
 import { buildLoot } from './world/loot.js';
+import { buildWeaponQuest } from './world/weaponQuest.js';
 import { buildBannerPlane, buildAirport } from './world/aviation.js';
 import { createMusicSource, TRACKS } from './music.js';
 import { createPoiMap } from './ui/map.js';
@@ -345,7 +346,11 @@ async function boot() {
     env.daylight = daylight;
     env.night = 1 - daylight;
     env.dusk = dusk;
-    env.sunDir.set(-Math.cos(ang) * 0.9, elev, 0.42).normalize();
+    // x positif = EST dans la projection OSM de Lyon. À l'aube (ang = 0),
+    // le soleil apparaît donc côté Rhône/Alpes ; au crépuscule x devient
+    // négatif, côté Saône/Fourvière. La lune, placée à l'opposé plus bas,
+    // suit automatiquement le même lever est → coucher ouest pendant la nuit.
+    env.sunDir.set(Math.cos(ang) * 0.9, elev, 0.42).normalize();
 
     // Ciel
     const u = sky.uniforms;
@@ -694,6 +699,36 @@ async function boot() {
       audio.reward();
       rememberInventoryItem(`weapon:${id}`);
       weapon.give(id); // équipe (toast via onWeaponChange) ou recharge
+    },
+  });
+
+  // Momo l'armurier, au pied de la Grande Roue : quête persistante qui
+  // s'appuie sur les armes déjà enregistrées dans l'inventaire du compte.
+  buildWeaponQuest(ctx, {
+    getStatus: () => state.arsenalQuest,
+    hasItem: (id) => state.inventory.includes(id),
+    startQuest: async () => {
+      const res = await apiFetch('/quests/arsenal', {
+        method: 'POST', body: JSON.stringify({ action: 'start' }),
+      });
+      state.arsenalQuest = res.status;
+      return res;
+    },
+    completeQuest: async () => {
+      const res = await apiFetch('/quests/arsenal', {
+        method: 'POST', body: JSON.stringify({ action: 'complete' }),
+      });
+      state.arsenalQuest = res.status;
+      if (res.xp != null) ui.setXp(res.xp);
+      progress.refresh();
+      return res;
+    },
+    onProgress: (quest) => ui.setQuest(quest),
+    onReward: (res) => {
+      if (!res.xpGain) return;
+      ui.spawnConfetti(36);
+      ui.toast(`⭐ Quête terminée : +${res.xpGain} XP`);
+      audio.reward();
     },
   });
 

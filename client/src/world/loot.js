@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { makeRand } from './layout.js';
 import { WEAPONS, buildWeaponModel } from '../player/weapon.js';
+import { QUEST_HAMMER_SPOT } from './weaponQuest.js';
 
 // Armes à ramasser sur la map, du marteau au bazooka : spots DÉTERMINISTES
 // (même seed pour tous les joueurs, comme le décor), arme qui flotte et
@@ -26,6 +27,25 @@ export function buildLoot(ctx, { onPickup }) {
   });
 
   const spots = []; // { id, group, x, y, z, hiddenUntil }
+
+  function addSpot(id, x, z, phase) {
+    const y = ctx.terrainHeight?.(x, z) ?? 0;
+    const group = new THREE.Group();
+    const model = buildWeaponModel(id);
+    model.scale.setScalar(2.4);
+    group.add(model);
+    const glow = new THREE.Sprite(glowMat);
+    glow.scale.set(2.6, 2.6, 1);
+    glow.position.y = -0.55;
+    group.add(glow);
+    group.position.set(x, y + 1.15, z);
+    ctx.scene.add(group);
+    spots.push({ id, group, x, y, z, hiddenUntil: 0, phase });
+  }
+
+  // Premier objectif de la quête : un marteau toujours au pied de la Grande
+  // Roue, juste à côté de Momo. Les autres armes restent dispersées dans Lyon.
+  addSpot('marteau', QUEST_HAMMER_SPOT.x, QUEST_HAMMER_SPOT.z, rand() * Math.PI * 2);
   let guard = 0;
   while (spots.length < count && guard++ < count * 50) {
     const x = (rand() * 2 - 1) * bound;
@@ -44,17 +64,7 @@ export function buildLoot(ctx, { onPickup }) {
     if (blocked) continue;
 
     const id = POOL[spots.length % POOL.length];
-    const group = new THREE.Group();
-    const model = buildWeaponModel(id);
-    model.scale.setScalar(2.4);
-    group.add(model);
-    const glow = new THREE.Sprite(glowMat);
-    glow.scale.set(2.6, 2.6, 1);
-    glow.position.y = -0.55;
-    group.add(glow);
-    group.position.set(x, y + 1.15, z);
-    ctx.scene.add(group);
-    spots.push({ id, group, x, y, z, hiddenUntil: 0, phase: rand() * Math.PI * 2 });
+    addSpot(id, x, z, rand() * Math.PI * 2);
   }
 
   // Rotation + flottement + ramassage par proximité
