@@ -14,6 +14,8 @@ const INVENTORY_ITEMS = new Set([
   'jetpack', 'rc-plane',
   'weapon:marteau', 'weapon:pompe', 'weapon:minigun', 'weapon:bazooka',
 ]);
+const ARSENAL_WEAPONS = ['weapon:marteau', 'weapon:pompe', 'weapon:minigun', 'weapon:bazooka'];
+const ARSENAL_XP = 150;
 
 function playerInventory(player) {
   try {
@@ -70,6 +72,7 @@ api.post('/register', (req, res) => {
       return res.json({
         id: existing.id, name: existing.name, token: existing.token,
         inventory: playerInventory(existing),
+        arsenalQuest: existing.arsenal_quest ?? 0,
       });
     }
     return res.status(409).json({
@@ -82,7 +85,7 @@ api.post('/register', (req, res) => {
   const token = crypto.randomBytes(24).toString('hex');
   q.createPlayer.run(id, name, token, Date.now());
   if (pin) q.setPin.run(hashPin(id, pin), id);
-  res.json({ id, name, token, inventory: [] });
+  res.json({ id, name, token, inventory: [], arsenalQuest: 0 });
 });
 
 // Protéger (ou changer le code de) son pseudo une fois connecté
@@ -102,6 +105,7 @@ api.get('/me', auth, (req, res) => {
     admin: Boolean(req.player.is_admin),
     protected: Boolean(req.player.pin_hash),
     inventory: playerInventory(req.player),
+    arsenalQuest: req.player.arsenal_quest ?? 0,
   });
 });
 
@@ -118,6 +122,38 @@ api.post('/me/inventory', auth, (req, res) => {
     q.setInventory.run(JSON.stringify(inventory), req.player.id);
   }
   res.json({ ok: true, inventory });
+});
+
+// Quête de l'armurier : le serveur vérifie les quatre ramassages avant de
+// verser la récompense. L'UPDATE conditionnel rend les +150 XP impossibles à
+// réclamer deux fois, même avec deux requêtes simultanées.
+api.post('/quests/arsenal', auth, (req, res) => {
+  const action = String(req.body?.action ?? '');
+  let xpGain = 0;
+  if (action === 'start') {
+    q.startArsenalQuest.run(req.player.id);
+  } else if (action === 'complete') {
+    const fresh = q.playerById.get(req.player.id);
+    if ((fresh?.arsenal_quest ?? 0) < 1) {
+      return res.status(409).json({ error: 'Parle d’abord à l’armurier.' });
+    }
+    const inventory = playerInventory(fresh);
+    const missing = ARSENAL_WEAPONS.filter((id) => !inventory.includes(id));
+    if (missing.length) {
+      return res.status(409).json({ error: 'Il reste des armes à retrouver.', missing });
+    }
+    const info = q.completeArsenalQuest.run(ARSENAL_XP, req.player.id);
+    if (info.changes) xpGain = ARSENAL_XP;
+  } else {
+    return res.status(400).json({ error: 'Action de quête inconnue.' });
+  }
+  const player = q.playerById.get(req.player.id);
+  res.json({
+    ok: true,
+    status: player.arsenal_quest ?? 0,
+    xp: player.xp,
+    xpGain,
+  });
 });
 
 // --- Administration -------------------------------------------------------

@@ -116,6 +116,28 @@ button.ghost {
   color: #b8d4e6; text-shadow: 0 1px 3px #000;
   line-height: 1.6;
 }
+#hud-quest {
+  position: absolute; left: 14px; top: 84px;
+  width: min(310px, calc(100vw - 28px));
+  padding: 9px 12px 10px;
+  display: grid; grid-template-columns: 1fr auto; gap: 5px 12px;
+  font-family: monospace;
+  background: rgba(7, 13, 27, 0.78);
+  border: 1px solid rgba(255, 198, 74, 0.58);
+  border-left: 3px solid #ffc64a;
+  border-radius: 8px;
+  box-shadow: 0 0 18px rgba(255, 170, 40, 0.12);
+}
+.quest-title { color: #ffd56b; font-weight: 800; font-size: 12px; letter-spacing: .5px; }
+.quest-count { color: #fff0bd; font-weight: 800; font-size: 12px; }
+.quest-items { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.quest-items span { color: #8da2b5; font-size: 10px; }
+.quest-items span.done { color: var(--neon); }
+@media (pointer: coarse) {
+  #hud-quest { left: calc(14px + env(safe-area-inset-left)); top: calc(82px + env(safe-area-inset-top)); width: 270px; padding: 7px 10px; }
+  .quest-title, .quest-count { font-size: 10px; }
+  .quest-items span { font-size: 9px; }
+}
 #hud-range {
   position: absolute; left: 50%; top: 10%;
   transform: translateX(-50%);
