@@ -297,7 +297,7 @@ async function boot() {
       };
       controls.setVehicle(car);
       state.driving = true;
-      audio.engineStart();
+      audio.engineStart(car.jet ? 'jet' : car.plane ? 'prop' : 'car');
     },
     stopDrive: (car, group) => {
       controls.setVehicle(null);
@@ -516,6 +516,7 @@ async function boot() {
   const weapon = createWeapon(camera, scene, ctx.shootables, {
     onAmmoChange: (ammo, reloading, spec) => ui.setAmmo(ammo, reloading, state.weaponEquipped, spec),
     onShot: (a, b) => net.send({ t: 'shot', a, b }),
+    onRocketExplosion: (point) => ctx.onRocketExplosion?.(point),
     getGroundY: () => controls.position.y,
     onWeaponChange: (spec) => ui.toast(`${spec.emoji} ${spec.nom} en main ! (2 pour changer d'arme)`),
     // Les tirs s'arrêtent sur les murs et le sol (boîtes de collision) :
@@ -592,8 +593,10 @@ async function boot() {
     scene.remove(cloud.group);
     for (const mat of cloud.materials) mat.dispose();
   }
-  function spawnBombMushroom(point) {
-    weapon.fx.spawnExplosion(point);
+  function spawnBombMushroom(point, {
+    scale = 1, duration = 6.2, baseBurst = true,
+  } = {}) {
+    if (baseBurst) weapon.fx.spawnExplosion(point);
     const p = Array.isArray(point) ? new THREE.Vector3(...point) : point;
     if (bombClouds.length >= 4) removeBombCloud(bombClouds.shift());
 
@@ -612,6 +615,7 @@ async function boot() {
     });
     const group = new THREE.Group();
     group.position.copy(p);
+    group.scale.setScalar(scale);
     const stem = new THREE.Mesh(bombStemGeo, smokeMat);
     group.add(stem);
     const cap = new THREE.Group();
@@ -635,14 +639,19 @@ async function boot() {
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.14;
     group.add(ring);
-    const light = new THREE.PointLight(0xff7b28, 80, 95, 2);
+    const light = new THREE.PointLight(
+      0xff7b28,
+      80 * Math.max(0.4, scale),
+      95 * scale,
+      2
+    );
     light.position.y = 5;
     group.add(light);
     scene.add(group);
     bombClouds.push({
       group, stem, cap, glow, ring, light,
       smokeMat, glowMat, ringMat,
-      materials: [smokeMat, glowMat, ringMat], age: 0, duration: 6.2,
+      materials: [smokeMat, glowMat, ringMat], age: 0, duration,
     });
   }
   ctx.updatables.push((dt) => {
@@ -674,6 +683,11 @@ async function boot() {
     spawnBombMushroom(point);
     navigator.vibrate?.([70, 30, 120]);
     net.send({ t: 'bomb', p: point.toArray() });
+  };
+  // Le bazooka reprend exactement la silhouette de l'explosion du Mirage,
+  // mais à environ un cinquième de sa taille et sur une durée plus courte.
+  ctx.onRocketExplosion = (point) => {
+    spawnBombMushroom(point, { scale: 0.22, duration: 2.8, baseBurst: false });
   };
   const spray = createSpray(scene, camera, ctx.taggables, {
     onToast: ui.toast,
@@ -927,24 +941,58 @@ async function boot() {
   const boomModel = buildBoomboxModel();
   boomModel.visible = false;
   camera.add(boomModel);
-  function cycleBoombox() {
+  function cycleBoombox({ tracksOnly = false } = {}) {
     if (!state.hasRadio) {
       ui.toast('🔒 Radio verrouillée : récupère-la devant la salle d’arcade pour la mission de Momo !');
       return;
     }
-    state.boombox = (state.boombox + 1) % (TRACKS.length + 1);
+    state.boombox = tracksOnly
+      ? (state.boombox % TRACKS.length) + 1
+      : (state.boombox + 1) % (TRACKS.length + 1);
     if (state.boombox === 0) {
       boombox.stop();
       boomModel.visible = false;
       ui.toast('📻 Enceinte coupée.');
     } else {
+      if (state.weaponEquipped) weapon.toggle(false);
+      if (state.tagMode) spray.setMode(false);
       boombox.setVolume(0.3);
       boombox.start(state.boombox);
       boomModel.visible = true;
-      ui.toast(`📻 Enceinte : ${TRACKS[state.boombox - 1].nom} — B pour changer, les autres t'entendent !`);
+      ui.toast(`📻 Enceinte : ${TRACKS[state.boombox - 1].nom} — B ou touche l’enceinte pour changer !`);
       navigator.vibrate?.(12);
     }
   }
+
+  // La façade de l'enceinte est un vrai contrôle dans le monde 3D : clic ou
+  // toucher dessus passe à la piste suivante sans jamais couper la radio.
+  const radioRaycaster = new THREE.Raycaster();
+  const radioPointer = new THREE.Vector2();
+  function isRadioAt(clientX, clientY) {
+    if (!state.boombox || !boomModel.visible || state.overlayOpen) return false;
+    const rect = renderer.domElement.getBoundingClientRect();
+    radioPointer.set(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1
+    );
+    camera.updateWorldMatrix(true, true);
+    radioRaycaster.setFromCamera(radioPointer, camera);
+    return radioRaycaster.intersectObject(boomModel, true).length > 0;
+  }
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || !isRadioAt(e.clientX, e.clientY)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    cycleBoombox({ tracksOnly: true });
+  }, { capture: true });
+  // `touchstart` est un événement séparé de `pointerdown` sur certains
+  // navigateurs : on l'arrête pour que le même geste ne déplace pas la vue.
+  renderer.domElement.addEventListener('touchstart', (e) => {
+    const t = e.changedTouches[0];
+    if (!t || !isRadioAt(t.clientX, t.clientY)) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, { capture: true, passive: false });
 
   // --- Emotes ridicules (3/4/5 ou bouton 😜) : passent par le chat de
   // proximité, donc visibles en bulle au-dessus de la tête pour les autres
@@ -1241,6 +1289,7 @@ async function boot() {
       interact: () => nearestInteractable?.action(),
       map: () => poiMap.toggle(),
       radio: () => cycleBoombox(),
+      admin: () => ui.toggleAdmin(),
       invite: () => ui.invite(),
       quality,
     });
@@ -1310,6 +1359,12 @@ async function boot() {
     // pendant le vol : les mains restent exclusivement sur les manettes.
     if (controls.flying && state.weaponEquipped) weapon.toggle(false);
     if (controls.flying && state.tagMode) spray.setMode(false);
+    // Une radio allumée est réellement tenue : aucun raccourci ne peut faire
+    // apparaître une arme ou une bombe de peinture dans la seconde main.
+    if (state.boombox && !controls.flying && !controls.vehicle) {
+      if (state.weaponEquipped) weapon.toggle(false);
+      if (state.tagMode) spray.setMode(false);
+    }
     weapon.update(dt, controls.isMoving());
     // Bras en vue subjective : masqués au volant/aux commandes (caméra
     // externe ou poste de pilotage), sinon la pose suit ce qui est en main
@@ -1334,7 +1389,8 @@ async function boot() {
 
     // Moteur de la décapotable : la hauteur suit la vitesse
     if (state.driving) {
-      audio.engineUpdate(Math.min(1, Math.abs(controls.vehicle?.speed ?? 0) / 38));
+      const engineTopSpeed = controls.vehicle?.jet ? 220 : controls.vehicle?.plane ? 68 : 38;
+      audio.engineUpdate(Math.min(1, Math.abs(controls.vehicle?.speed ?? 0) / engineTopSpeed));
     }
 
     // Jetpack : poussée sonore + gerbe de particules sous les pieds
@@ -1427,30 +1483,47 @@ function makeHaloTexture() {
   return new THREE.CanvasTexture(canvas);
 }
 
-// Enceinte portable en main (coin bas-gauche de la vue, comme l'arme à droite)
+// Enceinte portable tenue d'une main sur le bord gauche de la vue.
 function buildBoomboxModel() {
   const g = new THREE.Group();
   const dark = new THREE.MeshLambertMaterial({ color: 0x23262d });
-  const grey = new THREE.MeshLambertMaterial({ color: 0x555b66 });
-  const accent = new THREE.MeshLambertMaterial({ color: 0xff3df0 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.2, 0.12), dark);
+  const rim = new THREE.MeshLambertMaterial({ color: 0x697381 });
+  const cone = new THREE.MeshLambertMaterial({ color: 0x343b46 });
+  const cap = new THREE.MeshLambertMaterial({ color: 0x11151b });
+  const accent = new THREE.MeshLambertMaterial({ color: 0xff3df0, emissive: 0x3b082f });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.23, 0.14), dark);
   g.add(body);
-  for (const dx of [-0.09, 0.09]) {
-    const hp = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.02, 10), grey);
-    hp.rotation.x = Math.PI / 2;
-    hp.position.set(dx, -0.01, 0.065);
-    g.add(hp);
+  for (const dx of [-0.105, 0.105]) {
+    const speakerRim = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.02, 16), rim);
+    speakerRim.rotation.x = Math.PI / 2;
+    speakerRim.position.set(dx, -0.015, 0.078);
+    g.add(speakerRim);
+    const speakerCone = new THREE.Mesh(new THREE.CylinderGeometry(0.043, 0.062, 0.014, 16), cone);
+    speakerCone.rotation.x = Math.PI / 2;
+    speakerCone.position.set(dx, -0.015, 0.091);
+    g.add(speakerCone);
+    const dustCap = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.01, 12), cap);
+    dustCap.rotation.x = Math.PI / 2;
+    dustCap.position.set(dx, -0.015, 0.103);
+    g.add(dustCap);
   }
-  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.03), accent);
-  bar.position.y = 0.13;
-  g.add(bar);
-  for (const dx of [-0.14, 0.14]) {
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.06, 0.03), grey);
-    arm.position.set(dx, 0.1, 0);
-    g.add(arm);
-  }
-  // Tenue à bout de bras, tournée vers le joueur
-  g.position.set(-0.34, -0.3, -0.55);
-  g.rotation.set(0.1, 2.6, 0);
+  const display = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.025, 0.012), accent);
+  display.position.set(0, 0.075, 0.079);
+  g.add(display);
+  // Poignée semi-circulaire : la main gauche attrape son montant droit.
+  const handle = new THREE.Mesh(new THREE.TorusGeometry(0.115, 0.014, 6, 16, Math.PI), rim);
+  handle.position.y = 0.125;
+  g.add(handle);
+  // Volume invisible mais raycastable, un peu plus large que la façade pour
+  // rendre le toucher confortable sur téléphone.
+  const hitArea = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5, 0.34, 0.22),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  hitArea.userData.radioControl = true;
+  g.add(hitArea);
+  // Haut-parleurs face à la caméra (+z), radio déportée vers l'extérieur.
+  g.position.set(-0.5, -0.26, -0.76);
+  g.rotation.set(-0.05, -0.05, -0.08);
   return g;
 }

@@ -21,7 +21,9 @@ const SLEEVE = 0x3c4a5e; // manche de blouson, assortie au reste du perso
 const RIGHT_POSES = {
   idle: { pos: [0.26, -0.62, -0.18], rot: [1.25, -0.15, 0.1] }, // baissés, hors champ
   run: { pos: [0.2, -0.34, -0.3], rot: [0.62, -0.2, 0.12] }, // remontés pour courir
-  boombox: { pos: [-0.14, -0.28, -0.5], rot: [0.4, -0.55, 0.18] },
+  // La pose est définie côté droit puis reflétée : seule la main GAUCHE est
+  // affichée et tient la radio loin sur le bord gauche de l'écran.
+  boombox: { pos: [0.36, -0.25, -0.38], rot: [0.3, -0.12, 0.08] },
   jetpack: { pos: [0.14, -0.16, -0.28], rot: [0.15, -0.35, 0.22] },
 };
 
@@ -138,6 +140,7 @@ export function createArms(camera) {
   const left = leftParts.group;
   camera.add(right, left);
   let attachedTo = camera; // camera (poses lerpées) ou le holder d'une arme
+  let viewVisible = true;
 
   let bobTime = 0;
   const cur = {
@@ -160,6 +163,11 @@ export function createArms(camera) {
   function update(dt, mode, isMoving, weaponHolder) {
     const k = 1 - Math.exp(-9 * dt);
     const jetpackActive = mode === 'jetpack';
+    const boomboxActive = mode === 'boombox';
+    // La radio se porte d'une seule main : le bras droit reste totalement
+    // hors champ, le gauche est tendu vers l'extérieur.
+    right.visible = viewVisible && !boomboxActive;
+    left.visible = viewVisible;
     rightParts.jetGear.visible = jetpackActive;
     leftParts.jetGear.visible = jetpackActive;
     for (const flash of [rightParts.flash, leftParts.flash]) {
@@ -202,7 +210,7 @@ export function createArms(camera) {
 
     // En vol, les deux mains restent verrouillées sur leurs manettes : aucun
     // pompage de course, aucun balancement lié à la vitesse du joueur.
-    if (jetpackActive) {
+    if (jetpackActive || boomboxActive) {
       right.position.copy(cur.r.pos);
       right.rotation.copy(cur.r.rot);
       left.position.copy(cur.l.pos);
@@ -226,7 +234,11 @@ export function createArms(camera) {
 
   return {
     update,
-    setVisible(v) { right.visible = v; left.visible = v; },
+    setVisible(v) {
+      viewVisible = Boolean(v);
+      right.visible = viewVisible;
+      left.visible = viewVisible;
+    },
     getJetpackMuzzles() {
       camera.updateWorldMatrix(true, true);
       return [rightParts.muzzle, leftParts.muzzle]
