@@ -175,6 +175,7 @@ export const q = {
   ),
 
   setAdmin: db.prepare(`UPDATE players SET is_admin = 1 WHERE id = ?`),
+  tagById: db.prepare(`SELECT id FROM tags WHERE id = ?`),
   deleteTag: db.prepare(`DELETE FROM tags WHERE id = ?`),
   deleteAllTags: db.prepare(`DELETE FROM tags`),
 

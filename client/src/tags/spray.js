@@ -17,7 +17,9 @@ export const PAINT_COLORS = [
 // Niveau requis pour chaque couleur : 4 offertes, les autres se méritent
 export const COLOR_MIN_LEVEL = [1, 1, 1, 1, 2, 3, 4, 5, 6];
 
-export function createSpray(scene, camera, taggables, { onToast, onModeChange, onSaved }) {
+export function createSpray(scene, camera, taggables, {
+  shootables = [], onToast, onModeChange, onSaved,
+}) {
   const raycaster = new THREE.Raycaster();
   raycaster.far = SPRAY_RANGE;
   const loader = new THREE.TextureLoader();
@@ -86,8 +88,36 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange, o
   applyCanColor();
 
   // --- Décals réseau ---
+  function unregisterDecal(tagId, mesh = decals.get(tagId), { dispose = true } = {}) {
+    if (!mesh) return;
+    scene.remove(mesh);
+    const shootableIdx = shootables.indexOf(mesh);
+    if (shootableIdx !== -1) shootables.splice(shootableIdx, 1);
+    if (decals.get(tagId) === mesh) decals.delete(tagId);
+    if (dispose) {
+      mesh.geometry?.dispose();
+      mesh.material?.map?.dispose();
+      mesh.material?.dispose();
+    }
+  }
+
+  function registerDecal(tagId, mesh) {
+    const id = String(tagId);
+    mesh.userData.tagId = id;
+    mesh.userData.onHit = () => {
+      // La cible est le décal lui-même : un tag flottant ou légèrement
+      // décollé d'un mur reste donc destructible exactement de la même façon.
+      // Le message part après le traceur de la même balle, ce qui permet au
+      // serveur de lier les dégâts à un vrai tir récent.
+      queueMicrotask(() => net.send({ t: 'tagHit', id }));
+    };
+    if (!shootables.includes(mesh)) shootables.push(mesh);
+    decals.set(id, mesh);
+  }
+
   function addDecal(tag) {
-    if (decals.has(tag.id)) return;
+    const id = String(tag.id);
+    if (decals.has(id)) return;
     const tex = loader.load(tag.image);
     tex.colorSpace = THREE.SRGBColorSpace;
     const mesh = new THREE.Mesh(
@@ -95,13 +125,13 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange, o
       new THREE.MeshBasicMaterial({
         map: tex, transparent: true,
         polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
-        depthWrite: false,
+        depthWrite: false, side: THREE.DoubleSide,
       })
     );
     mesh.position.set(tag.px, tag.py, tag.pz);
     mesh.quaternion.set(tag.qx, tag.qy, tag.qz, tag.qw);
     scene.add(mesh);
-    decals.set(tag.id, mesh);
+    registerDecal(id, mesh);
   }
 
   function loadExisting(tags) {
@@ -110,15 +140,11 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange, o
 
   net.on('tag', (msg) => addDecal(msg.tag));
   net.on('tagDel', (msg) => {
-    const mesh = decals.get(msg.id);
-    if (mesh) {
-      scene.remove(mesh);
-      decals.delete(msg.id);
-    }
+    const id = String(msg.id);
+    unregisterDecal(id);
   });
   net.on('tagsClear', () => {
-    for (const mesh of decals.values()) scene.remove(mesh);
-    decals.clear();
+    for (const [id, mesh] of [...decals]) unregisterDecal(id, mesh);
   });
 
   // Admin : supprimer le tag visé (raycast sur les décals)
@@ -165,6 +191,16 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange, o
     onModeChange?.(state.tagMode, color());
   }
 
+  function setColor(index) {
+    const next = Math.trunc(Number(index));
+    if (!Number.isFinite(next) || next < 0 || next >= PAINT_COLORS.length) return false;
+    if (COLOR_MIN_LEVEL[next] > (state.level ?? 1)) return false;
+    colorIdx = next;
+    applyCanColor();
+    onModeChange?.(state.tagMode, color());
+    return true;
+  }
+
   function setPaint(down) {
     // Sanctuaire (basilique) : la bombe reste dans le sac
     if (down && state.sanctuary) return;
@@ -198,7 +234,7 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange, o
       new THREE.MeshBasicMaterial({
         map: tex, transparent: true,
         polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
-        depthWrite: false,
+        depthWrite: false, side: THREE.DoubleSide,
       })
     );
     mesh.position.copy(center);
@@ -318,7 +354,17 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange, o
       });
       // On garde notre mesh local et on l'enregistre sous l'id serveur
       // pour ignorer l'écho WebSocket.
-      decals.set(res.tag.id, s.mesh);
+      const id = String(res.tag.id);
+      if (decals.has(id)) {
+        // Le broadcast WebSocket peut exceptionnellement devancer la réponse
+        // HTTP : dans ce cas on garde son décal et on retire notre doublon.
+        scene.remove(s.mesh);
+        s.mesh.geometry.dispose();
+        s.mesh.material.map?.dispose();
+        s.mesh.material.dispose();
+      } else {
+        registerDecal(id, s.mesh);
+      }
       onSaved?.(res);
     } catch (err) {
       onToast('Graffiti non sauvegardé : ' + err.message);
@@ -397,9 +443,10 @@ export function createSpray(scene, camera, taggables, { onToast, onModeChange, o
 
   return {
     loadExisting, addDecal, deleteAimedTag,
-    setMode, toggleMode, cycleColor, setPaint, stampTag, update,
+    setMode, toggleMode, cycleColor, setColor, setPaint, stampTag, update,
     finishSession,
     get color() { return color(); },
+    get colorIndex() { return colorIdx; },
     get isSaving() { return saving; },
     // compat tactile (ancien nom)
     trySpray: stampTag,
