@@ -133,10 +133,19 @@ button.ghost {
 .quest-items { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .quest-items span { color: #8da2b5; font-size: 10px; }
 .quest-items span.done { color: var(--neon); }
+.quest-hint {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 198, 74, 0.22);
+  color: #e7f1ff;
+  font-size: 10px;
+  line-height: 1.35;
+}
 @media (pointer: coarse) {
   #hud-quest { left: calc(14px + env(safe-area-inset-left)); top: calc(82px + env(safe-area-inset-top)); width: 270px; padding: 7px 10px; }
   .quest-title, .quest-count { font-size: 10px; }
-  .quest-items span { font-size: 9px; }
+  .quest-items span, .quest-hint { font-size: 9px; }
 }
 #hud-range {
   position: absolute; left: 50%; top: 10%;
@@ -233,7 +242,62 @@ button.ghost {
 }
 
 /* Éditeur de tag */
+.tag-editor-overlay {
+  padding:
+    max(8px, env(safe-area-inset-top))
+    max(8px, env(safe-area-inset-right))
+    max(8px, env(safe-area-inset-bottom))
+    max(8px, env(safe-area-inset-left));
+}
+#tag-editor-panel {
+  width: 920px;
+  height: min(700px, 100%);
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  padding: clamp(10px, 2vw, 20px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.tag-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 auto;
+  margin-bottom: 10px;
+}
+#tag-editor-panel .tag-editor-header h2 { margin: 0; }
+.tag-editor-header #tag-close { flex: 0 0 auto; }
+.tag-editor-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 1.08fr) minmax(280px, .92fr);
+  gap: clamp(12px, 2vw, 20px);
+  overflow: hidden;
+}
+.tag-editor-drawing {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.tag-canvas-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: grid;
+  place-items: center;
+}
 #tag-editor-canvas {
+  width: min(440px, 100%, calc(100vh - 170px));
+  width: min(440px, 100%, calc(100dvh - 170px));
+  height: auto;
+  aspect-ratio: 1;
+  display: block;
   background:
     repeating-conic-gradient(#1a2233 0% 25%, #11182a 0% 50%) 0 0/20px 20px;
   border: 1px solid var(--border);
@@ -241,6 +305,34 @@ button.ghost {
   cursor: crosshair;
   touch-action: none;
 }
+.tag-drawing-tools {
+  width: min(440px, 100%);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+  flex: 0 0 auto;
+}
+.tag-drawing-tools button { min-width: 0; padding: 9px 7px; font-size: 13px; }
+.tag-editor-sidebar {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 4px;
+}
+.tag-tool-label { color: #b8d4e6; font-size: 13px; font-weight: 700; }
+.tag-tools.tag-brush-row { flex-wrap: nowrap; }
+.tag-brush-row input { flex: 1 1 auto; min-width: 80px; }
+.tag-save-row { display: flex; }
+.tag-save-row button { flex: 1 1 auto; }
+#tag-editor-panel .tag-library-title {
+  font-size: 15px;
+  margin: 14px 0 8px;
+}
+.tag-library-title span { color: #7f9ab0; font-size: 12px; letter-spacing: 0; }
 .tag-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
 .swatch {
   width: 26px; height: 26px; border-radius: 50%;
@@ -253,6 +345,46 @@ button.ghost {
   background: #0b1020; border: 2px solid #28405a; cursor: pointer;
 }
 .tag-lib img.active { border-color: var(--neon); }
+
+/* En portrait, le canevas passe au-dessus des réglages. Seul le corps de
+   l'éditeur défile : le bouton Retour reste toujours ancré en haut. */
+@media (orientation: portrait) and (max-width: 700px), (max-width: 560px) {
+  #tag-editor-panel { width: 100%; height: 100%; }
+  .tag-editor-body {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+  }
+  .tag-editor-drawing { flex: 0 0 auto; }
+  #tag-editor-canvas { width: min(100%, 42vh); width: min(100%, 42dvh); }
+  .tag-editor-sidebar { flex: 0 0 auto; overflow: visible; padding-right: 0; }
+}
+
+/* Téléphone tenu en paysage / vrai plein écran : tout reste utilisable dans
+   une faible hauteur, sans pousser Annuler ou Retour hors de l'écran. */
+@media (pointer: coarse) and (orientation: landscape) {
+  #tag-editor-panel { width: 100%; height: 100%; padding: 8px 10px; }
+  .tag-editor-header { margin-bottom: 6px; }
+  #tag-editor-panel .tag-editor-header h2 { font-size: 16px; }
+  .tag-editor-header #tag-close { padding: 7px 11px; font-size: 13px; }
+  .tag-editor-body { gap: 10px; }
+  #tag-editor-canvas {
+    width: min(440px, 100%, calc(100vh - 150px));
+    width: min(440px, 100%, calc(100dvh - 150px));
+  }
+  .tag-drawing-tools { margin-top: 5px; gap: 5px; }
+  .tag-drawing-tools button { padding: 6px 4px; font-size: 11px; }
+  .tag-tools { margin: 6px 0; }
+  .swatch { width: 23px; height: 23px; }
+  #tag-editor-panel input[type="text"] { padding: 7px 9px; margin-bottom: 6px; }
+  #tag-editor-panel .err { min-height: 14px; margin-bottom: 4px; font-size: 12px; }
+  #tag-editor-panel .tag-library-title { margin: 8px 0 5px; font-size: 13px; }
+  .tag-library-title span { font-size: 10px; }
+  .tag-lib { max-height: 72px; }
+  .tag-lib img { width: 54px; height: 54px; }
+}
 
 /* Leaderboards */
 #lb-grid {

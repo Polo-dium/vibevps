@@ -297,6 +297,12 @@ export function createTouchControls({
         hint: 'À trouver sur le tarmac de l’aéroport',
         action: controls.vehicle?.rcPlane ? 'RANGER' : 'PILOTER',
       },
+      {
+        id: 'radio', emoji: '📻', title: 'Radio portable',
+        found: state.hasRadio, active: state.boombox > 0,
+        hint: 'À récupérer devant la salle d’arcade',
+        action: state.boombox > 0 ? 'CHANGER' : 'UTILISER',
+      },
     ];
     const weapons = weapon.inventory.map((item) => ({
       id: `weapon:${item.id}`, emoji: item.emoji, title: item.nom,
@@ -372,6 +378,7 @@ export function createTouchControls({
     closeMenu();
     if (id === 'jetpack') jetpack?.();
     else if (id === 'rc-plane') rcPlane?.();
+    else if (id === 'radio') radio?.();
     else if (id.startsWith('weapon:')) weapon.equip(id.slice(7));
   }, { passive: false });
 

@@ -262,7 +262,8 @@ export function createUi() {
       <div class="quest-count">${done}/${quest.items.length}</div>
       <div class="quest-items">${quest.items.map((item) =>
         `<span class="${item.done ? 'done' : ''}">${item.done ? '✓' : '○'} ${escapeHtml(item.label)}</span>`
-      ).join('')}</div>`;
+      ).join('')}</div>
+      ${quest.hint ? `<div class="quest-hint">🧭 INDICE : ${escapeHtml(quest.hint)}</div>` : ''}`;
     questEl.classList.remove('hidden');
   }
 

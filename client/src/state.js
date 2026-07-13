@@ -21,6 +21,7 @@ export const state = {
   arsenalQuest: 0, // 0 à prendre, 1 active, 2 terminée
   hasJetpack: false, // jetpack ramassé à la Confluence
   hasRcPlane: false, // avion radiocommandé trouvé à l'aéroport
+  hasRadio: false, // radio portable récupérée devant la salle d'arcade
   flying: false, // jetpack en cours d'utilisation
 };
 
