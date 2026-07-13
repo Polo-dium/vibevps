@@ -194,17 +194,54 @@ export const audio = {
     });
   },
 
-  // Moteur de voiture : oscillateur persistant dont la hauteur suit la vitesse
+  // Moteurs persistants. Le Mirage possède un vrai souffle de turbine mêlé à
+  // un sifflement et un grondement, au lieu du bourdonnement de la voiture.
   _engine: null,
-  engineStart() {
+  engineStart(kind = 'car') {
     ensure();
-    if (this._engine) return;
+    if (this._engine?.kind === kind) return;
+    if (this._engine) this.engineStop();
+    if (kind === 'jet') {
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer;
+      src.loop = true;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 650;
+      filter.Q.value = 0.55;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.07, ctx.currentTime + 0.35);
+      src.connect(filter).connect(g).connect(master);
+
+      const whine = ctx.createOscillator();
+      whine.type = 'sine';
+      whine.frequency.value = 260;
+      const whineGain = ctx.createGain();
+      whineGain.gain.value = 0.012;
+      whine.connect(whineGain).connect(master);
+
+      const rumble = ctx.createOscillator();
+      rumble.type = 'triangle';
+      rumble.frequency.value = 44;
+      const rumbleGain = ctx.createGain();
+      rumbleGain.gain.value = 0.025;
+      rumble.connect(rumbleGain).connect(master);
+      src.start();
+      whine.start();
+      rumble.start();
+      this._engine = {
+        kind, src, filter, g,
+        osc: whine, osc2: rumble, whineGain, rumbleGain,
+      };
+      return;
+    }
     const osc = ctx.createOscillator();
     osc.type = 'sawtooth';
-    osc.frequency.value = 55;
+    osc.frequency.value = kind === 'prop' ? 42 : 55;
     const osc2 = ctx.createOscillator();
     osc2.type = 'square';
-    osc2.frequency.value = 28;
+    osc2.frequency.value = kind === 'prop' ? 21 : 28;
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
     filter.frequency.value = 500;
@@ -216,20 +253,37 @@ export const audio = {
     filter.connect(g).connect(master);
     osc.start();
     osc2.start();
-    this._engine = { osc, osc2, g };
+    this._engine = { kind, osc, osc2, g, filter };
   },
   engineUpdate(k) { // k = vitesse normalisée 0..1
     if (!this._engine || !ctx) return;
-    const f = 45 + k * 130;
+    k = Math.max(0, Math.min(1, k));
+    if (this._engine.kind === 'jet') {
+      this._engine.filter.frequency.setTargetAtTime(650 + k * 1900, ctx.currentTime, 0.12);
+      this._engine.g.gain.setTargetAtTime(0.065 + k * 0.16, ctx.currentTime, 0.12);
+      this._engine.osc.frequency.setTargetAtTime(260 + k * 760, ctx.currentTime, 0.1);
+      this._engine.whineGain.gain.setTargetAtTime(0.012 + k * 0.055, ctx.currentTime, 0.12);
+      this._engine.osc2.frequency.setTargetAtTime(44 + k * 42, ctx.currentTime, 0.12);
+      this._engine.rumbleGain.gain.setTargetAtTime(0.025 + k * 0.045, ctx.currentTime, 0.12);
+      return;
+    }
+    const f = this._engine.kind === 'prop' ? 38 + k * 220 : 45 + k * 130;
     this._engine.osc.frequency.setTargetAtTime(f, ctx.currentTime, 0.08);
     this._engine.osc2.frequency.setTargetAtTime(f / 2, ctx.currentTime, 0.08);
-    this._engine.g.gain.setTargetAtTime(0.05 + k * 0.06, ctx.currentTime, 0.1);
+    this._engine.g.gain.setTargetAtTime(
+      this._engine.kind === 'prop' ? 0.045 + k * 0.085 : 0.05 + k * 0.06,
+      ctx.currentTime,
+      0.1
+    );
   },
   engineStop() {
     if (!this._engine || !ctx) return;
-    const { osc, osc2, g } = this._engine;
+    const { kind, src, osc, osc2, g, whineGain, rumbleGain } = this._engine;
     this._engine = null;
     g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+    whineGain?.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+    rumbleGain?.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+    src?.stop(ctx.currentTime + 0.3);
     osc.stop(ctx.currentTime + 0.3);
     osc2.stop(ctx.currentTime + 0.3);
   },

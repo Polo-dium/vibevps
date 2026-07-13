@@ -4,7 +4,7 @@ import { state } from '../state.js';
 // boutons d'action. Activé uniquement sur écran tactile.
 export function createTouchControls({
   controls, weapon, spray, tagEditor, ui, voice, capture, emote,
-  jetpack, jetpackGuns, rcPlane, interact, map, radio, invite, quality,
+  jetpack, jetpackGuns, rcPlane, interact, map, radio, admin, invite, quality,
 }) {
   const root = document.createElement('div');
   root.id = 'touch-ui';
@@ -57,6 +57,7 @@ export function createTouchControls({
                 <button id="tb-gun"><b>🔫</b><span>Arme en main</span></button>
                 <button id="tb-arme"><b>🔁</b><span>Arme suivante</span></button>
                 <button id="tb-lb"><b>🏆</b><span>Classements</span></button>
+                <button id="tb-admin"><b>🛡️</b><span>Administration</span></button>
               </div>
             </section>
             <section class="menu-page hidden" data-menu-page="settings">
@@ -403,6 +404,7 @@ export function createTouchControls({
   bind('#tb-chat', closeThen(() => ui.openChat()));
   bind('#tb-photo', closeThen(() => capture?.toggleMode())); // mode photo : zoom + 📸
   bind('#tb-lb', closeThen(() => ui.toggleLeaderboards()));
+  bind('#tb-admin', closeThen(() => admin?.()));
   bind('#tb-mic', () => {
     Promise.resolve(voice?.toggleMic()).finally(() => setTimeout(renderSettings, 50));
   });

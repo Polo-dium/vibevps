@@ -70,10 +70,16 @@ export function buildPlaneModel(color = 0xd23b3b) {
 // et tuyère. Le nez pointe vers -z, comme les autres véhicules du jeu.
 export function buildMirageModel(color = 0xb8c5d2) {
   const group = new THREE.Group();
-  const body = new THREE.MeshPhongMaterial({ color, shininess: 65, specular: 0xdde8ef });
+  const body = new THREE.MeshPhongMaterial({
+    color, shininess: 65, specular: 0xdde8ef, side: THREE.DoubleSide,
+  });
   const dark = new THREE.MeshLambertMaterial({ color: 0x252d36 });
   const glass = new THREE.MeshPhongMaterial({ color: 0x315a72, shininess: 95, specular: 0xccecff });
   const accent = new THREE.MeshLambertMaterial({ color: 0x6f7f8d });
+  const exhaust = new THREE.MeshBasicMaterial({
+    color: 0xff7b2f, transparent: true, opacity: 0.72,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
   const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => {
     const m = new THREE.Mesh(geo, mat);
     m.position.set(x, y, z);
@@ -82,10 +88,13 @@ export function buildMirageModel(color = 0xb8c5d2) {
     return m;
   };
 
-  add(new THREE.CylinderGeometry(0.55, 0.82, 7.2, 10), body, 0, 0.92, -0.25, Math.PI / 2);
-  add(new THREE.ConeGeometry(0.55, 3.1, 10), body, 0, 0.92, -5.25, -Math.PI / 2);
+  add(new THREE.CylinderGeometry(0.55, 0.82, 7.2, 12), body, 0, 0.92, -0.25, Math.PI / 2);
+  // La base du nez reprend exactement le rayon avant (0,82) et rejoint le
+  // fuselage à z=-3,85 : plus de disque plat ni de marche entre les deux.
+  add(new THREE.ConeGeometry(0.82, 3.3, 12), body, 0, 0.92, -5.5, -Math.PI / 2);
   add(new THREE.CylinderGeometry(0.72, 0.62, 0.65, 12), dark, 0, 0.92, 3.7, Math.PI / 2);
-  add(new THREE.SphereGeometry(0.48, 10, 7), glass, 0, 1.48, -1.35, 0.15, 0, 0);
+  const canopy = add(new THREE.SphereGeometry(0.5, 12, 8), glass, 0, 1.48, -1.45, 0.12, 0, 0);
+  canopy.scale.set(0.78, 0.72, 1.55);
 
   const wingGeo = new THREE.BufferGeometry();
   wingGeo.setAttribute('position', new THREE.Float32BufferAttribute([
@@ -94,9 +103,34 @@ export function buildMirageModel(color = 0xb8c5d2) {
   ], 3));
   wingGeo.computeVertexNormals();
   add(wingGeo, body, 0, 0.83, 0);
-  add(new THREE.BoxGeometry(0.13, 1.9, 2.35), body, 0, 1.75, 2.25, -0.08);
+  // Dérive en prisme triangulaire rectangle : base horizontale, bord de
+  // fuite vertical et bord d'attaque incliné, au lieu de l'ancien pavé qui
+  // se lisait comme un trapèze depuis l'arrière.
+  const tailGeo = new THREE.BufferGeometry();
+  const tx = 0.085, tailH = 2.15, tailL = 2.4;
+  tailGeo.setAttribute('position', new THREE.Float32BufferAttribute([
+    -tx, 0, -tailL / 2,  -tx, 0, tailL / 2,  -tx, tailH, tailL / 2,
+     tx, 0, -tailL / 2,   tx, 0, tailL / 2,   tx, tailH, tailL / 2,
+  ], 3));
+  tailGeo.setIndex([
+    0, 2, 1,  3, 4, 5,
+    0, 1, 4,  0, 4, 3,
+    1, 2, 5,  1, 5, 4,
+    2, 0, 3,  2, 3, 5,
+  ]);
+  tailGeo.computeVertexNormals();
+  add(tailGeo, body, 0, 0.86, 2.2);
   add(new THREE.BoxGeometry(1.15, 0.42, 1.55), accent, -0.86, 0.82, -0.55, 0.08, 0, 0.04);
   add(new THREE.BoxGeometry(1.15, 0.42, 1.55), accent, 0.86, 0.82, -0.55, 0.08, 0, -0.04);
+  // Bouches sombres des entrées d'air, lisibles de face.
+  add(new THREE.BoxGeometry(0.72, 0.25, 0.035), dark, -0.86, 0.83, -1.34, 0, 0.05, 0.03);
+  add(new THREE.BoxGeometry(0.72, 0.25, 0.035), dark, 0.86, 0.83, -1.34, 0, -0.05, -0.03);
+  // Anneau de tuyère et cœur chaud visible depuis l'arrière.
+  add(new THREE.TorusGeometry(0.43, 0.075, 8, 18), dark, 0, 0.92, 4.03);
+  add(new THREE.CircleGeometry(0.35, 18), exhaust, 0, 0.92, 4.035);
+  // Feux de navigation aux extrémités de l'aile delta.
+  add(new THREE.SphereGeometry(0.075, 7, 5), new THREE.MeshBasicMaterial({ color: 0x46ff74 }), -5.02, 0.86, 2.19);
+  add(new THREE.SphereGeometry(0.075, 7, 5), new THREE.MeshBasicMaterial({ color: 0xff3b36 }), 5.02, 0.86, 2.19);
   add(new THREE.CylinderGeometry(0.05, 0.06, 0.95, 8), dark, -0.44, 0.77, -4.0, Math.PI / 2);
   add(new THREE.CylinderGeometry(0.05, 0.06, 0.95, 8), dark, 0.44, 0.77, -4.0, Math.PI / 2);
   group.userData.gunMuzzles = [

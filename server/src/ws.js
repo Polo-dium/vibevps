@@ -105,8 +105,9 @@ export function setupWs(httpServer) {
         // Véhicule (optionnel) : relayé pour afficher la voiture chez les autres
         // 0 = à pied, 1 = voiture, 2 = avion (champ optionnel, borné)
         me.veh = Math.min(2, Math.max(0, Math.floor(Number(msg.veh) || 0)));
-        // Enceinte portable : morceau 1..3, 0 = coupée (optionnel, borné)
-        me.mus = Math.min(3, Math.max(0, Math.floor(Number(msg.mus) || 0)));
+        // Enceinte portable : morceau 1..4, 0 = coupée (optionnel, borné).
+        // La quatrième piste est le vrai enregistrement de Clair de Lune.
+        me.mus = Math.min(4, Math.max(0, Math.floor(Number(msg.mus) || 0)));
         const vry = Number(msg.vry);
         me.vry = Number.isFinite(vry) ? vry : 0;
         // Assiette de l'avion (champs optionnels rétro-compatibles) : permet

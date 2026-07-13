@@ -16,48 +16,65 @@ import { getAudioGraph } from './audio.js';
 // Musopen…) — la partition d'une œuvre ancienne est libre, mais un
 // enregistrement précis a ses propres droits sauf mention contraire.
 const REAL_TRACKS = {
-  4: { nom: 'Clair de Lune (Debussy)', file: 'clair-de-lune.mp3' },
+  // La fin de l'enregistrement contient sept secondes dont Polo ne veut pas :
+  // la boucle repart avant cette portion, sans réencoder ni dégrader le MP3.
+  4: { nom: 'Clair de Lune (Debussy)', file: 'clair-de-lune.mp3', endTrim: 7 },
 };
 
 export const TRACKS = [
-  { id: 1, nom: 'Gone Funk' },
-  { id: 2, nom: 'Quenelle Wave' },
-  { id: 3, nom: 'Guignol 8-bit' },
+  { id: 1, nom: 'Funk 70s' },
+  { id: 2, nom: 'Disco 80s' },
+  { id: 3, nom: 'Boom-bap 90s' },
   { id: 4, nom: REAL_TRACKS[4].nom },
 ];
 
 // Notes en demi-tons MIDI (69 = la 440). `null` = silence.
 // k/s/h : kick, caisse claire, charley sur 16 pas.
 const PATTERNS = {
-  1: { // funk qui groove
-    bpm: 112,
-    bassType: 'square', bassGain: 0.16,
-    bass: [38, null, 38, 45, null, 41, null, 38, null, 38, null, 45, 46, null, 45, 41],
-    leadType: 'square', leadGain: 0.07,
-    lead: [62, null, null, 65, null, 62, 69, null, null, 67, 65, null, 62, null, 60, null],
-    kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1],
+  1: { // funk 70s : basse syncopée, clavinet et batterie légèrement swing
+    bpm: 108, swing: 0.11,
+    bassType: 'sawtooth', bassGain: 0.105, bassCutoff: 620,
+    bass: [40, null, 40, 43, null, 45, 47, null, 40, 40, null, 43, 45, null, 38, 39],
+    leadType: 'square', leadGain: 0.035, leadCutoff: 1900,
+    lead: [64, null, 67, null, 71, 69, null, 67, 64, null, 62, 64, null, 67, 69, null],
+    chordType: 'triangle', chordGain: 0.018, chordDur: 2.7,
+    chords: [[52, 56, 59, 62], null, null, null, [57, 61, 64, 67], null, null, null,
+      [52, 56, 59, 62], null, null, null, [50, 54, 57, 60], null, null, null],
+    kick: [1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0],
     snare: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
-    hat: [1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 1],
+    ghost: [0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0],
+    hat: [1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+    openHat: [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1],
   },
-  2: { // synthwave mineur, plus lent
-    bpm: 92,
-    bassType: 'sawtooth', bassGain: 0.12,
-    bass: [33, null, null, null, 36, null, null, null, 31, null, null, null, 38, null, 36, null],
-    leadType: 'triangle', leadGain: 0.1,
-    lead: [57, 60, 64, 60, 57, 60, 64, 67, 55, 59, 62, 59, 55, 59, 62, 66],
+  2: { // disco 80s : quatre au sol, charley à contretemps et cordes
+    bpm: 122,
+    bassType: 'sawtooth', bassGain: 0.095, bassCutoff: 720,
+    bass: [33, 45, 40, 45, 36, 48, 40, 48, 38, 50, 41, 50, 36, 48, 43, 47],
+    leadType: 'triangle', leadGain: 0.032, leadCutoff: 2600,
+    lead: [69, null, 72, null, 76, null, 72, 74, 67, null, 71, null, 74, null, 71, 72],
+    chordType: 'sawtooth', chordGain: 0.012, chordDur: 1.35, chordCutoff: 1450,
+    chords: [null, null, [57, 60, 64], null, null, null, [60, 64, 67], null,
+      null, null, [55, 59, 62], null, null, null, [52, 55, 59], null],
     kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
     snare: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
-    hat: [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1],
+    clap: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+    hat: [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
+    openHat: [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0],
   },
-  3: { // chiptune speed, arcade assumée
-    bpm: 140,
-    bassType: 'square', bassGain: 0.13,
-    bass: [45, 45, 52, 45, 43, 43, 50, 43, 41, 41, 48, 41, 43, 43, 50, 43],
-    leadType: 'square', leadGain: 0.08,
-    lead: [69, 72, 76, 72, 69, null, 71, 72, 74, 71, 67, null, 65, 67, 69, null],
-    kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0],
-    snare: [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0],
-    hat: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+  3: { // boom-bap 90s : caisse claire lourde, accords jazzy et petits rolls
+    bpm: 94, swing: 0.08,
+    bassType: 'triangle', bassGain: 0.13, bassCutoff: 480,
+    bass: [38, null, null, 38, null, 41, null, null, 36, null, 36, null, null, 33, null, 36],
+    leadType: 'sine', leadGain: 0.038,
+    lead: [62, null, null, 65, null, null, 69, null, 60, null, null, 64, null, 67, null, null],
+    chordType: 'triangle', chordGain: 0.022, chordDur: 3.2,
+    chords: [[50, 53, 57, 60], null, null, null, null, null, null, null,
+      [48, 52, 55, 59], null, null, null, [45, 48, 52, 55], null, null, null],
+    kick: [1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1],
+    snare: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+    ghost: [0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0],
+    hat: [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1],
+    openHat: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
   },
 };
 
@@ -81,20 +98,29 @@ export function createMusicSource() {
     out = graph.ctx.createGain();
     out.gain.value = volume;
     out.connect(graph.master);
-    noiseBuf = graph.ctx.createBuffer(1, graph.ctx.sampleRate / 8, graph.ctx.sampleRate);
+    noiseBuf = graph.ctx.createBuffer(1, graph.ctx.sampleRate / 2, graph.ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   }
 
-  function note(freq, t, dur, type, gain) {
+  function note(freq, t, dur, type, gain, { cutoff = 0, attack = 0.006 } = {}) {
     const { ctx } = graph;
     const osc = ctx.createOscillator();
     osc.type = type;
     osc.frequency.value = freq;
     const g = ctx.createGain();
-    g.gain.setValueAtTime(gain, t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + attack);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    osc.connect(g).connect(out);
+    if (cutoff) {
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = cutoff;
+      filter.Q.value = 0.8;
+      osc.connect(filter).connect(g).connect(out);
+    } else {
+      osc.connect(g).connect(out);
+    }
     osc.start(t);
     osc.stop(t + dur + 0.03);
   }
@@ -113,28 +139,57 @@ export function createMusicSource() {
       osc.stop(t + 0.16);
       return;
     }
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuf;
-    const f = ctx.createBiquadFilter();
-    f.type = 'highpass';
-    f.frequency.value = kind === 'snare' ? 1400 : 6500;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(kind === 'snare' ? 0.16 : 0.05, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + (kind === 'snare' ? 0.1 : 0.04));
-    src.connect(f).connect(g).connect(out);
-    src.start(t);
-    src.stop(t + 0.12);
+    const noiseHit = (at, freq, gain, dur) => {
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuf;
+      const f = ctx.createBiquadFilter();
+      f.type = 'highpass';
+      f.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(gain, at);
+      g.gain.exponentialRampToValueAtTime(0.001, at + dur);
+      src.connect(f).connect(g).connect(out);
+      src.start(at);
+      src.stop(at + dur + 0.03);
+    };
+    if (kind === 'clap') {
+      noiseHit(t, 1050, 0.07, 0.13);
+      noiseHit(t + 0.018, 1300, 0.055, 0.11);
+      noiseHit(t + 0.036, 1550, 0.04, 0.09);
+      return;
+    }
+    if (kind === 'ghost') {
+      noiseHit(t, 1800, 0.045, 0.055);
+      return;
+    }
+    const open = kind === 'openHat';
+    noiseHit(t, kind === 'snare' ? 1400 : open ? 7200 : 6500,
+      kind === 'snare' ? 0.15 : open ? 0.065 : 0.045,
+      kind === 'snare' ? 0.11 : open ? 0.22 : 0.045);
   }
 
   function scheduleStep(i, t, p, stepDur) {
     const s = i % 16;
+    const playTime = t + (s % 2 ? stepDur * (p.swing ?? 0) : 0);
     const b = p.bass[s];
-    if (b != null) note(midi(b), t, stepDur * 0.9, p.bassType, p.bassGain);
+    if (b != null) note(midi(b), playTime, stepDur * 0.92, p.bassType, p.bassGain, { cutoff: p.bassCutoff });
     const l = p.lead[s];
-    if (l != null) note(midi(l), t, stepDur * 0.8, p.leadType, p.leadGain);
-    if (p.kick[s]) drum(t, 'kick');
-    if (p.snare[s]) drum(t, 'snare');
-    if (p.hat[s]) drum(t, 'hat');
+    if (l != null) note(midi(l), playTime, stepDur * 0.82, p.leadType, p.leadGain, { cutoff: p.leadCutoff });
+    const chord = p.chords?.[s];
+    if (chord) {
+      for (const n of chord) {
+        note(midi(n), playTime, stepDur * (p.chordDur ?? 2), p.chordType, p.chordGain, {
+          cutoff: p.chordCutoff,
+          attack: 0.018,
+        });
+      }
+    }
+    if (p.kick[s]) drum(playTime, 'kick');
+    if (p.snare[s]) drum(playTime, 'snare');
+    if (p.clap?.[s]) drum(playTime, 'clap');
+    if (p.ghost?.[s]) drum(playTime, 'ghost');
+    if (p.hat[s]) drum(playTime, 'hat');
+    if (p.openHat?.[s]) drum(playTime, 'openHat');
   }
 
   // Vrai fichier audio (facultatif) : lu via un <audio> connecté au même
@@ -146,10 +201,20 @@ export function createMusicSource() {
     if (timer) { clearInterval(timer); timer = null; }
     if (!realAudio) {
       realAudio = new Audio(`/music/${t.file}`);
-      realAudio.loop = true;
+      realAudio.loop = false;
       realAudio.addEventListener('error', () => {
         console.warn(`🎵 Musique introuvable : /music/${t.file} — dépose le fichier dans client/public/music/ sur le VPS pour l'activer.`);
       });
+      const loopBeforeTrimmedEnd = () => {
+        const active = REAL_TRACKS[trackId];
+        if (!active || !Number.isFinite(realAudio.duration)) return;
+        const loopAt = Math.max(0, realAudio.duration - (active.endTrim ?? 0));
+        if (realAudio.currentTime < loopAt - 0.08) return;
+        realAudio.currentTime = active.loopStart ?? 0;
+        realAudio.play().catch(() => {});
+      };
+      realAudio.addEventListener('timeupdate', loopBeforeTrimmedEnd);
+      realAudio.addEventListener('ended', loopBeforeTrimmedEnd);
       // Un enregistrement réel est mastérisé bien plus bas qu'un synthé
       // (surtout un morceau doux comme du piano) : coup de boost + limiteur
       // serré pour que ça s'entende vraiment sans distordre sur les passages
