@@ -4,7 +4,7 @@ import { state } from '../state.js';
 // boutons d'action. Activé uniquement sur écran tactile.
 export function createTouchControls({
   controls, weapon, spray, tagEditor, ui, voice, capture, emote,
-  jetpack, rcPlane, interact, map, radio, invite, quality,
+  jetpack, jetpackGuns, rcPlane, interact, map, radio, invite, quality,
 }) {
   const root = document.createElement('div');
   root.id = 'touch-ui';
@@ -424,9 +424,9 @@ export function createTouchControls({
       if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => {});
     }
   });
-  // À pied, TIR équipe l'arme si besoin. Dans un avion, les deux boutons
-  // commandent uniquement les mitrailleuses de bord : aucune arme ni aucun
-  // bras ne ressort devant la caméra.
+  // À pied, TIR équipe l'arme si besoin. En jetpack, il commande les deux
+  // mitraillettes fixées aux avant-bras. Dans un avion, les deux boutons
+  // commandent uniquement les mitrailleuses de bord.
   const fireButtons = [root.querySelector('#tb-fire'), root.querySelector('#tb-fire-left')];
   for (const fireBtn of fireButtons) fireBtn.addEventListener('touchstart', (e) => {
     e.preventDefault();
@@ -437,6 +437,8 @@ export function createTouchControls({
       controls.setPlaneTrigger(true);
     } else if (state.tagMode) {
       spray.setPaint(true);
+    } else if (controls.flying) {
+      jetpackGuns?.setTrigger(true);
     } else {
       if (!state.weaponEquipped) weapon.toggle(true);
       weapon.setTrigger(true);
@@ -448,6 +450,7 @@ export function createTouchControls({
       fireTouchId = null;
       fireLast = null;
       controls.setPlaneTrigger(false);
+      jetpackGuns?.setTrigger(false);
       spray.setPaint(false);
       weapon.setTrigger(false);
     }
