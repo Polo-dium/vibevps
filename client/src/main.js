@@ -690,6 +690,7 @@ async function boot() {
     spawnBombMushroom(point, { scale: 0.22, duration: 2.8, baseBurst: false });
   };
   const spray = createSpray(scene, camera, ctx.taggables, {
+    shootables: ctx.shootables,
     onToast: ui.toast,
     onModeChange: (on, paintColor) => {
       if (on && state.weaponEquipped) weapon.toggle(false);
@@ -1245,6 +1246,10 @@ async function boot() {
       else ui.closeTopOverlay();
       return;
     }
+    if (e.code === 'KeyL' && ui.leaderboardsOpen()) {
+      ui.toggleLeaderboards(false);
+      return;
+    }
     if (state.overlayOpen) return;
 
     // Entrée : ouvrir le chat de proximité
@@ -1390,7 +1395,10 @@ async function boot() {
     // Moteur de la décapotable : la hauteur suit la vitesse
     if (state.driving) {
       const engineTopSpeed = controls.vehicle?.jet ? 220 : controls.vehicle?.plane ? 68 : 38;
-      audio.engineUpdate(Math.min(1, Math.abs(controls.vehicle?.speed ?? 0) / engineTopSpeed));
+      audio.engineUpdate(
+        Math.min(1, Math.abs(controls.vehicle?.speed ?? 0) / engineTopSpeed),
+        controls.vehicle?.throttle
+      );
     }
 
     // Jetpack : poussée sonore + gerbe de particules sous les pieds

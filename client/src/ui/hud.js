@@ -470,21 +470,27 @@ export function createUi() {
 
   // --- Panneau des classements (L) ---
   const lbOverlay = document.createElement('div');
-  lbOverlay.className = 'overlay hidden';
+  lbOverlay.className = 'overlay leaderboard-overlay hidden';
   lbOverlay.innerHTML = `
-    <div class="panel" style="width:900px;">
-      <h2>🎯 DÉFIS DU JOUR <span id="daily-streak"></span></h2>
-      <div id="daily-grid"></div>
-      <h2 style="margin-top:16px;">CLASSEMENTS</h2>
-      <div id="lb-grid"></div>
-      <h2 style="margin-top:16px;">🏆 SUCCÈS</h2>
-      <div id="ach-grid"></div>
-      <div style="margin-top:14px; text-align:right;">
-        <button class="ghost" id="lb-close">Fermer (Échap ou L)</button>
+    <div class="panel leaderboard-panel">
+      <header class="leaderboard-head">
+        <div><strong>LYON ARCADE</strong><span>PROGRESSION ET CLASSEMENTS</span></div>
+        <button class="ghost" id="lb-close" aria-label="Fermer les classements">×</button>
+      </header>
+      <div class="leaderboard-scroll">
+        <h2>🎯 DÉFIS DU JOUR <span id="daily-streak"></span></h2>
+        <div id="daily-grid"></div>
+        <h2 style="margin-top:16px;">CLASSEMENTS</h2>
+        <div id="lb-grid"></div>
+        <h2 style="margin-top:16px;">🏆 SUCCÈS</h2>
+        <div id="ach-grid"></div>
       </div>
     </div>`;
   document.body.appendChild(lbOverlay);
   lbOverlay.querySelector('#lb-close').onclick = () => toggleLeaderboards(false);
+  lbOverlay.addEventListener('pointerdown', (e) => {
+    if (e.target === lbOverlay) toggleLeaderboards(false);
+  });
 
   // --- Défis quotidiens : badge compact + panneau détaillé -----------------
   const dailyBadge = hud.querySelector('#hud-daily');
@@ -563,13 +569,19 @@ export function createUi() {
       // Rafraîchit depuis le serveur puis met à jour l'affichage
       progressRef?.refresh().then(() => renderAchievements());
       lbOverlay.classList.remove('hidden');
+      lbOverlay.querySelector('.leaderboard-scroll').scrollTop = 0;
       state.overlayOpen = true;
       document.exitPointerLock?.();
+      setTimeout(() => lbOverlay.querySelector('#lb-close').focus(), 30);
     } else {
       lbOverlay.classList.add('hidden');
       state.overlayOpen = false;
     }
     return show;
+  }
+
+  function leaderboardsOpen() {
+    return !lbOverlay.classList.contains('hidden');
   }
 
   // --- Créateur de borne IA ---
@@ -717,7 +729,7 @@ export function createUi() {
     ensureAuth, invite, toast, setPrompt, onPromptTap, setInfo, setQuest, setRange, setBanner, setAmmo,
     setHp, damageFlash, killBanner, setTagMode, hitmarker, deathScreen,
     setXp, spawnConfetti, achievementUnlocked, bindProgress, setDaily,
-    toggleLeaderboards, openCreator, toggleAdmin, closeTopOverlay,
+    toggleLeaderboards, leaderboardsOpen, openCreator, toggleAdmin, closeTopOverlay,
     openChat, onChatSend, addChatLine, setMicState,
   };
 }

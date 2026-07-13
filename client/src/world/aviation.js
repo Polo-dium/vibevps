@@ -77,8 +77,16 @@ export function buildMirageModel(color = 0xb8c5d2) {
   const glass = new THREE.MeshPhongMaterial({ color: 0x315a72, shininess: 95, specular: 0xccecff });
   const accent = new THREE.MeshLambertMaterial({ color: 0x6f7f8d });
   const exhaust = new THREE.MeshBasicMaterial({
-    color: 0xff7b2f, transparent: true, opacity: 0.72,
+    color: 0xff7b2f, transparent: true, opacity: 0.38,
     blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const flameOuterMat = new THREE.MeshBasicMaterial({
+    color: 0xff6b20, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  });
+  const flameInnerMat = new THREE.MeshBasicMaterial({
+    color: 0xb9eaff, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
   });
   const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => {
     const m = new THREE.Mesh(geo, mat);
@@ -128,6 +136,23 @@ export function buildMirageModel(color = 0xb8c5d2) {
   // Anneau de tuyère et cœur chaud visible depuis l'arrière.
   add(new THREE.TorusGeometry(0.43, 0.075, 8, 18), dark, 0, 0.92, 4.03);
   add(new THREE.CircleGeometry(0.35, 18), exhaust, 0, 0.92, 4.035);
+  // Deux cônes additifs forment la postcombustion. Leur base est recalée sur
+  // la tuyère pendant l'animation pour que la flamme s'allonge sans flotter.
+  const flameOuter = add(
+    new THREE.ConeGeometry(0.43, 2.2, 12, 1, true), flameOuterMat,
+    0, 0.92, 5.135, Math.PI / 2
+  );
+  const flameInner = add(
+    new THREE.ConeGeometry(0.25, 1.55, 10, 1, true), flameInnerMat,
+    0, 0.92, 4.81, Math.PI / 2
+  );
+  flameOuter.visible = false;
+  flameInner.visible = false;
+  flameOuter.userData.noShadow = true;
+  flameInner.userData.noShadow = true;
+  group.userData.jetFlames = {
+    outer: flameOuter, inner: flameInner, power: 0, time: Math.random() * 10,
+  };
   // Feux de navigation aux extrémités de l'aile delta.
   add(new THREE.SphereGeometry(0.075, 7, 5), new THREE.MeshBasicMaterial({ color: 0x46ff74 }), -5.02, 0.86, 2.19);
   add(new THREE.SphereGeometry(0.075, 7, 5), new THREE.MeshBasicMaterial({ color: 0xff3b36 }), 5.02, 0.86, 2.19);
@@ -138,6 +163,31 @@ export function buildMirageModel(color = 0xb8c5d2) {
     new THREE.Vector3(0.44, 0.77, -4.55),
   ];
   return group;
+}
+
+export function updateMirageFlame(group, targetPower, dt) {
+  const flame = group?.userData?.jetFlames;
+  if (!flame) return;
+  const target = THREE.MathUtils.clamp(Number(targetPower) || 0, 0, 1);
+  flame.power += (target - flame.power) * (1 - Math.exp(-7 * Math.max(0, dt)));
+  flame.time += Math.max(0, dt);
+  const power = flame.power;
+  const visible = power > 0.012;
+  flame.outer.visible = visible;
+  flame.inner.visible = visible;
+  if (!visible) return;
+
+  const flicker = 0.94 + Math.sin(flame.time * 31) * 0.035 + Math.sin(flame.time * 53) * 0.025;
+  const outerLength = (0.1 + power * 0.9) * flicker;
+  const innerLength = (0.13 + power * 0.87) * (1.02 - Math.sin(flame.time * 43) * 0.035);
+  const outerRadius = 0.67 + power * 0.35;
+  const innerRadius = 0.62 + power * 0.28;
+  flame.outer.scale.set(outerRadius, outerLength, outerRadius);
+  flame.inner.scale.set(innerRadius, innerLength, innerRadius);
+  flame.outer.position.z = 4.035 + 1.1 * outerLength;
+  flame.inner.position.z = 4.04 + 0.775 * innerLength;
+  flame.outer.material.opacity = 0.12 + power * 0.5;
+  flame.inner.material.opacity = 0.18 + power * 0.58;
 }
 
 // Modèle réduit d'environ un mètre d'envergure, lisible malgré sa petite
@@ -579,6 +629,11 @@ function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false } = {}) {
     // Hélice : ralenti au sol, plein régime en vol
     if (group.userData.prop) {
       group.userData.prop.rotation.z += dt * (driving ? 10 + car.speed : 1.2);
+    }
+    if (jet) {
+      // Une petite veilleuse au ralenti, puis une postcombustion dont longueur,
+      // largeur et luminosité suivent directement la manette des gaz.
+      updateMirageFlame(group, driving ? 0.06 + car.throttle * 0.94 : 0, dt);
     }
     if (!driving) return;
     const q = ctx.playerPos?.();

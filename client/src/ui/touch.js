@@ -1,4 +1,5 @@
 import { state } from '../state.js';
+import { PAINT_COLORS, COLOR_MIN_LEVEL } from '../tags/spray.js';
 
 // Contrôles tactiles : joystick gauche (déplacement), glisser à droite (regard),
 // boutons d'action. Activé uniquement sur écran tactile.
@@ -52,12 +53,19 @@ export function createTouchControls({
                 <button id="tb-chat"><b>💬</b><span>Chat</span></button>
                 <button id="tb-photo"><b>📸</b><span>Photo</span></button>
                 <button id="tb-tag"><b>🎨</b><span>Créer un tag</span></button>
-                <button id="tb-color"><b>🌈</b><span>Couleur spray</span></button>
+                <button id="tb-color" aria-expanded="false" aria-controls="spray-palette"><b>🌈</b><span>Couleur spray</span></button>
                 <button id="tb-radio"><b>📻</b><span>Radio</span></button>
                 <button id="tb-gun"><b>🔫</b><span>Arme en main</span></button>
                 <button id="tb-arme"><b>🔁</b><span>Arme suivante</span></button>
                 <button id="tb-lb"><b>🏆</b><span>Classements</span></button>
                 <button id="tb-admin"><b>🛡️</b><span>Administration</span></button>
+              </div>
+              <div id="spray-palette" class="spray-palette hidden">
+                <div class="spray-palette-head">
+                  <strong>COULEUR DU SPRAY</strong>
+                  <span>Touche une teinte pour l’équiper</span>
+                </div>
+                <div id="spray-color-grid" class="spray-color-grid" role="listbox" aria-label="Couleurs du spray"></div>
               </div>
             </section>
             <section class="menu-page hidden" data-menu-page="settings">
@@ -283,6 +291,34 @@ export function createTouchControls({
   // gestes de pilotage sont bloqués par state.overlayOpen.
   const menu = root.querySelector('#touch-menu');
   const inventoryGrid = root.querySelector('#menu-inventory');
+  const sprayPalette = root.querySelector('#spray-palette');
+  const sprayColorGrid = root.querySelector('#spray-color-grid');
+  const sprayColorButton = root.querySelector('#tb-color');
+
+  function renderSprayPalette() {
+    const level = state.level ?? 1;
+    sprayColorGrid.innerHTML = PAINT_COLORS.map((paintColor, index) => {
+      const locked = COLOR_MIN_LEVEL[index] > level;
+      const active = spray.colorIndex === index;
+      const label = locked ? `NIV ${COLOR_MIN_LEVEL[index]}` : active ? 'ÉQUIPÉE' : 'CHOISIR';
+      return `<button class="spray-color-swatch${active ? ' active' : ''}${locked ? ' locked' : ''}"
+        data-spray-color="${index}" style="--spray-color:${paintColor}"
+        role="option" aria-selected="${active}" aria-label="Couleur ${index + 1}${locked ? `, niveau ${COLOR_MIN_LEVEL[index]} requis` : ''}"
+        ${locked ? 'disabled' : ''}>
+          <span></span><small>${label}</small>
+        </button>`;
+    }).join('');
+  }
+
+  function setSprayPaletteOpen(open) {
+    sprayPalette.classList.toggle('hidden', !open);
+    sprayColorButton.classList.toggle('active', open);
+    sprayColorButton.setAttribute('aria-expanded', String(open));
+    if (open) {
+      renderSprayPalette();
+      requestAnimationFrame(() => sprayPalette.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+    }
+  }
 
   function renderInventory() {
     const specialItems = [
@@ -345,6 +381,7 @@ export function createTouchControls({
     }
     if (name === 'inventory') renderInventory();
     if (name === 'settings') renderSettings();
+    if (name !== 'actions') setSprayPaletteOpen(false);
   }
 
   function setMenuOpen(open) {
@@ -353,6 +390,7 @@ export function createTouchControls({
     state.overlayOpen = open;
     if (open) {
       document.exitPointerLock?.();
+      setSprayPaletteOpen(false);
       showMenuPage('inventory');
       renderSettings();
     }
@@ -382,6 +420,12 @@ export function createTouchControls({
     else if (id === 'radio') radio?.();
     else if (id.startsWith('weapon:')) weapon.equip(id.slice(7));
   }, { passive: false });
+  sprayColorGrid.addEventListener('click', (e) => {
+    const button = e.target.closest?.('[data-spray-color]');
+    if (!button || button.disabled) return;
+    e.preventDefault();
+    if (spray.setColor(Number(button.dataset.sprayColor))) renderSprayPalette();
+  });
 
   let emoteIdx = 0;
   bind('#tb-emote', () => emote?.(emoteIdx++ % 3)); // fait défiler les emotes
@@ -395,7 +439,7 @@ export function createTouchControls({
   bind('#tb-use', () => interact());
   bind('#tb-spray', () => spray.toggleMode()); // mode bombe de peinture
   bind('#tb-stamp', () => spray.stampTag());
-  bind('#tb-color', closeThen(() => spray.cycleColor(1)));
+  bind('#tb-color', () => setSprayPaletteOpen(sprayPalette.classList.contains('hidden')));
   bind('#tb-gun', closeThen(() => weapon.toggle()));
   bind('#tb-map', closeThen(() => map?.()));
   bind('#tb-arme', closeThen(() => weapon.cycle())); // change d'arme (celles ramassées)

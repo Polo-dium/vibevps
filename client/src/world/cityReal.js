@@ -1153,10 +1153,33 @@ function buildTerrainMesh(ctx, bound, data) {
   ctx.scene.add(mesh);
 }
 
+// Une colline d'horizon est très large : son centre peut être hors carte alors
+// que sa base remonte jusque dans un fleuve. On teste donc son empreinte contre
+// les centerlines, pas uniquement son point central.
+function hillTouchesWater(ctx, x, z, radius, bound) {
+  const corridors = [...(ctx.waterBands ?? []), ...(ctx.waterExtensions ?? [])];
+  for (const band of corridors) {
+    if (typeof band.cx !== 'function') continue;
+    const zMin = Math.max(z - radius, band.zMin ?? -bound);
+    const zMax = Math.min(z + radius, band.zMax ?? bound);
+    if (zMin > zMax) continue;
+    const steps = Math.max(1, Math.ceil((zMax - zMin) / 24));
+    const half = riverHalf(band) + 12; // garde une petite respiration de berge
+    for (let i = 0; i <= steps; i++) {
+      const sampleZ = zMin + (zMax - zMin) * (i / steps);
+      const dz = sampleZ - z;
+      const footprint = Math.sqrt(Math.max(0, radius * radius - dz * dz));
+      if (Math.abs(x - riverCx(band, sampleZ)) <= footprint + half) return true;
+    }
+  }
+  return false;
+}
+
 // Campagne au-delà de la carte : ferme l'horizon au lieu de laisser le vide.
 // Un grand disque prairie sous le niveau du terrain + une couronne de
 // collines low-poly (les monts du Lyonnais / monts d'Or) en InstancedMesh —
-// deux draw calls en tout, pas de collision, pas d'ombre : pur décor.
+// deux draw calls en tout, pas de collision, pas d'ombre : pur décor. Les
+// vallées de la Saône, du Rhône et de leur prolongement restent ouvertes.
 function buildCountryside(ctx, bound, rand) {
   const meadow = new THREE.Mesh(
     new THREE.CircleGeometry(bound * 3, 40),
@@ -1174,9 +1197,9 @@ function buildCountryside(ctx, bound, rand) {
   const geo = new THREE.ConeGeometry(1, 1, 7); // écrasé/étiré par instance
   geo.translate(0, 0.5, 0); // base du cône au sol
   const mat = new THREE.MeshLambertMaterial({ color: 0x51684a });
-  const hills = new THREE.InstancedMesh(geo, mat, N);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0);
+  const matrices = [];
   for (let i = 0; i < N; i++) {
     // Deux rangs de collines qui se chevauchent : silhouette d'horizon
     // continue sans motif répétitif visible
@@ -1186,10 +1209,18 @@ function buildCountryside(ctx, bound, rand) {
     const w = bound * (0.22 + rand() * 0.2);
     const h = 30 + rand() * 55;
     q.setFromAxisAngle(up, rand() * Math.PI);
-    s.set(w, h, w * (0.7 + rand() * 0.5));
-    m.compose(new THREE.Vector3(Math.cos(a) * r, BED_Y - 0.6, Math.sin(a) * r), q, s);
-    hills.setMatrixAt(i, m);
+    const wz = w * (0.7 + rand() * 0.5);
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    // Le cercle englobant reste sûr malgré la rotation aléatoire de l'ellipse.
+    if (hillTouchesWater(ctx, x, z, Math.max(w, wz), bound)) continue;
+    s.set(w, h, wz);
+    m.compose(new THREE.Vector3(x, BED_Y - 0.6, z), q, s);
+    matrices.push(m.clone());
   }
+  const hills = new THREE.InstancedMesh(geo, mat, matrices.length);
+  matrices.forEach((matrix, i) => hills.setMatrixAt(i, matrix));
+  hills.instanceMatrix.needsUpdate = true;
+  hills.userData.skippedForWater = N - matrices.length;
   hills.userData.noShadow = true;
   ctx.scene.add(hills);
 }

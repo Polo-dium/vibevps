@@ -13,6 +13,8 @@ const SILURE_XP = 120;
 const HIT_DAMAGE = 25;
 const HIT_MIN_INTERVAL_MS = 75; // cadence max de l'AK côté serveur
 const SHOT_MIN_INTERVAL_MS = 60;
+const TAG_HITS_TO_BREAK = 4;
+const TAG_HIT_MIN_INTERVAL_MS = 45;
 const BOMB_RADIUS = 50;
 const BOMB_MIN_INTERVAL_MS = 3000;
 const CHAT_RANGE = 32; // portée du chat de proximité (mètres)
@@ -23,6 +25,7 @@ const players = new Map();
 let wss = null;
 let quenelleClaimedRound = -1; // un seul gagnant par tour de Quenelle dorée
 let silureRound = -1, silureHp = 0, silureDead = false; // HP partagée du silure
+const tagDamage = new Map(); // tagId -> nombre d'impacts reçus
 
 export function setupWs(httpServer) {
   wss = new WebSocketServer({ server: httpServer, path: '/ws' });
@@ -58,6 +61,7 @@ export function setupWs(httpServer) {
           kills: 0,
           lastHitAt: 0,
           lastShotAt: 0,
+          lastTagHitAt: 0,
           lastBombAt: 0,
           lastChatAt: 0,
           lastDamagedAt: 0,
@@ -125,13 +129,38 @@ export function setupWs(httpServer) {
       if (msg.t === 'shot') {
         const now = Date.now();
         if (now - me.lastShotAt < SHOT_MIN_INTERVAL_MS) return;
-        me.lastShotAt = now;
         const a = Array.isArray(msg.a) ? msg.a.map(Number) : null;
         const b = Array.isArray(msg.b) ? msg.b.map(Number) : null;
         if (!a || !b || a.length !== 3 || b.length !== 3) return;
         if ([...a, ...b].some((v) => !Number.isFinite(v) || Math.abs(v) > 2000)) return;
+        me.lastShotAt = now;
         const aircraft = me.veh === 2 && msg.aircraft ? 1 : 0;
         broadcast({ t: 'shot', id, a, b, aircraft }, id);
+        return;
+      }
+
+      // Les graffitis sont de vraies cibles : quatre balles les arrachent,
+      // même si leur plan n'est plus posé contre une géométrie de mur. Le
+      // serveur garde les dégâts partagés et exige un tir relayé juste avant.
+      if (msg.t === 'tagHit') {
+        const now = Date.now();
+        if (now - me.lastTagHitAt < TAG_HIT_MIN_INTERVAL_MS) return;
+        if (now - me.lastShotAt > 800) return;
+        const tagId = String(msg.id ?? '');
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tagId)) return;
+        me.lastTagHitAt = now;
+        if (!q.tagById.get(tagId)) {
+          tagDamage.delete(tagId);
+          return;
+        }
+        const hits = (tagDamage.get(tagId) ?? 0) + 1;
+        if (hits < TAG_HITS_TO_BREAK) {
+          tagDamage.set(tagId, hits);
+          return;
+        }
+        tagDamage.delete(tagId);
+        const info = q.deleteTag.run(tagId);
+        if (info.changes) broadcast({ t: 'tagDel', id: tagId });
         return;
       }
 
