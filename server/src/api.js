@@ -11,10 +11,12 @@ const GAME_COOLDOWN_MS = 120_000;
 const MAX_CUSTOM_GAMES = 30;
 const MAX_IMAGE_BYTES = 400_000;
 const INVENTORY_ITEMS = new Set([
-  'jetpack', 'rc-plane',
+  'jetpack', 'rc-plane', 'radio',
   'weapon:marteau', 'weapon:pompe', 'weapon:minigun', 'weapon:bazooka',
 ]);
-const ARSENAL_WEAPONS = ['weapon:marteau', 'weapon:pompe', 'weapon:minigun', 'weapon:bazooka'];
+const ARSENAL_ITEMS = [
+  'weapon:marteau', 'weapon:pompe', 'weapon:minigun', 'weapon:bazooka', 'radio',
+];
 const ARSENAL_XP = 150;
 
 function playerInventory(player) {
@@ -124,7 +126,7 @@ api.post('/me/inventory', auth, (req, res) => {
   res.json({ ok: true, inventory });
 });
 
-// Quête de l'armurier : le serveur vérifie les quatre ramassages avant de
+// Quête de l'armurier : le serveur vérifie les quatre armes et la radio avant de
 // verser la récompense. L'UPDATE conditionnel rend les +150 XP impossibles à
 // réclamer deux fois, même avec deux requêtes simultanées.
 api.post('/quests/arsenal', auth, (req, res) => {
@@ -138,9 +140,9 @@ api.post('/quests/arsenal', auth, (req, res) => {
       return res.status(409).json({ error: 'Parle d’abord à l’armurier.' });
     }
     const inventory = playerInventory(fresh);
-    const missing = ARSENAL_WEAPONS.filter((id) => !inventory.includes(id));
+    const missing = ARSENAL_ITEMS.filter((id) => !inventory.includes(id));
     if (missing.length) {
-      return res.status(409).json({ error: 'Il reste des armes à retrouver.', missing });
+      return res.status(409).json({ error: 'Il reste de l’équipement à retrouver.', missing });
     }
     const info = q.completeArsenalQuest.run(ARSENAL_XP, req.player.id);
     if (info.changes) xpGain = ARSENAL_XP;

@@ -8,6 +8,7 @@ import { ColliderGrid } from './world/grid.js';
 import { buildArcade } from './world/arcade.js';
 import { buildRange } from './world/range.js';
 import { buildLoot } from './world/loot.js';
+import { buildRadioPickup } from './world/radioPickup.js';
 import { buildWeaponQuest } from './world/weaponQuest.js';
 import { buildBannerPlane, buildAirport } from './world/aviation.js';
 import { createMusicSource, TRACKS } from './music.js';
@@ -57,6 +58,7 @@ async function boot() {
   await ui.ensureAuth();
   state.hasJetpack = state.inventory.includes('jetpack');
   state.hasRcPlane = state.inventory.includes('rc-plane');
+  state.hasRadio = state.inventory.includes('radio');
 
   // Déblocages persistants liés au compte. L'ajout local est immédiat pour
   // ne jamais interrompre un ramassage si le réseau met quelques secondes.
@@ -694,11 +696,24 @@ async function boot() {
   });
 
   // Armes à ramasser sur la map, du marteau au bazooka (voir world/loot.js)
-  buildLoot(ctx, {
+  const loot = buildLoot(ctx, {
     onPickup: (id) => {
       audio.reward();
       rememberInventoryItem(`weapon:${id}`);
       weapon.give(id); // équipe (toast via onWeaponChange) ou recharge
+    },
+  });
+
+  // La radio portable est désormais un vrai objet à trouver devant la salle
+  // d'arcade. Elle rejoint l'inventaire persistant comme les autres objets.
+  const radioPickup = buildRadioPickup(ctx, {
+    hasItem: (id) => state.inventory.includes(id),
+    onPickup: () => {
+      state.hasRadio = true;
+      rememberInventoryItem('radio');
+      audio.reward();
+      ui.toast('📻 Radio récupérée ! Elle est dans ton inventaire — touche B pour l’utiliser.');
+      ui.spawnConfetti(20);
     },
   });
 
@@ -707,6 +722,9 @@ async function boot() {
   buildWeaponQuest(ctx, {
     getStatus: () => state.arsenalQuest,
     hasItem: (id) => state.inventory.includes(id),
+    getItemTarget: (id) => id === 'radio'
+      ? radioPickup.target(controls.position)
+      : loot.nearest(id, controls.position),
     startQuest: async () => {
       const res = await apiFetch('/quests/arsenal', {
         method: 'POST', body: JSON.stringify({ action: 'start' }),
@@ -823,6 +841,10 @@ async function boot() {
   boomModel.visible = false;
   camera.add(boomModel);
   function cycleBoombox() {
+    if (!state.hasRadio) {
+      ui.toast('🔒 Radio verrouillée : récupère-la devant la salle d’arcade pour la mission de Momo !');
+      return;
+    }
     state.boombox = (state.boombox + 1) % (TRACKS.length + 1);
     if (state.boombox === 0) {
       boombox.stop();

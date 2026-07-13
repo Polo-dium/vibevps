@@ -92,7 +92,28 @@ export function buildLoot(ctx, { onPickup }) {
     }
   });
 
-  return { count: spots.length };
+  // La quête de Momo peut demander la position du ramassage le plus proche
+  // pour une arme donnée. On ne révèle pas les coordonnées brutes au joueur :
+  // weaponQuest.js les transforme en direction, distance et repère lyonnais.
+  // Les spots restent déterministes, donc l'indice pointe toujours vers une
+  // arme réellement présente dans le monde affiché.
+  function nearest(id, from = ctx.playerPos?.()) {
+    const weaponId = String(id).replace(/^weapon:/, '');
+    let best = null;
+    let bestD2 = Infinity;
+    for (const spot of spots) {
+      if (spot.id !== weaponId) continue;
+      const dx = spot.x - (from?.x ?? 0);
+      const dz = spot.z - (from?.z ?? 0);
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= bestD2) continue;
+      bestD2 = d2;
+      best = { x: spot.x, z: spot.z, distance: Math.sqrt(d2) };
+    }
+    return best;
+  }
+
+  return { count: spots.length, nearest };
 }
 
 // Halo circulaire doux (dégradé radial en canvas)
