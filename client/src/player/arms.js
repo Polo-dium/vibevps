@@ -43,7 +43,7 @@ function mirror(pose) {
 // la longueur du bras.
 const HAND_LOCAL_Z = -0.35;
 
-function buildArm() {
+function buildArm(side) {
   const group = new THREE.Group();
   const skinMat = new THREE.MeshLambertMaterial({ color: SKIN });
   const sleeveMat = new THREE.MeshLambertMaterial({ color: SLEEVE });
@@ -63,7 +63,56 @@ function buildArm() {
   const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.075), skinMat);
   thumb.position.set(0, 0.045, HAND_LOCAL_Z + 0.03);
   group.add(thumb);
-  return group;
+
+  // Équipement propre au jetpack : une petite manette serrée dans la main
+  // et une mitraillette fixée sur le côté EXTÉRIEUR de l'avant-bras. Tout
+  // reste enfant du bras, donc la bouche du canon visible est aussi la vraie
+  // origine des traceurs utilisée par main.js.
+  const jetGear = new THREE.Group();
+  jetGear.visible = false;
+  const controlMat = new THREE.MeshLambertMaterial({ color: 0x202733 });
+  const gunMat = new THREE.MeshLambertMaterial({ color: 0x303945 });
+  const barrelMat = new THREE.MeshLambertMaterial({ color: 0x11161d });
+  const accentMat = new THREE.MeshLambertMaterial({ color: 0xd23b3b });
+
+  const controlBase = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.045, 0.11), controlMat);
+  controlBase.position.set(0, -0.055, HAND_LOCAL_Z + 0.025);
+  jetGear.add(controlBase);
+  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.13, 6), controlMat);
+  stick.position.set(0, -0.005, HAND_LOCAL_Z - 0.005);
+  stick.rotation.z = side * 0.08;
+  jetGear.add(stick);
+  const redButton = new THREE.Mesh(new THREE.SphereGeometry(0.022, 6, 4), accentMat);
+  redButton.position.set(side * 0.018, 0.066, HAND_LOCAL_Z - 0.01);
+  jetGear.add(redButton);
+
+  const gunX = side * 0.082;
+  const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.065, 0.27), gunMat);
+  receiver.position.set(gunX, -0.012, -0.2);
+  jetGear.add(receiver);
+  const brace = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.1, 0.11), accentMat);
+  brace.position.set(side * 0.057, -0.005, -0.13);
+  jetGear.add(brace);
+  for (const dy of [-0.018, 0.018]) {
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.25, 6), barrelMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(gunX, dy - 0.012, -0.43);
+    jetGear.add(barrel);
+  }
+  const muzzle = new THREE.Object3D();
+  muzzle.position.set(gunX, -0.012, -0.565);
+  jetGear.add(muzzle);
+  const flash = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.105, 0.105),
+    new THREE.MeshBasicMaterial({
+      color: 0xffd27a, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    })
+  );
+  flash.position.copy(muzzle.position);
+  jetGear.add(flash);
+  group.add(jetGear);
+  return { group, jetGear, muzzle, flash };
 }
 
 // Poignée pistolet / garde-main de l'AK, repères locaux au porte-arme (voir
@@ -83,8 +132,10 @@ const GRIP_L = { pos: [-0.02, -0.02, -0.38], rot: [0.3, 0.55, -0.12] }; // garde
 const _fist = new THREE.Vector3();
 
 export function createArms(camera) {
-  const right = buildArm();
-  const left = buildArm();
+  const rightParts = buildArm(1);
+  const leftParts = buildArm(-1);
+  const right = rightParts.group;
+  const left = leftParts.group;
   camera.add(right, left);
   let attachedTo = camera; // camera (poses lerpées) ou le holder d'une arme
 
@@ -108,6 +159,14 @@ export function createArms(camera) {
   // mode 'weapon' pour un calage parfait avec le recul/balancement/recharge.
   function update(dt, mode, isMoving, weaponHolder) {
     const k = 1 - Math.exp(-9 * dt);
+    const jetpackActive = mode === 'jetpack';
+    rightParts.jetGear.visible = jetpackActive;
+    leftParts.jetGear.visible = jetpackActive;
+    for (const flash of [rightParts.flash, leftParts.flash]) {
+      flash.material.opacity = Math.max(0, flash.material.opacity - dt * 18);
+      const s = 0.8 + flash.material.opacity * 0.8;
+      flash.scale.setScalar(s);
+    }
 
     if (mode === 'weapon' && weaponHolder) {
       // Les mains deviennent de VRAIS enfants du porte-arme (repères locaux
@@ -141,6 +200,16 @@ export function createArms(camera) {
     lerpTo(cur.r, RIGHT_POSES[target], k);
     lerpTo(cur.l, mirror(RIGHT_POSES[target]), k);
 
+    // En vol, les deux mains restent verrouillées sur leurs manettes : aucun
+    // pompage de course, aucun balancement lié à la vitesse du joueur.
+    if (jetpackActive) {
+      right.position.copy(cur.r.pos);
+      right.rotation.copy(cur.r.rot);
+      left.position.copy(cur.l.pos);
+      left.rotation.copy(cur.l.rot);
+      return;
+    }
+
     bobTime += dt * (isMoving ? 9 : 1.6);
     // Pompage de course en OPPOSITION DE PHASE, surtout avant/arrière (z)
     // comme un vrai jogging, avec un peu de vertical — presque rien à l'arrêt.
@@ -158,5 +227,16 @@ export function createArms(camera) {
   return {
     update,
     setVisible(v) { right.visible = v; left.visible = v; },
+    getJetpackMuzzles() {
+      camera.updateWorldMatrix(true, true);
+      return [rightParts.muzzle, leftParts.muzzle]
+        .map((muzzle) => muzzle.getWorldPosition(new THREE.Vector3()));
+    },
+    pulseJetpackGuns() {
+      for (const flash of [rightParts.flash, leftParts.flash]) {
+        flash.material.opacity = 1;
+        flash.rotation.z = Math.random() * Math.PI;
+      }
+    },
   };
 }

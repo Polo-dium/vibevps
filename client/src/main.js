@@ -277,6 +277,15 @@ async function boot() {
     },
     // Conduite des décapotables (voir world/traffic.js)
     startDrive: (car, group) => {
+      // Entrer dans un véhicule range toujours le jetpack. Sans cette remise
+      // à zéro, son état de vol (son + particules, et anciennement ses
+      // bonbonnes en vue subjective) pouvait rester actif dans un avion.
+      if (controls.flying) {
+        controls.setFlying(false);
+        state.flying = false;
+        jetpackGuns.setTrigger(false);
+        audio.jetStop();
+      }
       if (!car.remoteControl) {
         controls.teleport(group.position.x, group.position.y, group.position.z);
       }
@@ -527,7 +536,9 @@ async function boot() {
       navigator.vibrate?.(18);
       // Les mitrailleuses de bord ne dépendent jamais de l'arme rangée du
       // personnage. Le Mirage frappe un peu plus fort que le coucou.
-      const dmg = hit?.aircraft ? (hit.jet ? 32 : 25) : weapon.damage;
+      const dmg = hit?.jetpack ? 9
+        : hit?.aircraft ? (hit.jet ? 32 : 25)
+          : weapon.damage;
       net.send({ t: 'hit', target: id, dmg });
     },
   });
@@ -830,8 +841,84 @@ async function boot() {
   // Capture d'écran stylée : touche C (desktop) ou bouton 📸 (tactile)
   const capture = createCapture({ renderer, scene, camera, onToast: ui.toast });
 
-  // Avant-bras en vue subjective (purement cosmétique, voir player/arms.js)
+  // Avant-bras en vue subjective. En jetpack, ils portent aussi les deux
+  // mitraillettes dont les bouches servent d'origine réelle aux traceurs.
   const arms = createArms(camera);
+
+  const jetpackRaycaster = new THREE.Raycaster();
+  const jetpackDirection = new THREE.Vector3();
+  let jetpackTrigger = false;
+  let jetpackCooldown = 0;
+
+  function fireJetpackVolley() {
+    const origins = arms.getJetpackMuzzles();
+    if (!origins.length) return;
+    camera.getWorldDirection(jetpackDirection).normalize();
+    const range = 120;
+    const hitObjects = new Set();
+    let relayEnd = null;
+
+    for (const origin of origins) {
+      jetpackRaycaster.set(origin, jetpackDirection);
+      jetpackRaycaster.far = range;
+      const wallD = worldHitDistance(origin, jetpackDirection, range);
+      const hits = jetpackRaycaster.intersectObjects(ctx.shootables, false);
+      let end;
+      if (hits.length && hits[0].distance <= wallD) {
+        const hit = hits[0];
+        hit.jetpack = true;
+        end = hit.point.clone();
+        if (!hitObjects.has(hit.object)) {
+          hitObjects.add(hit.object);
+          hit.object.userData.onHit?.(hit);
+        }
+        weapon.fx.spawnImpact(end);
+      } else if (wallD <= range) {
+        end = jetpackRaycaster.ray.at(wallD, new THREE.Vector3());
+        weapon.fx.spawnImpact(end);
+      } else {
+        end = jetpackRaycaster.ray.at(range, new THREE.Vector3());
+      }
+      weapon.fx.spawnTracer(origin.toArray(), end.toArray(), true);
+      relayEnd ??= end;
+    }
+
+    if (relayEnd) {
+      net.send({ t: 'shot', a: origins[0].toArray(), b: relayEnd.toArray(), jetpack: 1 });
+    }
+    arms.pulseJetpackGuns();
+    audio.gunshot();
+    navigator.vibrate?.(8);
+  }
+
+  const jetpackGuns = {
+    setTrigger(on) {
+      jetpackTrigger = Boolean(on);
+      if (jetpackTrigger && state.weaponEquipped) weapon.toggle(false);
+    },
+    update(dt) {
+      jetpackCooldown -= dt;
+      if (!controls.flying || controls.vehicle) {
+        jetpackTrigger = false;
+        return;
+      }
+      const inputOk = IS_TOUCH || state.pointerLocked;
+      const canShoot = inputOk && jetpackTrigger && jetpackCooldown <= 0 &&
+        !state.overlayOpen && !state.tagMode && !state.sanctuary && !state.photoMode;
+      if (!canShoot) return;
+      jetpackCooldown = 0.08;
+      fireJetpackVolley();
+    },
+  };
+
+  if (!IS_TOUCH) {
+    window.addEventListener('mousedown', (e) => {
+      if (e.button === 0 && controls.flying && !controls.vehicle) jetpackGuns.setTrigger(true);
+    });
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 0) jetpackGuns.setTrigger(false);
+    });
+  }
 
   // --- Enceinte portable (touche B) : boucles procédurales WebAudio, zéro
   // asset et coût quasi nul. Les autres joueurs l'entendent (champ `mus`
@@ -879,17 +966,15 @@ async function boot() {
   }
 
   // --- Jetpack : touche J (une fois ramassé à la Confluence) range/ressort
-  // le jetpack ET décolle/atterrit en un geste — visible en vue subjective
-  // (voir buildJetpackViewModel plus bas), comme l'arme ou l'enceinte.
+  // le jetpack ET décolle/atterrit en un geste. Le sac et ses bonbonnes ne
+  // sont jamais dessinés devant la caméra ; seuls les bras/manettes/canons
+  // visibles dans arms.js constituent la vue subjective.
   // Particules de propulsion mutualisées, son de réacteur modulé.
   const jetGeo = new THREE.SphereGeometry(0.12, 5, 5);
   const jetMat = new THREE.MeshBasicMaterial({
     color: 0xffb347, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
   });
   const jetParticles = []; // { mesh, vel, life, maxLife }
-  const jetModel = buildJetpackViewModel();
-  jetModel.visible = false;
-  camera.add(jetModel);
   function toggleJetpack() {
     if (!state.hasJetpack) {
       ui.toast('🚀 Va chercher le jetpack à la pointe de la Confluence !');
@@ -897,9 +982,11 @@ async function boot() {
     }
     if (state.driving) return;
     const on = !controls.flying;
+    if (on && state.weaponEquipped) weapon.toggle(false);
+    if (on && state.tagMode) spray.setMode(false);
     controls.setFlying(on);
     state.flying = on;
-    jetModel.visible = on;
+    if (!on) jetpackGuns.setTrigger(false);
     if (on) { audio.jetStart(); ui.toast('🚀 Jetpack sorti, décollage ! Espace pour monter, J pour ranger.'); }
     else { audio.jetStop(); ui.toast('🎒 Jetpack rangé.'); }
   }
@@ -1048,7 +1135,7 @@ async function boot() {
       if (controls.flying) {
         controls.setFlying(false);
         state.flying = false;
-        jetModel.visible = false;
+        jetpackGuns.setTrigger(false);
         audio.jetStop();
       }
       npcs.calm(); // la Garde a eu sa vengeance
@@ -1149,6 +1236,7 @@ async function boot() {
     createTouchControls({
       controls, weapon, spray, tagEditor, ui, voice, capture, emote,
       jetpack: () => toggleJetpack(),
+      jetpackGuns,
       rcPlane: () => toggleRcPlane(),
       interact: () => nearestInteractable?.action(),
       map: () => poiMap.toggle(),
@@ -1218,14 +1306,22 @@ async function boot() {
     const dt = Math.min(clock.getDelta(), 0.05);
 
     controls.update(dt);
+    // Les outils tenus en main ne peuvent pas réapparaître via un raccourci
+    // pendant le vol : les mains restent exclusivement sur les manettes.
+    if (controls.flying && state.weaponEquipped) weapon.toggle(false);
+    if (controls.flying && state.tagMode) spray.setMode(false);
     weapon.update(dt, controls.isMoving());
     // Bras en vue subjective : masqués au volant/aux commandes (caméra
     // externe ou poste de pilotage), sinon la pose suit ce qui est en main
     arms.setVisible(!controls.vehicle);
-    const armMode = state.weaponEquipped ? 'weapon'
-      : state.boombox ? 'boombox'
-      : controls.flying ? 'jetpack' : 'idle';
+    const armMode = controls.flying ? 'jetpack'
+      : state.weaponEquipped ? 'weapon'
+        : state.boombox ? 'boombox' : 'idle';
     arms.update(dt, armMode, controls.isMoving(), weapon.holder);
+    jetpackGuns.update(dt);
+    // La radio peut continuer à jouer en vol, mais son modèle porté ne doit
+    // jamais flotter devant la caméra en jetpack ou dans un avion.
+    boomModel.visible = Boolean(state.boombox && !controls.flying && !controls.vehicle);
     spray.update(dt);
     remotes.update();
     voice.update();
@@ -1356,30 +1452,5 @@ function buildBoomboxModel() {
   // Tenue à bout de bras, tournée vers le joueur
   g.position.set(-0.34, -0.3, -0.55);
   g.rotation.set(0.1, 2.6, 0);
-  return g;
-}
-
-// Jetpack rangé/sorti : dossard + bonbonnes visibles au bas de la vue
-// (mêmes teintes que le modèle du monde, voir buildJetpackPad dans city.js)
-function buildJetpackViewModel() {
-  const g = new THREE.Group();
-  const metal = new THREE.MeshLambertMaterial({ color: 0xd23b3b });
-  const dark = new THREE.MeshLambertMaterial({ color: 0x2a2e36 });
-  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.36, 0.14), dark);
-  g.add(pack);
-  for (const dx of [-0.17, 0.17]) {
-    const tank = new THREE.Mesh(new THREE.CapsuleGeometry(0.09, 0.28, 5, 8), metal);
-    tank.position.set(dx, 0, 0);
-    g.add(tank);
-    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.1, 6), dark);
-    nozzle.position.set(dx, -0.24, 0);
-    g.add(nozzle);
-  }
-  // Porté dans le dos, pas tenu devant le visage : bas de l'écran, penché
-  // vers l'arrière (comme un vrai sac sanglé aux épaules). On ne voit jamais
-  // son propre dos en vue subjective — juste un coin de bretelles/bonbonnes
-  // qui dépasse en bas de cadre, comme le reste de l'équipement porté.
-  g.position.set(0, -0.5, -0.28);
-  g.rotation.set(-0.35, 0, 0);
   return g;
 }

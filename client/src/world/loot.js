@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { makeRand } from './layout.js';
+import { makeRand, RANGE } from './layout.js';
 import { WEAPONS, buildWeaponModel } from '../player/weapon.js';
 import { QUEST_HAMMER_SPOT } from './weaponQuest.js';
 
@@ -28,6 +28,40 @@ export function buildLoot(ctx, { onPickup }) {
 
   const spots = []; // { id, group, x, y, z, hiddenUntil }
 
+  // Test 2D volontairement plus strict que la collision du joueur : les
+  // immeubles OSM ont des murs fins + un collider de toit. Un point tiré au
+  // milieu de leur empreinte ne touchait donc aucun mur au niveau du sol et
+  // pouvait enfermer une arme à l'intérieur. Le collider du toit nous donne
+  // justement toute l'empreinte à exclure, quelle que soit sa hauteur.
+  function isOpen(x, z, margin = 0.9) {
+    if (Math.abs(x) > bound || Math.abs(z) > bound) return false;
+    const y = ctx.terrainHeight?.(x, z) ?? 0;
+    if (y < -0.2 || ctx.waterMask?.isWater?.(x, z)) return false;
+    for (const b of ctx.colliders.nearby?.(x, z, margin + 1) ?? []) {
+      if (
+        x > b.minX - margin && x < b.maxX + margin &&
+        z > b.minZ - margin && z < b.maxZ + margin
+      ) return false;
+    }
+    return true;
+  }
+
+  function nearestOpen(x, z) {
+    if (isOpen(x, z)) return { x, z };
+    // Spirale déterministe : même solution pour tous les joueurs, sans
+    // Math.random(), jusqu'à trouver un trottoir/espace libre voisin.
+    for (let radius = 3; radius <= Math.min(48, bound); radius += 3) {
+      const steps = Math.max(8, Math.round((Math.PI * 2 * radius) / 3));
+      for (let i = 0; i < steps; i++) {
+        const a = (i / steps) * Math.PI * 2;
+        const sx = x + Math.cos(a) * radius;
+        const sz = z + Math.sin(a) * radius;
+        if (isOpen(sx, sz)) return { x: sx, z: sz };
+      }
+    }
+    return null;
+  }
+
   function addSpot(id, x, z, phase) {
     const y = ctx.terrainHeight?.(x, z) ?? 0;
     const group = new THREE.Group();
@@ -46,22 +80,18 @@ export function buildLoot(ctx, { onPickup }) {
   // Premier objectif de la quête : un marteau toujours au pied de la Grande
   // Roue, juste à côté de Momo. Les autres armes restent dispersées dans Lyon.
   addSpot('marteau', QUEST_HAMMER_SPOT.x, QUEST_HAMMER_SPOT.z, rand() * Math.PI * 2);
+  // Une minigun est toujours disponible en espace ouvert à côté du stand de
+  // tir. Les exemplaires aléatoires restent présents, mais la quête ne peut
+  // plus dépendre d'une arme enfermée dans une empreinte OSM.
+  const guaranteedMinigun = nearestOpen(RANGE.x + RANGE.width / 2 + 5, RANGE.counterZ + 2);
+  if (guaranteedMinigun) {
+    addSpot('minigun', guaranteedMinigun.x, guaranteedMinigun.z, rand() * Math.PI * 2);
+  }
   let guard = 0;
   while (spots.length < count && guard++ < count * 50) {
     const x = (rand() * 2 - 1) * bound;
     const z = (rand() * 2 - 1) * bound;
-    const y = ctx.terrainHeight?.(x, z) ?? 0;
-    if (y < -0.2) continue; // lit des fleuves
-    // Jamais dans un mur : on vérifie les colliders du coin
-    let blocked = false;
-    for (const b of ctx.colliders.nearby?.(x, z, 1.6) ?? []) {
-      if (
-        x > b.minX - 0.6 && x < b.maxX + 0.6 &&
-        z > b.minZ - 0.6 && z < b.maxZ + 0.6 &&
-        y + 1.2 > b.minY && y < b.maxY
-      ) { blocked = true; break; }
-    }
-    if (blocked) continue;
+    if (!isOpen(x, z)) continue;
 
     const id = POOL[spots.length % POOL.length];
     addSpot(id, x, z, rand() * Math.PI * 2);
