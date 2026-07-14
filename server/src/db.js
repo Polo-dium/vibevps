@@ -99,6 +99,8 @@ for (const col of [
   `streak_current INTEGER NOT NULL DEFAULT 0`, // défis quotidiens : série en cours
   `streak_best INTEGER NOT NULL DEFAULT 0`,
   `streak_last_date TEXT`, // dernier jour où les 3 défis ont été bouclés
+  `inventory TEXT NOT NULL DEFAULT '[]'`, // objets trouvés, conservés avec le compte
+  `arsenal_quest INTEGER NOT NULL DEFAULT 0`, // 0 à prendre, 1 active, 2 terminée
 ]) {
   try {
     db.exec(`ALTER TABLE players ADD COLUMN ${col}`);
@@ -114,6 +116,13 @@ export const q = {
   playerByName: db.prepare(`SELECT * FROM players WHERE name = ?`),
   playerByToken: db.prepare(`SELECT * FROM players WHERE token = ?`),
   setPin: db.prepare(`UPDATE players SET pin_hash = ? WHERE id = ?`),
+  setInventory: db.prepare(`UPDATE players SET inventory = ? WHERE id = ?`),
+  startArsenalQuest: db.prepare(
+    `UPDATE players SET arsenal_quest = 1 WHERE id = ? AND arsenal_quest = 0`
+  ),
+  completeArsenalQuest: db.prepare(
+    `UPDATE players SET arsenal_quest = 2, xp = xp + ? WHERE id = ? AND arsenal_quest = 1`
+  ),
 
   listGames: db.prepare(
     `SELECT g.id, g.title, g.builtin, g.prompt, g.created_at, p.name AS creator
@@ -166,6 +175,7 @@ export const q = {
   ),
 
   setAdmin: db.prepare(`UPDATE players SET is_admin = 1 WHERE id = ?`),
+  tagById: db.prepare(`SELECT id FROM tags WHERE id = ?`),
   deleteTag: db.prepare(`DELETE FROM tags WHERE id = ?`),
   deleteAllTags: db.prepare(`DELETE FROM tags`),
 

@@ -15,9 +15,13 @@ export const state = {
   xp: 0, // progression du joueur (source de vérité : serveur)
   level: 1,
   photoMode: false, // mode photo : zoom à la molette, clic = capture
-  boombox: 0, // enceinte portable : 0 = coupée, 1..3 = morceau en cours
+  boombox: 0, // enceinte portable : 0 = coupée, 1..4 = morceau en cours
   driving: false, // au volant d'une décapotable
+  inventory: [], // identifiants des objets trouvés, restaurés depuis le compte
+  arsenalQuest: 0, // 0 à prendre, 1 active, 2 terminée
   hasJetpack: false, // jetpack ramassé à la Confluence
+  hasRcPlane: false, // avion radiocommandé trouvé à l'aéroport
+  hasRadio: false, // radio portable récupérée devant la salle d'arcade
   flying: false, // jetpack en cours d'utilisation
 };
 

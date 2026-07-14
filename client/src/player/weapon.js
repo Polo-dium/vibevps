@@ -7,6 +7,7 @@ const RELOAD_TIME = 1.6;
 const TRACER_SPEED = 260; // m/s (visuel)
 const ROCKET_SPEED = 55; // m/s (la roquette du bazooka, bien visible)
 const MAX_SHELLS = 36;
+const MAX_ROCKETS = 10;
 
 // L'arsenal, du marteau au bazooka. Les armes (sauf l'AK de départ) se
 // ramassent sur la map (voir world/loot.js). `dmg` est une INDICATION envoyée
@@ -35,7 +36,7 @@ export const WEAPONS = {
 };
 
 export function createWeapon(camera, scene, shootables, {
-  onAmmoChange, onShot, getGroundY, onWeaponChange, worldHit,
+  onAmmoChange, onShot, onRocketExplosion, getGroundY, onWeaponChange, worldHit,
 }) {
   // Porte-arme : un seul modèle visible à la fois, construits à la demande
   const holder = new THREE.Group();
@@ -83,6 +84,9 @@ export function createWeapon(camera, scene, shootables, {
   const tracerMat = new THREE.MeshBasicMaterial({
     color: 0xffe9a0, blending: THREE.AdditiveBlending, depthWrite: false,
   });
+  const aircraftTracerMat = new THREE.MeshBasicMaterial({
+    color: 0xff2020, blending: THREE.AdditiveBlending, depthWrite: false,
+  });
 
   const particles = []; // { mesh, vel, life, maxLife, baseScale }
   const particleGeo = new THREE.SphereGeometry(0.03, 5, 5);
@@ -97,8 +101,16 @@ export function createWeapon(camera, scene, shootables, {
   ];
 
   // Roquettes de bazooka en vol
-  const rockets = []; // { mesh, dir, remaining }
-  let rocketGeo = null, rocketMat = null;
+  const rockets = []; // { mesh, dir, remaining, trailTimer, onImpact }
+  let rocketBodyGeo = null, rocketNoseGeo = null, rocketFinGeo = null, rocketFlameGeo = null;
+  const rocketBodyMat = new THREE.MeshLambertMaterial({ color: 0x7f8b75 });
+  const rocketNoseMat = new THREE.MeshLambertMaterial({ color: 0x2f3630 });
+  const rocketFireMat = new THREE.MeshBasicMaterial({
+    color: 0xffb23e, blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const rocketSmokeMat = new THREE.MeshBasicMaterial({
+    color: 0x9b9d94, transparent: true, opacity: 0.72, depthWrite: false,
+  });
 
   // Douilles éjectées
   const shells = []; // { mesh, vel, spin, life, bounces }
@@ -131,14 +143,14 @@ export function createWeapon(camera, scene, shootables, {
     });
   }
 
-  function spawnTracer(a, b) {
+  function spawnTracer(a, b, aircraft = false) {
     const from = new THREE.Vector3(...a);
     const to = new THREE.Vector3(...b);
     const dir = to.clone().sub(from);
     const dist = dir.length();
     if (dist < 0.5) return;
     dir.normalize();
-    const mesh = new THREE.Mesh(tracerGeo, tracerMat);
+    const mesh = new THREE.Mesh(tracerGeo, aircraft ? aircraftTracerMat : tracerMat);
     mesh.position.copy(from);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir);
     scene.add(mesh);
@@ -193,21 +205,48 @@ export function createWeapon(camera, scene, shootables, {
     navigator.vibrate?.(60);
   }
 
-  function fireRocket(from, to) {
-    if (!rocketGeo) {
-      rocketGeo = new THREE.ConeGeometry(0.09, 0.5, 6);
-      rocketGeo.rotateX(-Math.PI / 2); // pointe vers -z
-      rocketMat = new THREE.MeshBasicMaterial({ color: 0x9aa38f });
+  function detonateRocket(point, onImpact) {
+    onImpact?.();
+    spawnExplosion(point);
+    onRocketExplosion?.(point.clone?.() ?? point);
+  }
+
+  function fireRocket(from, to, onImpact = null) {
+    if (!rocketBodyGeo) {
+      rocketBodyGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.36, 8);
+      rocketBodyGeo.rotateX(Math.PI / 2);
+      rocketNoseGeo = new THREE.ConeGeometry(0.072, 0.19, 8);
+      rocketNoseGeo.rotateX(-Math.PI / 2); // pointe vers -z
+      rocketFinGeo = new THREE.ConeGeometry(0.14, 0.22, 4);
+      rocketFinGeo.rotateX(Math.PI / 2);
+      rocketFlameGeo = new THREE.SphereGeometry(0.055, 6, 4);
     }
     const dir = to.clone().sub(from);
     const dist = dir.length();
-    if (dist < 1) { spawnExplosion(to); return; }
+    if (dist < 1) { detonateRocket(to, onImpact); return; }
     dir.normalize();
-    const mesh = new THREE.Mesh(rocketGeo, rocketMat);
+    if (rockets.length >= MAX_ROCKETS) {
+      const old = rockets.shift();
+      scene.remove(old.mesh);
+    }
+    const mesh = new THREE.Group();
+    const body = new THREE.Mesh(rocketBodyGeo, rocketBodyMat);
+    body.position.z = -0.015;
+    mesh.add(body);
+    const nose = new THREE.Mesh(rocketNoseGeo, rocketNoseMat);
+    nose.position.z = -0.285;
+    mesh.add(nose);
+    const fins = new THREE.Mesh(rocketFinGeo, rocketNoseMat);
+    fins.position.z = 0.19;
+    mesh.add(fins);
+    const flame = new THREE.Mesh(rocketFlameGeo, rocketFireMat);
+    flame.position.z = 0.25;
+    flame.scale.set(0.8, 0.8, 1.8);
+    mesh.add(flame);
     mesh.position.copy(from);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir);
     scene.add(mesh);
-    rockets.push({ mesh, dir, remaining: dist });
+    rockets.push({ mesh, dir, remaining: dist, trailTimer: 0, onImpact });
   }
 
   // --- Entrées ---
@@ -260,11 +299,19 @@ export function createWeapon(camera, scene, shootables, {
   }
 
   // Ramassage d'une arme sur la map : ajoutée à l'inventaire et équipée
-  function give(id) {
+  function give(id, { equip = true } = {}) {
     if (!WEAPONS[id]) return;
     if (!owned.includes(id)) owned.push(id);
+    if (!equip) return;
     if (id === curId) { ammo = spec.mag; onAmmoChange(ammo, reloading > 0, spec); return; }
     select(id);
+  }
+
+  function equip(id) {
+    if (!owned.includes(id)) return false;
+    if (id === curId) toggle(true);
+    else select(id);
+    return true;
   }
 
   function shoot() {
@@ -302,7 +349,7 @@ export function createWeapon(camera, scene, shootables, {
     if (spec.rocket) audio.rocket();
     else if (spec.pellets) audio.shotgun();
     else audio.gunshot();
-    spawnShell();
+    if (!spec.rocket) spawnShell();
     onAmmoChange(ammo, false, spec);
 
     // --- Tir(s) : 1 rayon, ou une gerbe de plombs pour le fusil à pompe ---
@@ -321,13 +368,16 @@ export function createWeapon(camera, scene, shootables, {
         : Infinity;
       const hits = raycaster.intersectObjects(shootables, false);
       let end;
+      let rocketImpact = null;
       if (hits.length > 0 && hits[0].distance <= wallD) {
-        end = hits[0].point.clone();
-        if (!hitObjects.has(hits[0].object)) {
-          hitObjects.add(hits[0].object);
-          hits[0].object.userData.onHit?.(hits[0]);
+        const hit = hits[0];
+        end = hit.point.clone();
+        if (!hitObjects.has(hit.object)) {
+          hitObjects.add(hit.object);
+          if (spec.rocket) rocketImpact = () => hit.object.userData.onHit?.(hit);
+          else hit.object.userData.onHit?.(hit);
         }
-        if (k < 3) spawnImpact(hits[0].point);
+        if (k < 3 && !spec.rocket) spawnImpact(hit.point);
       } else if (wallD <= spec.range) {
         end = raycaster.ray.at(wallD, new THREE.Vector3());
         if (k < 3 && !spec.rocket) spawnImpact(end);
@@ -335,7 +385,7 @@ export function createWeapon(camera, scene, shootables, {
         end = raycaster.ray.at(spec.range, new THREE.Vector3());
       }
       if (k === 0) mainEnd = end;
-      if (spec.rocket) fireRocket(muzzle, end);
+      if (spec.rocket) fireRocket(muzzle, end, rocketImpact);
       else spawnTracer(muzzle.toArray(), end.toArray());
     }
     onShot?.(muzzle.toArray(), mainEnd.toArray());
@@ -363,23 +413,39 @@ export function createWeapon(camera, scene, shootables, {
         tracers.splice(i, 1);
       }
     }
-    // Roquettes : plus lentes, panache d'étincelles, explosion à l'arrivée
+    // Roquettes : projectile lisible + traînée dense de fumée et d'étincelles.
     for (let i = rockets.length - 1; i >= 0; i--) {
       const r = rockets[i];
-      const step = ROCKET_SPEED * dt;
+      const step = Math.min(ROCKET_SPEED * dt, r.remaining);
       r.mesh.position.addScaledVector(r.dir, step);
       r.remaining -= step;
-      if (particles.length < 120 && Math.random() < 0.7) {
-        const m = new THREE.Mesh(particleGeo, sparkMats[i % 2]);
-        m.position.copy(r.mesh.position);
-        scene.add(m);
+      r.trailTimer -= dt;
+      if (r.trailTimer <= 0 && particles.length < 150) {
+        r.trailTimer += 0.025;
+        const smoke = new THREE.Mesh(particleGeo, rocketSmokeMat);
+        smoke.position.copy(r.mesh.position).addScaledVector(r.dir, -0.18);
+        smoke.position.x += (Math.random() - 0.5) * 0.05;
+        smoke.position.y += (Math.random() - 0.5) * 0.05;
+        smoke.position.z += (Math.random() - 0.5) * 0.05;
+        smoke.scale.setScalar(4.6);
+        scene.add(smoke);
         particles.push({
-          mesh: m, vel: new THREE.Vector3(0, 0.5, 0),
-          life: 0.3, maxLife: 0.3, baseScale: 1.4,
+          mesh: smoke,
+          vel: new THREE.Vector3((Math.random() - 0.5) * 0.4, 0.45, (Math.random() - 0.5) * 0.4),
+          life: 0.58, maxLife: 0.58, baseScale: 4.6, gravity: -0.7,
+        });
+        const spark = new THREE.Mesh(particleGeo, rocketFireMat);
+        spark.position.copy(r.mesh.position).addScaledVector(r.dir, -0.22);
+        spark.scale.setScalar(2.1);
+        scene.add(spark);
+        particles.push({
+          mesh: spark, vel: r.dir.clone().multiplyScalar(-2.2),
+          life: 0.18, maxLife: 0.18, baseScale: 2.1, gravity: 0,
         });
       }
       if (r.remaining <= 0) {
-        spawnExplosion(r.mesh.position);
+        const impact = r.mesh.position.clone();
+        detonateRocket(impact, r.onImpact);
         scene.remove(r.mesh);
         rockets.splice(i, 1);
       }
@@ -410,11 +476,11 @@ export function createWeapon(camera, scene, shootables, {
       }
     }
 
-    // Étincelles d'impact (fondu par échelle : matériaux partagés)
+    // Étincelles, fumée et impacts (fondu par échelle : matériaux partagés)
     for (let i = particles.length - 1; i >= 0; i--) {
       const s = particles[i];
       s.life -= dt;
-      s.vel.y -= 12 * dt;
+      s.vel.y -= (s.gravity ?? 12) * dt;
       s.mesh.position.addScaledVector(s.vel, dt);
       s.mesh.scale.setScalar(Math.max(0.001, s.baseScale * (s.life / s.maxLife)));
       if (s.life <= 0) {
@@ -456,11 +522,15 @@ export function createWeapon(camera, scene, shootables, {
     toggle,
     reload,
     give,
+    equip,
     cycle,
     setTrigger(down) { triggerDown = down; },
     fx: { spawnTracer, spawnImpact, spawnExplosion },
     get ammo() { return ammo; },
     get spec() { return spec; },
+    get inventory() {
+      return owned.map((id) => ({ id, ...WEAPONS[id], equipped: id === curId && state.weaponEquipped }));
+    },
     get damage() { return spec.dmg; },
     // Le porte-arme lui-même : les bras (arms.js) lisent sa position/rotation
     // en direct chaque frame pour rester parfaitement calés sur le recul,

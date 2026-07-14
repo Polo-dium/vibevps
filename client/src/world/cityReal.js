@@ -10,7 +10,8 @@ import {
   buildGrandeRoue, buildFountain, buildStreetFurniture, buildMurPeint,
   buildPeniches, buildSilure, buildFourviere, buildLamps,
   buildTraboules, buildRiverWorks, composeRiverTerrain, buildConfluence,
-  buildJetpackPad, buildTerrasse, makeWaterTexture, WATER_Y, BED_Y,
+  buildConfluenceMuseum, buildJetpackPad, buildTerrasse,
+  makeWaterTexture, WATER_Y, BED_Y,
 } from './city.js';
 import { buildTraffic } from './traffic.js';
 import { buildRooftopBar } from './rooftops.js';
@@ -269,6 +270,7 @@ function buildWaterMask(polys, bound, res = 4) {
   if (!Array.isArray(polys) || !polys.length) return null;
   const n = Math.ceil((2 * bound) / res);
   const grid = new Uint8Array(n * n);
+  const extensions = [];
   for (let row = 0; row < n; row++) {
     const z = -bound + (row + 0.5) * res;
     for (const ring of polys) {
@@ -289,11 +291,54 @@ function buildWaterMask(polys, bound, res = 4) {
   }
   return {
     res, grid, n, bound,
+    extensions,
     isWater(x, z) {
       const c = Math.floor((x + bound) / res), r = Math.floor((z + bound) / res);
-      return c >= 0 && r >= 0 && c < n && r < n && grid[r * n + c] === 1;
+      if (c >= 0 && r >= 0 && c < n && r < n && grid[r * n + c] === 1) return true;
+      return extensions.some((e) => e.contains(x, z));
     },
   };
+}
+
+// Consolide le masque le long des centerlines (évite qu'un grand triangle de
+// colline traverse la Saône), puis extrapole le Rhône après la Confluence.
+function reinforceRiverWater(mask, bands, rhone, zConf, bound) {
+  const { grid, n, res } = mask;
+  const paint = (cxAt, half, z0, z1) => {
+    const r0 = Math.max(0, Math.floor((z0 + bound) / res));
+    const r1 = Math.min(n - 1, Math.ceil((z1 + bound) / res));
+    for (let r = r0; r <= r1; r++) {
+      const z = -bound + (r + 0.5) * res;
+      const cx = cxAt(z);
+      const c0 = Math.max(0, Math.floor((cx - half + bound) / res));
+      const c1 = Math.min(n - 1, Math.ceil((cx + half + bound) / res));
+      for (let c = c0; c <= c1; c++) grid[r * n + c] = 1;
+    }
+  };
+
+  for (const band of bands) {
+    const z0 = Math.max(-bound, band.zMin ?? -bound);
+    const z1 = Math.min(bound, band.zMax ?? bound);
+    paint((z) => riverCx(band, z), riverHalf(band) + 1.5, z0, z1);
+  }
+
+  const zStart = Math.max(-bound, zConf - 24);
+  const zEnd = bound + 120;
+  const anchorZ = Math.min(zStart, rhone.zMax ?? zStart);
+  const anchorX = riverCx(rhone, anchorZ);
+  const beforeX = riverCx(rhone, anchorZ - 80);
+  const slope = THREE.MathUtils.clamp((anchorX - beforeX) / 80, -0.35, 0.35);
+  const half = Math.max(30, riverHalf(rhone));
+  const continuation = {
+    zStart, zEnd, half,
+    cx: (z) => anchorX + slope * (z - anchorZ),
+    contains(x, z) {
+      return z >= zStart && z <= zEnd && Math.abs(x - this.cx(z)) <= half;
+    },
+  };
+  paint(continuation.cx, half, zStart, bound);
+  mask.extensions.push(continuation);
+  return continuation;
 }
 
 // Murets de quai en pierre le long de la frontière eau/terre du masque :
@@ -455,6 +500,47 @@ function buildWaterSurfaces(ctx, polys) {
     ctx.scene.add(mesh);
   });
   ctx.updatables.push((dt) => { tex.offset.y -= dt * 0.012; });
+}
+
+// Ruban aval du Rhône : prolonge visuellement et physiquement le fleuve au
+// sud de l'emprise OSM. Il chevauche légèrement l'eau réelle à la jonction,
+// puis continue derrière la limite jouable pour fermer proprement l'horizon.
+function buildRiverContinuation(ctx, continuation) {
+  const positions = [], uvs = [];
+  const STEP = 12;
+  for (let za = continuation.zStart; za < continuation.zEnd; za += STEP) {
+    const zb = Math.min(za + STEP, continuation.zEnd);
+    const la = continuation.cx(za) - continuation.half;
+    const ra = continuation.cx(za) + continuation.half;
+    const lb = continuation.cx(zb) - continuation.half;
+    const rb = continuation.cx(zb) + continuation.half;
+    positions.push(
+      la, 0, za, lb, 0, zb, rb, 0, zb,
+      la, 0, za, rb, 0, zb, ra, 0, za
+    );
+    const va = za / 18, vb = zb / 18;
+    uvs.push(0, va, 0, vb, 1, vb, 0, va, 1, vb, 1, va);
+  }
+  const geometry = () => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.computeVertexNormals();
+    return geo;
+  };
+  const bed = new THREE.Mesh(geometry(), new THREE.MeshLambertMaterial({ color: 0x27352b }));
+  bed.position.y = BED_Y + 0.02;
+  ctx.scene.add(bed);
+
+  const tex = makeWaterTexture();
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  const water = new THREE.Mesh(geometry(), new THREE.MeshPhongMaterial({
+    map: tex, transparent: true, opacity: 0.96,
+    specular: 0x9cb9ce, shininess: 70, side: THREE.DoubleSide,
+  }));
+  water.position.y = WATER_Y + 0.015;
+  ctx.scene.add(water);
+  ctx.updatables.push((dt) => { tex.offset.y -= dt * 0.014; });
 }
 
 // Basilique Notre-Dame de Fourvière : à sa vraie place sur la colline, à
@@ -745,6 +831,15 @@ export function buildRealCity(ctx, data) {
     zTip: zConf + Math.min(130, (east.minX - west.maxX) * 0.7),
     zEnd: bound + 120,
   };
+  // Le musée réel se trouve juste au nord de la pointe, entre les deux rives.
+  const museumZ = zConf - 58;
+  const museumWest = riverCx(west, museumZ) + riverHalf(west);
+  const museumEast = riverCx(east, museumZ) - riverHalf(east);
+  const museumX = (museumWest + museumEast) / 2;
+  const MUSEUM_RECT = {
+    minX: museumX - 42, maxX: museumX + 42,
+    minZ: museumZ - 28, maxZ: museumZ + 28,
+  };
   // Réserve bâtiments : toute la zone de confluence (eau + pointe + musée)
   const CONF_RECT = { minX: west.minX, maxX: east.maxX, minZ: zConf - 30, maxZ: bound + 300 };
 
@@ -792,9 +887,24 @@ export function buildRealCity(ctx, data) {
     const basX = basPos[0] - 18, basZ = basPos[1];
     const ESPL = { minX: basX - 44, maxX: basX + 40, minZ: basZ - 32, maxZ: basZ + 32 };
     const PARC = { minX: basX + 40, maxX: -212, minZ: -292, maxZ: -142 };
-    EXTRA_RECTS = [ESPL, PARC];
+    // On remplace l'empreinte OSM générique du musée par le grand modèle en
+    // verre : sa zone doit être réservée avant la construction des bâtiments.
+    EXTRA_RECTS = [ESPL, PARC, MUSEUM_RECT];
     ctx.parkRects = [PARC];
     const mask = buildWaterMask(data.waterPolys, bound);
+    // Les polygones Overpass peuvent finir quelques dizaines de mètres avant
+    // le bord sud. On renforce les deux lits réels et prolonge le Rhône après
+    // la jonction, jusqu'au-delà de la limite visible de la carte.
+    const rhoneContinuation = mask
+      ? reinforceRiverWater(mask, data.water, east, zConf, bound)
+      : null;
+    ctx.waterExtensions = rhoneContinuation ? [{
+      ...rhoneContinuation,
+      name: 'rhone-aval', w: rhoneContinuation.half * 2,
+      minX: Math.min(rhoneContinuation.cx(rhoneContinuation.zStart), rhoneContinuation.cx(rhoneContinuation.zEnd)) - rhoneContinuation.half,
+      maxX: Math.max(rhoneContinuation.cx(rhoneContinuation.zStart), rhoneContinuation.cx(rhoneContinuation.zEnd)) + rhoneContinuation.half,
+      zMin: rhoneContinuation.zStart, zMax: rhoneContinuation.zEnd,
+    }] : [];
     ctx.waterMask = mask;
     const hillsBase = Array.isArray(data.hills) && data.hills.length
       ? makeHillsFn(data.hills) : () => 0;
@@ -826,6 +936,7 @@ export function buildRealCity(ctx, data) {
         return h > 0.5 ? Math.min(h, shoreMax(x, z)) : h;
       };
       buildWaterSurfaces(ctx, data.waterPolys);
+      if (rhoneContinuation) buildRiverContinuation(ctx, rhoneContinuation);
       buildQuayEdges(ctx, mask); // murets de pierre : fin des débordements
     } else {
       ctx.terrainHeight = ground;
@@ -855,6 +966,7 @@ export function buildRealCity(ctx, data) {
   buildOsmBuildings(ctx, data, rand, full);
   buildOsmRoads(ctx, data, full);
   buildGreenery(ctx, data, rand, full);
+  if (full) buildConfluenceMuseum(ctx, { x: museumX, z: museumZ, scale: 1.08 });
 
   // Lieux de gameplay (zones déjà déblayées des bâtiments OSM)
   const BELLE = BELLE_RECT ?? BELLECOUR;
@@ -925,33 +1037,58 @@ export function buildRealCity(ctx, data) {
   }
 }
 
-// Grille d'urbanisation (cellules de 48 m) : marque les cellules contenant
-// des sommets de bâtiments, dilatées d'une cellule — sert à ne peindre le
-// terrain plat en bitume QUE dans la ville réelle. Avant ça, la règle
-// « plat = bitume » peignait toute la plaine hors ville en gris jusqu'à
-// l'horizon.
-function buildUrbanGrid(data, bound) {
-  const CELL = 48;
-  const off = bound + 120;
-  const set = new Set();
-  const mark = (x, z) => {
+// Champ d'urbanisation CONTINU. L'ancienne grille booléenne de 48 m peignait
+// de grands carrés gris parfaitement visibles au niveau du sol. On indexe
+// désormais bâtiments et grands axes dans une grille spatiale, mais la
+// couleur finale dépend de leur distance réelle avec un fondu doux.
+function buildUrbanField(data, bound) {
+  const CELL = 72;
+  const off = bound + 160;
+  const buckets = new Map();
+  const key = (cx, cz) => `${cx}:${cz}`;
+  const add = (x, z) => {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return;
     const cx = Math.floor((x + off) / CELL), cz = Math.floor((z + off) / CELL);
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dz = -1; dz <= 1; dz++) set.add((cx + dx) * 4096 + (cz + dz));
-    }
+    const k = key(cx, cz);
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k).push([x, z]);
   };
-  for (const b of data.buildings) {
-    for (let i = 0; i < b.p.length; i += 4) mark(b.p[i], b.p[i + 1]);
+  for (const b of data.buildings ?? []) {
+    let sx = 0, sz = 0, n = 0;
+    for (let i = 0; i + 1 < b.p.length; i += 2) {
+      sx += b.p[i]; sz += b.p[i + 1]; n++;
+    }
+    if (n) add(sx / n, sz / n);
   }
-  return (x, z) =>
-    set.has(Math.floor((x + off) / CELL) * 4096 + Math.floor((z + off) / CELL));
+  // Les avenues relient naturellement les îlots et évitent des poches de
+  // campagne entre deux pâtés de maisons espacés.
+  for (const road of data.roads ?? []) {
+    if (road.w < 5) continue;
+    for (let i = 0; i + 1 < road.p.length; i += 12) add(road.p[i], road.p[i + 1]);
+  }
+  return (x, z) => {
+    const cx = Math.floor((x + off) / CELL), cz = Math.floor((z + off) / CELL);
+    let d2 = Infinity;
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        for (const p of buckets.get(key(cx + dx, cz + dz)) ?? []) {
+          const px = x - p[0], pz = z - p[1];
+          d2 = Math.min(d2, px * px + pz * pz);
+        }
+      }
+    }
+    const t = THREE.MathUtils.clamp((Math.sqrt(d2) - 32) / 105, 0, 1);
+    return 1 - t * t * (3 - 2 * t); // smoothstep inversé, sans bord carré
+  };
 }
 
 // Terrain continu de la ville complète : un seul maillage déplacé par la
 // fonction de hauteur (collines, lits des fleuves), coloré par altitude.
 function buildTerrainMesh(ctx, bound, data) {
   const size = bound * 2 + 240;
-  const seg = 230; // assez fin pour des berges nettes le long de l'eau réelle
+  // Maille < 11 m sur le Grand Lyon : assez fine pour qu'aucun triangle de
+  // colline ne puisse ponter les 24–60 m d'un fleuve étroit comme la Saône.
+  const seg = 320;
   const geo = new THREE.PlaneGeometry(size, size, seg, seg);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
@@ -966,12 +1103,22 @@ function buildTerrainMesh(ctx, bound, data) {
   const bedC = new THREE.Color(0x27352b);
   const meadow = new THREE.Color(0x5d7a4a);
   const parks = ctx.parkRects ?? [];
-  const urban = buildUrbanGrid(data, bound);
+  const urban = buildUrbanField(data, bound);
   // Berges/quais : bitume conservé près des fleuves même sans bâtiment
   const bands = ctx.waterBands ?? [];
-  const nearQuay = (x, z) => bands.some((b) =>
-    x > (b.minX ?? Infinity) - 26 && x < (b.maxX ?? -Infinity) + 26 &&
-    z > (b.zMin ?? -bound) - 26 && z < (b.zMax ?? bound) + 26);
+  const quayBlend = (x, z) => {
+    let best = 0;
+    for (const b of bands) {
+      const minX = b.minX ?? Infinity, maxX = b.maxX ?? -Infinity;
+      const minZ = b.zMin ?? -bound, maxZ = b.zMax ?? bound;
+      const dx = x < minX ? minX - x : x > maxX ? x - maxX : 0;
+      const dz = z < minZ ? minZ - z : z > maxZ ? z - maxZ : 0;
+      const d = Math.hypot(dx, dz);
+      const t = THREE.MathUtils.clamp((d - 10) / 30, 0, 1);
+      best = Math.max(best, 1 - t * t * (3 - 2 * t));
+    }
+    return best * 0.82;
+  };
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
     const h = ctx.terrainHeight(x, z);
@@ -980,12 +1127,11 @@ function buildTerrainMesh(ctx, bound, data) {
     if (h < -0.5) c.copy(bedC);
     else if (inPark) c.copy(grass).lerp(forest, 0.25); // parcs toujours en herbe
     else if (h < 1.4) {
-      if (urban(x, z) || nearQuay(x, z)) c.copy(asphalt);
-      else {
-        // Campagne : patchwork de champs (teinte stable par parcelle de 64 m)
-        const hsh = ((Math.floor(x / 64) * 73856093) ^ (Math.floor(z / 64) * 19349663)) >>> 0;
-        c.copy(meadow).offsetHSL(((hsh % 13) - 6) * 0.004, 0, ((hsh % 7) - 3) * 0.02);
-      }
+      // Campagne : patchwork de champs, puis transition progressive vers le
+      // socle urbain. Plus aucun cadre de cellule visible.
+      const hsh = ((Math.floor(x / 64) * 73856093) ^ (Math.floor(z / 64) * 19349663)) >>> 0;
+      c.copy(meadow).offsetHSL(((hsh % 13) - 6) * 0.004, 0, ((hsh % 7) - 3) * 0.02);
+      c.lerp(asphalt, Math.max(urban(x, z), quayBlend(x, z)));
     } else c.copy(grass).lerp(forest, Math.min(1, (h - 1.4) / 32));
     colors[i * 3] = c.r;
     colors[i * 3 + 1] = c.g;
@@ -1008,10 +1154,33 @@ function buildTerrainMesh(ctx, bound, data) {
   ctx.scene.add(mesh);
 }
 
+// Une colline d'horizon est très large : son centre peut être hors carte alors
+// que sa base remonte jusque dans un fleuve. On teste donc son empreinte contre
+// les centerlines, pas uniquement son point central.
+function hillTouchesWater(ctx, x, z, radius, bound) {
+  const corridors = [...(ctx.waterBands ?? []), ...(ctx.waterExtensions ?? [])];
+  for (const band of corridors) {
+    if (typeof band.cx !== 'function') continue;
+    const zMin = Math.max(z - radius, band.zMin ?? -bound);
+    const zMax = Math.min(z + radius, band.zMax ?? bound);
+    if (zMin > zMax) continue;
+    const steps = Math.max(1, Math.ceil((zMax - zMin) / 24));
+    const half = riverHalf(band) + 12; // garde une petite respiration de berge
+    for (let i = 0; i <= steps; i++) {
+      const sampleZ = zMin + (zMax - zMin) * (i / steps);
+      const dz = sampleZ - z;
+      const footprint = Math.sqrt(Math.max(0, radius * radius - dz * dz));
+      if (Math.abs(x - riverCx(band, sampleZ)) <= footprint + half) return true;
+    }
+  }
+  return false;
+}
+
 // Campagne au-delà de la carte : ferme l'horizon au lieu de laisser le vide.
 // Un grand disque prairie sous le niveau du terrain + une couronne de
 // collines low-poly (les monts du Lyonnais / monts d'Or) en InstancedMesh —
-// deux draw calls en tout, pas de collision, pas d'ombre : pur décor.
+// deux draw calls en tout, pas de collision, pas d'ombre : pur décor. Les
+// vallées de la Saône, du Rhône et de leur prolongement restent ouvertes.
 function buildCountryside(ctx, bound, rand) {
   const meadow = new THREE.Mesh(
     new THREE.CircleGeometry(bound * 3, 40),
@@ -1029,9 +1198,9 @@ function buildCountryside(ctx, bound, rand) {
   const geo = new THREE.ConeGeometry(1, 1, 7); // écrasé/étiré par instance
   geo.translate(0, 0.5, 0); // base du cône au sol
   const mat = new THREE.MeshLambertMaterial({ color: 0x51684a });
-  const hills = new THREE.InstancedMesh(geo, mat, N);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0);
+  const matrices = [];
   for (let i = 0; i < N; i++) {
     // Deux rangs de collines qui se chevauchent : silhouette d'horizon
     // continue sans motif répétitif visible
@@ -1041,10 +1210,18 @@ function buildCountryside(ctx, bound, rand) {
     const w = bound * (0.22 + rand() * 0.2);
     const h = 30 + rand() * 55;
     q.setFromAxisAngle(up, rand() * Math.PI);
-    s.set(w, h, w * (0.7 + rand() * 0.5));
-    m.compose(new THREE.Vector3(Math.cos(a) * r, BED_Y - 0.6, Math.sin(a) * r), q, s);
-    hills.setMatrixAt(i, m);
+    const wz = w * (0.7 + rand() * 0.5);
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    // Le cercle englobant reste sûr malgré la rotation aléatoire de l'ellipse.
+    if (hillTouchesWater(ctx, x, z, Math.max(w, wz), bound)) continue;
+    s.set(w, h, wz);
+    m.compose(new THREE.Vector3(x, BED_Y - 0.6, z), q, s);
+    matrices.push(m.clone());
   }
+  const hills = new THREE.InstancedMesh(geo, mat, matrices.length);
+  matrices.forEach((matrix, i) => hills.setMatrixAt(i, matrix));
+  hills.instanceMatrix.needsUpdate = true;
+  hills.userData.skippedForWater = N - matrices.length;
   hills.userData.noShadow = true;
   ctx.scene.add(hills);
 }
@@ -1148,9 +1325,12 @@ function buildAlps(ctx, bound, rand) {
 
   // Arc de ~110° centré plein est (+x, côté Part-Dieu/aérodrome), au-delà
   // de la couronne de collines mais dans le champ de la caméra (far = 3×bound)
-  const R = bound * 2.1;
-  const HGT = bound * 0.34;
-  const arc = 2.5; // élargi : la chaîne court sur ~143° d'horizon
+  // Plus loin, plus bas et beaucoup plus large : depuis les toits, la chaîne
+  // paraît désormais posée sur l'horizon au lieu de dominer immédiatement
+  // la ville. Les reliefs latéraux décroissants occupent près de 200°.
+  const R = bound * 2.2;
+  const HGT = bound * 0.2;
+  const arc = 3.45;
   const geo = new THREE.CylinderGeometry(R, R, HGT, 32, 1, true, Math.PI / 2 - arc / 2, arc);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.y = HGT / 2 - 6;
@@ -1163,7 +1343,7 @@ function buildAlps(ctx, bound, rand) {
   // se fondent dedans par chevauchement, extrémités qui s'aplatissent puis
   // disparaissent. Plaquage simple, aucune répétition à l'exécution.
   // Si le fichier manque, la version peinte reste en place.
-  new THREE.TextureLoader().load('/pano/alpes.webp', (t) => {
+  new THREE.TextureLoader().load('/pano/alpes-v3.webp', (t) => {
     t.colorSpace = THREE.SRGBColorSpace;
     mat.map = t;
     mat.needsUpdate = true;
@@ -1210,57 +1390,69 @@ function makeAsphaltTexture() {
   return tex2;
 }
 
-// Tuile de sol urbain : dalles claires + grain, quasi blanche (elle est
-// multipliée par la couleur d'altitude : bitume, herbe, lit des fleuves…)
+// Micro-texture de sol SANS CADRE : l'ancienne tuile dessinait une grille de
+// dalles complète tous les 14 m, y compris sous l'herbe, ce qui révélait le
+// raccord du matériau. Ici le bruit est périodique et les détails restent
+// assez fins pour enrichir béton, terre et prairie sans motif lisible.
 function makeGroundDetailTexture() {
   const S = 256;
-  const CELL = S / 4; // 4×4 dalles par tuile (≈ 3,5 m par dalle au sol)
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = S;
   const g = canvas.getContext('2d');
-  g.fillStyle = '#f2f1ee';
+  const image = g.createImageData(S, S);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      // Fréquences entières : la valeur est identique aux bords opposés.
+      const wave = Math.sin(x / S * Math.PI * 12) * 2.2 +
+        Math.sin(y / S * Math.PI * 18) * 1.8 +
+        Math.sin((x + y) / S * Math.PI * 8) * 1.4;
+      const grain = ((x * 17 + y * 31 + (x * y) % 19) % 11) - 5;
+      const v = Math.round(238 + wave + grain * 0.55);
+      const i = (y * S + x) * 4;
+      image.data[i] = v;
+      image.data[i + 1] = v;
+      image.data[i + 2] = v - 3;
+      image.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(image, 0, 0);
+  // Petits granulats sans forme assez grande pour trahir la répétition.
+  for (let i = 0; i < 1600; i++) {
+    const v = 175 + (i * 37) % 65;
+    g.fillStyle = `rgba(${v},${v},${v},0.22)`;
+    g.fillRect((i * 73) % S, (i * 151) % S, 1, 1);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+// Béton de trottoir distinct de la chaussée : petites plaques décalées,
+// joints fins et teintes chaudes. Les bords opposés utilisent la même base,
+// donc le raccord de tuile reste discret.
+function makeSidewalkTexture() {
+  const S = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = S;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#a9a49a';
   g.fillRect(0, 0, S, S);
-  // Chaque dalle a sa propre nuance : le sol cesse d'être un aplat uni
-  for (let ix = 0; ix < 4; ix++) {
-    for (let iz = 0; iz < 4; iz++) {
-      const v = 228 + Math.floor(Math.random() * 26) - 8;
-      g.fillStyle = `rgb(${v}, ${v}, ${v - 5})`;
-      g.fillRect(ix * CELL, iz * CELL, CELL, CELL);
+  for (let y = 0; y < S; y += 32) {
+    g.fillStyle = y % 64 === 0 ? '#aaa69e' : '#9e9b94';
+    g.fillRect(0, y + 1, S, 30);
+    g.strokeStyle = 'rgba(52,52,50,.38)';
+    g.lineWidth = 1;
+    g.beginPath(); g.moveTo(0, y + 0.5); g.lineTo(S, y + 0.5); g.stroke();
+    const off = y % 64 === 0 ? 0 : 24;
+    for (let x = off; x < S; x += 48) {
+      g.beginPath(); g.moveTo(x + 0.5, y); g.lineTo(x + 0.5, y + 32); g.stroke();
     }
   }
-  // Grain (usure, gravillons)
-  for (let i = 0; i < 2200; i++) {
-    const v = 205 + Math.random() * 50;
-    g.fillStyle = `rgba(${v}, ${v}, ${v - 6}, 0.35)`;
-    g.fillRect(Math.random() * S, Math.random() * S, 2, 2);
-  }
-  // Taches sombres diffuses (pluie, vieux chewing-gums de gones)
-  for (let i = 0; i < 10; i++) {
-    g.fillStyle = `rgba(120, 118, 112, ${0.05 + Math.random() * 0.07})`;
-    g.beginPath();
-    g.arc(Math.random() * S, Math.random() * S, 8 + Math.random() * 22, 0, Math.PI * 2);
-    g.fill();
-  }
-  // Joints de dalles bien marqués
-  g.strokeStyle = 'rgba(120, 120, 114, 0.65)';
-  g.lineWidth = 2;
-  for (let i = 0; i <= 4; i++) {
-    g.beginPath(); g.moveTo(i * CELL + 0.5, 0); g.lineTo(i * CELL + 0.5, S); g.stroke();
-    g.beginPath(); g.moveTo(0, i * CELL + 0.5); g.lineTo(S, i * CELL + 0.5); g.stroke();
-  }
-  // Quelques fissures qui traversent les dalles
-  g.strokeStyle = 'rgba(130, 128, 122, 0.5)';
-  g.lineWidth = 1;
-  for (let i = 0; i < 7; i++) {
-    let x = Math.random() * S, y = Math.random() * S;
-    g.beginPath();
-    g.moveTo(x, y);
-    for (let k = 0; k < 5; k++) {
-      x += (Math.random() - 0.5) * 34;
-      y += (Math.random() - 0.5) * 34;
-      g.lineTo(x, y);
-    }
-    g.stroke();
+  for (let i = 0; i < 500; i++) {
+    const v = 90 + (i * 29) % 80;
+    g.fillStyle = `rgba(${v},${v},${v},.16)`;
+    g.fillRect((i * 47) % S, (i * 83) % S, 1, 1);
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -1507,6 +1699,9 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     wallMat.emissiveIntensity = Math.max(0, (ctx.env?.night ?? 0) * 1.1 - 0.1) * 0.8;
   });
   const roofMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  // Devantures séparées, fusionnées dans un unique mesh : la ville prend vie
+  // au niveau des yeux sans multiplier les draw calls par immeuble.
+  const shopPos = [], shopUv = [];
 
   // Accumulateurs par tuile spatiale (plus grandes sur la ville complète :
   // moins de draw calls pour une carte 4× plus vaste)
@@ -1628,6 +1823,20 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       );
       tile.wuv.push(0, 0, u, 0, u, v, 0, 0, u, v, 0, v);
       for (let k = 0; k < 6; k++) tile.wc.push(wallColor.r, wallColor.g, wallColor.b);
+
+      // Rez-de-chaussée actif sur une partie déterministe des façades : baie,
+      // porte, enseigne et store. Le polygonOffset du matériau évite tout
+      // scintillement avec le mur existant.
+      if (full && h > 7 && len > 4 && hash2(bi * 37 + i * 11) % 100 < 48) {
+        const ys0 = yBase + 0.08;
+        const ys1 = Math.min(yBase + 3.15, y1 - 0.15);
+        const units = Math.max(1, Math.round(len / 4.5));
+        shopPos.push(
+          x1, ys0, z1, x2, ys0, z2, x2, ys1, z2,
+          x1, ys0, z1, x2, ys1, z2, x1, ys1, z1
+        );
+        shopUv.push(0, 0, units, 0, units, 1, 0, 0, units, 1, 0, 1);
+      }
     }
 
     // Toit (triangulation de l'empreinte)
@@ -1782,6 +1991,24 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     }
   }
 
+  if (shopPos.length) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(shopPos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(shopUv, 2));
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshLambertMaterial({
+      map: makeShopfrontTexture(),
+      emissive: 0xffc46b, emissiveIntensity: 0,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    });
+    ctx.updatables.push(() => {
+      mat.emissiveIntensity = Math.max(0, (ctx.env?.night ?? 0) - 0.15) * 0.38;
+    });
+    const shops = new THREE.Mesh(geo, mat);
+    shops.userData.noShadow = true;
+    ctx.scene.add(shops);
+  }
+
   console.log(`Lyon OSM : ${kept} bâtiments dans ${tiles.size} tuiles.`);
 }
 
@@ -1790,12 +2017,14 @@ function buildOsmRoads(ctx, data, full = false) {
   const walk = [];       // trottoirs (rubans élargis clairs, sous la chaussée)
   const zebra = [];      // passages piétons (quads rayés)
   const lines = [];      // marquage central pointillé des grands axes
+  const walkUv = [];
+  const streetDetails = []; // [x,z,y] : plaques au centre de la chaussée
   // Sur la ville complète, les rubans de route épousent le terrain
   const yAt = full
     ? (x, z) => Math.max(0, ctx.terrainHeight?.(x, z) ?? 0) + 0.06
     : () => 0.045;
   const roadUv = []; // UV de la chaussée : u en travers, v le long (asphalte)
-  const ribbon = (arr, x1, z1, x2, z2, half, dy, v0 = null) => {
+  const ribbon = (arr, x1, z1, x2, z2, half, dy, v0 = null, uvTarget = null) => {
     const dx = x2 - x1, dz = z2 - z1;
     const len = Math.hypot(dx, dz);
     if (len < 0.1) return len;
@@ -1805,26 +2034,29 @@ function buildOsmRoads(ctx, data, full = false) {
       x1 - px, ya, z1 - pz, x2 - px, yb, z2 - pz, x2 + px, yb, z2 + pz,
       x1 - px, ya, z1 - pz, x2 + px, yb, z2 + pz, x1 + px, ya, z1 + pz
     );
-    if (v0 != null) {
+    if (v0 != null && uvTarget) {
       const va = v0 / 9, vb = (v0 + len) / 9; // une tuile d'asphalte ≈ 9 m
-      roadUv.push(0, va, 0, vb, 1, vb, 0, va, 1, vb, 1, va);
+      uvTarget.push(0, va, 0, vb, 1, vb, 0, va, 1, vb, 1, va);
     }
     return len;
   };
   for (const road of data.roads) {
     const half = road.w / 2;
-    let acc = 0;
+    let crossingAcc = 0;
+    let uvAcc = 0;
     let dashAcc = 0;
+    let detailAcc = 0;
     for (let i = 0; i + 3 < road.p.length; i += 2) {
       const x1 = road.p[i], z1 = road.p[i + 1];
       const x2 = road.p[i + 2], z2 = road.p[i + 3];
       // Trottoir un peu plus large et 2 cm plus bas, chaussée par-dessus
-      ribbon(walk, x1, z1, x2, z2, half + 1.6, -0.02);
-      const len = ribbon(pos, x1, z1, x2, z2, half, 0, acc + dashAcc * 0);
+      ribbon(walk, x1, z1, x2, z2, half + 1.6, -0.02, uvAcc, walkUv);
+      const len = ribbon(pos, x1, z1, x2, z2, half, 0, uvAcc, roadUv);
+      uvAcc += len;
       // Passage piéton tous les ~35 m sur les grands axes
-      acc += len;
-      if (road.w >= 6 && acc > 35) {
-        acc = 0;
+      crossingAcc += len;
+      if (road.w >= 6 && crossingAcc > 35) {
+        crossingAcc = 0;
         const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
         ribbon(zebra, mx, mz, mx + (x2 - x1) / (len || 1) * 2.6, mz + (z2 - z1) / (len || 1) * 2.6, half, 0.02);
       }
@@ -1835,6 +2067,14 @@ function buildOsmRoads(ctx, data, full = false) {
           ribbon(lines, x1 + ux * d, z1 + uz * d, x1 + ux * (d + 2.6), z1 + uz * (d + 2.6), 0.14, 0.015);
         }
         dashAcc = (dashAcc + len) % 8;
+      }
+      // Mobilier léger tous les ~48 m : assez dense au niveau de la rue,
+      // plafonné implicitement par l'espacement et rendu en deux draw calls.
+      detailAcc += len;
+      if (full && road.w >= 6 && detailAcc > 48 && len > 0.1) {
+        detailAcc = 0;
+        const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
+        streetDetails.push([mx, mz, yAt(mx, mz) + 0.045]);
       }
     }
   }
@@ -1848,7 +2088,8 @@ function buildOsmRoads(ctx, data, full = false) {
     mesh.userData.noShadow = true;
     ctx.scene.add(mesh);
   };
-  addMesh(walk, new THREE.MeshLambertMaterial({ color: 0x7e828b })); // trottoirs
+  const sidewalkTex = makeSidewalkTexture();
+  addMesh(walk, new THREE.MeshLambertMaterial({ map: sidewalkTex }), walkUv);
   const asphaltTex = makeAsphaltTexture();
   addMesh(pos, new THREE.MeshLambertMaterial({
     map: asphaltTex,
@@ -1863,6 +2104,22 @@ function buildOsmRoads(ctx, data, full = false) {
     addMesh(lines, new THREE.MeshBasicMaterial({
       color: 0xe9e4c8, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
     }));
+  }
+  if (streetDetails.length) {
+    const manholeGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.035, 12);
+    const manholes = new THREE.InstancedMesh(
+      manholeGeo,
+      new THREE.MeshStandardMaterial({ color: 0x353b3d, metalness: 0.25, roughness: 0.72 }),
+      streetDetails.length
+    );
+    const m = new THREE.Matrix4();
+    streetDetails.forEach(([x, z, y], i) => {
+      m.makeTranslation(x, y, z);
+      manholes.setMatrixAt(i, m);
+    });
+    manholes.instanceMatrix.needsUpdate = true;
+    manholes.userData.noShadow = true;
+    ctx.scene.add(manholes);
   }
 }
 
@@ -2021,6 +2278,46 @@ function buildGreenery(ctx, data, rand, full = false) {
   foliage.instanceMatrix.needsUpdate = true;
   if (foliage.instanceColor) foliage.instanceColor.needsUpdate = true;
   ctx.scene.add(trunks, foliage);
+}
+
+// Cellule de commerce répétable : vitrine profonde, porte, enseigne et store.
+// Une unité représente environ 4,5 m de façade.
+function makeShopfrontTexture() {
+  const W = 192, H = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#77736b'; g.fillRect(0, 0, W, H);
+  // Bandeau d'enseigne, suffisamment contrasté pour être lisible de loin
+  g.fillStyle = '#26394a'; g.fillRect(3, 5, W - 6, 27);
+  g.fillStyle = '#f2c45f';
+  for (let x = 14; x < W - 10; x += 22) g.fillRect(x, 14, 12, 4);
+  // Store rayé
+  for (let x = 3; x < W - 3; x += 16) {
+    g.fillStyle = (x / 16) % 2 ? '#c64f45' : '#eee4cf';
+    g.fillRect(x, 32, 16, 13);
+  }
+  // Vitrines, reflets et intérieur chaud
+  g.fillStyle = '#182839'; g.fillRect(7, 48, 116, 72);
+  const grad = g.createLinearGradient(7, 48, 123, 120);
+  grad.addColorStop(0, 'rgba(126,194,220,.7)');
+  grad.addColorStop(0.45, 'rgba(28,53,75,.25)');
+  grad.addColorStop(1, 'rgba(255,188,92,.45)');
+  g.fillStyle = grad; g.fillRect(10, 51, 110, 66);
+  g.strokeStyle = '#beb6a6'; g.lineWidth = 4;
+  g.strokeRect(7, 48, 116, 72);
+  g.beginPath(); g.moveTo(65, 49); g.lineTo(65, 119); g.stroke();
+  // Porte vitrée et poignée
+  g.fillStyle = '#24323c'; g.fillRect(132, 43, 53, 77);
+  g.fillStyle = '#7394a5'; g.fillRect(138, 49, 41, 55);
+  g.fillStyle = '#d9c88d'; g.fillRect(141, 108, 35, 5);
+  g.fillStyle = '#f0d57b'; g.fillRect(169, 77, 4, 9);
+  // Seuil + ombre de contact
+  g.fillStyle = '#343331'; g.fillRect(0, 120, W, 8);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
 }
 
 // Cellule de fenêtre unique, répétée tous les 3 m. Quasi blanche : elle est

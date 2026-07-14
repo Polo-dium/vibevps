@@ -194,17 +194,69 @@ export const audio = {
     });
   },
 
-  // Moteur de voiture : oscillateur persistant dont la hauteur suit la vitesse
+  // Moteurs persistants. Le Mirage mélange souffle large, corps grave,
+  // sifflement discret et petits craquements de postcombustion.
   _engine: null,
-  engineStart() {
+  engineStart(kind = 'car') {
     ensure();
-    if (this._engine) return;
+    if (this._engine?.kind === kind) return;
+    if (this._engine) this.engineStop();
+    if (kind === 'jet') {
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer;
+      src.loop = true;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 720;
+      filter.Q.value = 0.28;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.038, ctx.currentTime + 0.35);
+      src.connect(filter).connect(g).connect(master);
+
+      const bodySrc = ctx.createBufferSource();
+      bodySrc.buffer = noiseBuffer;
+      bodySrc.loop = true;
+      bodySrc.playbackRate.value = 0.52;
+      const bodyFilter = ctx.createBiquadFilter();
+      bodyFilter.type = 'lowpass';
+      bodyFilter.frequency.value = 180;
+      bodyFilter.Q.value = 0.65;
+      const bodyGain = ctx.createGain();
+      bodyGain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      bodyGain.gain.exponentialRampToValueAtTime(0.024, ctx.currentTime + 0.4);
+      bodySrc.connect(bodyFilter).connect(bodyGain).connect(master);
+
+      const whine = ctx.createOscillator();
+      whine.type = 'triangle';
+      whine.frequency.value = 170;
+      const whineGain = ctx.createGain();
+      whineGain.gain.value = 0.004;
+      whine.connect(whineGain).connect(master);
+
+      const rumble = ctx.createOscillator();
+      rumble.type = 'triangle';
+      rumble.frequency.value = 36;
+      const rumbleGain = ctx.createGain();
+      rumbleGain.gain.value = 0.032;
+      rumble.connect(rumbleGain).connect(master);
+      src.start();
+      bodySrc.start();
+      whine.start();
+      rumble.start();
+      this._engine = {
+        kind, src, filter, g, bodySrc, bodyFilter, bodyGain,
+        osc: whine, osc2: rumble, whineGain, rumbleGain,
+        nextCrackle: ctx.currentTime + 0.25,
+      };
+      return;
+    }
     const osc = ctx.createOscillator();
     osc.type = 'sawtooth';
-    osc.frequency.value = 55;
+    osc.frequency.value = kind === 'prop' ? 42 : 55;
     const osc2 = ctx.createOscillator();
     osc2.type = 'square';
-    osc2.frequency.value = 28;
+    osc2.frequency.value = kind === 'prop' ? 21 : 28;
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
     filter.frequency.value = 500;
@@ -216,20 +268,52 @@ export const audio = {
     filter.connect(g).connect(master);
     osc.start();
     osc2.start();
-    this._engine = { osc, osc2, g };
+    this._engine = { kind, osc, osc2, g, filter };
   },
-  engineUpdate(k) { // k = vitesse normalisée 0..1
+  engineUpdate(k, throttle = k) { // k = vitesse, throttle = gaz, normalisés 0..1
     if (!this._engine || !ctx) return;
-    const f = 45 + k * 130;
+    k = Math.max(0, Math.min(1, k));
+    if (this._engine.kind === 'jet') {
+      const power = Math.max(0, Math.min(1, Number(throttle) || 0));
+      this._engine.filter.frequency.setTargetAtTime(650 + k * 650 + power * 900, ctx.currentTime, 0.12);
+      this._engine.g.gain.setTargetAtTime(0.032 + k * 0.015 + power * 0.065, ctx.currentTime, 0.12);
+      this._engine.bodyFilter.frequency.setTargetAtTime(155 + power * 210, ctx.currentTime, 0.14);
+      this._engine.bodyGain.gain.setTargetAtTime(0.024 + power * 0.039, ctx.currentTime, 0.14);
+      this._engine.osc.frequency.setTargetAtTime(170 + k * 380 + power * 100, ctx.currentTime, 0.1);
+      this._engine.whineGain.gain.setTargetAtTime(0.004 + power * 0.014, ctx.currentTime, 0.12);
+      this._engine.osc2.frequency.setTargetAtTime(36 + k * 18 + power * 12, ctx.currentTime, 0.12);
+      this._engine.rumbleGain.gain.setTargetAtTime(0.032 + power * 0.025, ctx.currentTime, 0.12);
+      if (power > 0.18 && ctx.currentTime >= this._engine.nextCrackle) {
+        noise(0.025 + Math.random() * 0.045, {
+          type: 'bandpass', freq: 300 + Math.random() * 900, q: 0.8,
+          gain: 0.012 + power * 0.026,
+        });
+        tone(50 + Math.random() * 30, 0.035, {
+          type: 'square', gain: 0.005 + power * 0.008, slideTo: 34,
+        });
+        this._engine.nextCrackle = ctx.currentTime + 0.08 + Math.random() * (0.28 - power * 0.15);
+      }
+      return;
+    }
+    const f = this._engine.kind === 'prop' ? 38 + k * 220 : 45 + k * 130;
     this._engine.osc.frequency.setTargetAtTime(f, ctx.currentTime, 0.08);
     this._engine.osc2.frequency.setTargetAtTime(f / 2, ctx.currentTime, 0.08);
-    this._engine.g.gain.setTargetAtTime(0.05 + k * 0.06, ctx.currentTime, 0.1);
+    this._engine.g.gain.setTargetAtTime(
+      this._engine.kind === 'prop' ? 0.045 + k * 0.085 : 0.05 + k * 0.06,
+      ctx.currentTime,
+      0.1
+    );
   },
   engineStop() {
     if (!this._engine || !ctx) return;
-    const { osc, osc2, g } = this._engine;
+    const { src, bodySrc, osc, osc2, g, bodyGain, whineGain, rumbleGain } = this._engine;
     this._engine = null;
     g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+    whineGain?.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+    rumbleGain?.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+    bodyGain?.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+    src?.stop(ctx.currentTime + 0.3);
+    bodySrc?.stop(ctx.currentTime + 0.3);
     osc.stop(ctx.currentTime + 0.3);
     osc2.stop(ctx.currentTime + 0.3);
   },

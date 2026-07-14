@@ -8,6 +8,8 @@ import { ColliderGrid } from './world/grid.js';
 import { buildArcade } from './world/arcade.js';
 import { buildRange } from './world/range.js';
 import { buildLoot } from './world/loot.js';
+import { buildRadioPickup } from './world/radioPickup.js';
+import { buildWeaponQuest } from './world/weaponQuest.js';
 import { buildBannerPlane, buildAirport } from './world/aviation.js';
 import { createMusicSource, TRACKS } from './music.js';
 import { createPoiMap } from './ui/map.js';
@@ -17,7 +19,7 @@ import { createArms } from './player/arms.js';
 import { createRemotePlayers } from './player/remotes.js';
 import { createVoice } from './player/voice.js';
 import { createTouchControls } from './ui/touch.js';
-import { SPAWN, spawnPoint } from './world/layout.js';
+import { ARCADE, spawnPoint } from './world/layout.js';
 import { createNpcs } from './world/npcs.js';
 import { createQuenelle } from './world/quenelle.js';
 import { createRace } from './world/race.js';
@@ -30,17 +32,64 @@ import { createUi } from './ui/hud.js';
 import { createProgress } from './progress.js';
 import { createCapture } from './capture.js';
 import { createQuality } from './quality.js';
+import { createLoadingScreen, nextPaint } from './ui/loading.js';
+import { createTutorial } from './ui/tutorial.js';
 
 async function boot() {
+  const loading = createLoadingScreen();
+  // Les deux ressources les plus lourdes partent ensemble pendant que le
+  // joueur choisit son pseudo. L'OSM reste optionnel et ne bloque jamais.
+  const worldStatePromise = apiFetch('/state').then(
+    (data) => {
+      loading.set('Les gones sont synchronisés…', 38);
+      return { data };
+    },
+    (error) => ({ error })
+  );
+  const osmPromise = fetch('/lyon-osm.json')
+    .then((res) => res.ok ? res.json() : null)
+    .then((data) => {
+      loading.set(data ? 'La carte du Grand Lyon est arrivée…' : 'Plan B : Lyon procédural…', 62);
+      return data;
+    })
+    .catch(() => null);
+
   const ui = createUi();
   await ui.ensureAuth();
+  state.hasJetpack = state.inventory.includes('jetpack');
+  state.hasRcPlane = state.inventory.includes('rc-plane');
+  state.hasRadio = state.inventory.includes('radio');
+
+  // Déblocages persistants liés au compte. L'ajout local est immédiat pour
+  // ne jamais interrompre un ramassage si le réseau met quelques secondes.
+  function rememberInventoryItem(id) {
+    if (state.inventory.includes(id)) return false;
+    state.inventory.push(id);
+    apiFetch('/me/inventory', {
+      method: 'POST', body: JSON.stringify({ id }),
+    }).then((res) => {
+      for (const saved of res.inventory ?? []) {
+        if (!state.inventory.includes(saved)) state.inventory.push(saved);
+      }
+    }).catch(() => ui.toast('⚠️ Objet gardé pour cette partie, mais la sauvegarde du compte a échoué.'));
+    return true;
+  }
 
   // Lien d'invitation (?ami=Pseudo) : si l'ami est en ligne, le serveur nous
   // renvoie sa position dans le message 'hello' et on atterrit à côté de lui
   const inviteFriend = new URLSearchParams(location.search).get('ami');
 
   // État partagé du monde
-  const worldState = await apiFetch('/state');
+  loading.set('Chargement de Bellecour…', 68);
+  let worldState;
+  try {
+    const result = await worldStatePromise;
+    if (result.error) throw result.error;
+    worldState = result.data;
+  } catch (err) {
+    loading.fail(`Impossible de joindre Lyon : ${err.message}`);
+    return;
+  }
   state.games = worldState.games;
   state.leaderboards = worldState.leaderboards;
   state.tags = worldState.tags;
@@ -80,7 +129,8 @@ async function boot() {
 
   // --- Cycle jour/nuit ---------------------------------------------------
   // Basé sur l'horloge (Date.now()) : tous les joueurs voient la même heure
-  // sans aucune synchro serveur. Cycle de 10 min (~6,5 min jour, 3,5 min nuit).
+  // sans aucune synchro serveur. Cycle exact de 10 min : 8 min de jour,
+  // puis 2 min de nuit, transitions comprises.
   const DAY_CYCLE_MS = 10 * 60 * 1000;
   const ENV_DAY = {
     top: new THREE.Color(0x2e63b8), mid: new THREE.Color(0x7fa8dd),
@@ -95,11 +145,14 @@ async function boot() {
     sun: new THREE.Color(0xa8bce8),
   };
   const DUSK_TINT = new THREE.Color(0xff8a4d);
-  // phase 0..1 → position du soleil ; la nuit dure 30 % du temps de jour
-  // (jour ≈ 77 % du cycle, nuit ≈ 23 %)
+  const DAY_SHARE = 0.8;
+  // phase 0..1 → position du soleil. La demi-orbite visible est parcourue
+  // sur 80 % du temps, la demi-orbite sous l'horizon sur les 20 % restants.
   function envPhase() {
     const raw = (Date.now() % DAY_CYCLE_MS) / DAY_CYCLE_MS;
-    return raw < 0.77 ? (raw / 0.77) * 0.5 : 0.5 + ((raw - 0.77) / 0.23) * 0.5;
+    return raw < DAY_SHARE
+      ? (raw / DAY_SHARE) * 0.5
+      : 0.5 + ((raw - DAY_SHARE) / (1 - DAY_SHARE)) * 0.5;
   }
   const env = { daylight: 1, night: 0, dusk: 0, sunDir: new THREE.Vector3(0, 1, 0) };
 
@@ -167,10 +220,17 @@ async function boot() {
   scene.add(halo);
   const moonMesh = new THREE.Mesh(
     new THREE.SphereGeometry(16, 16, 16),
-    new THREE.MeshBasicMaterial({ color: 0xdfe6f5, fog: false })
+    new THREE.MeshBasicMaterial({ color: 0xf2f5ff, fog: false })
   );
   moonMesh.visible = false;
   scene.add(moonMesh);
+  const moonHalo = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: makeHaloTexture(), color: 0xbfd2ff,
+    transparent: true, opacity: 0.42,
+    depthWrite: false, fog: false,
+  }));
+  moonHalo.visible = false;
+  scene.add(moonHalo);
 
   // --- Construction du monde ---
   const ctx = {
@@ -189,6 +249,7 @@ async function boot() {
     abortRides: [], // les manèges (Grande Roue, ficelle…) s'y inscrivent
     playerPos: () => controls.position, // lu par le trafic (voitures)
     isDriving: () => state.driving,
+    hasInventoryItem: (id) => state.inventory.includes(id),
     // Écrasé par une voiture du trafic : dégâts validés côté serveur
     onRunOver: () => {
       net.send({ t: 'ouch', dmg: 15, by: 'un chauffard lyonnais' });
@@ -198,15 +259,37 @@ async function boot() {
     onJetpackPickup: () => {
       if (!state.hasJetpack) {
         state.hasJetpack = true;
+        rememberInventoryItem('jetpack');
         ui.toast('🚀 Jetpack enfilé ! Appuie sur J pour décoller, Espace pour monter.');
         ui.spawnConfetti(20);
       } else {
         toggleJetpack();
       }
     },
+    // La première utilisation du pupitre de l'aéroport range aussi l'avion
+    // RC dans l'inventaire ; il pourra ensuite être déployé depuis le menu.
+    onRcPlanePickup: () => {
+      if (state.hasRcPlane) return;
+      state.hasRcPlane = true;
+      rememberInventoryItem('rc-plane');
+      ui.toast('📡 Avion RC trouvé ! Il est maintenant disponible dans ton inventaire.');
+      ui.spawnConfetti(20);
+    },
     // Conduite des décapotables (voir world/traffic.js)
     startDrive: (car, group) => {
-      controls.teleport(group.position.x, group.position.y, group.position.z);
+      // Entrer dans un véhicule range toujours le jetpack. Sans cette remise
+      // à zéro, son état de vol (son + particules, et anciennement ses
+      // bonbonnes en vue subjective) pouvait rester actif dans un avion.
+      if (controls.flying) {
+        controls.setFlying(false);
+        state.flying = false;
+        jetpackGuns.setTrigger(false);
+        audio.jetStop();
+      }
+      if (!car.remoteControl) {
+        controls.teleport(group.position.x, group.position.y, group.position.z);
+      }
+      if (car.plane && state.weaponEquipped) weapon.toggle(false);
       car.onHorn = () => audio.horn();
       car.onCrash = () => {
         audio.crash();
@@ -214,28 +297,29 @@ async function boot() {
       };
       controls.setVehicle(car);
       state.driving = true;
-      audio.engineStart();
+      audio.engineStart(car.jet ? 'jet' : car.plane ? 'prop' : 'car');
     },
     stopDrive: (car, group) => {
       controls.setVehicle(null);
       state.driving = false;
       audio.engineStop();
-      // On descend côté conducteur
-      controls.teleport(
-        group.position.x + Math.cos(car.heading) * 2,
-        group.position.y,
-        group.position.z - Math.sin(car.heading) * 2
-      );
+      if (!car.remoteControl) {
+        // On descend côté conducteur ; avec une radiocommande, le joueur n'a
+        // jamais quitté son emplacement au sol.
+        controls.teleport(
+          group.position.x + Math.cos(car.heading) * 2,
+          group.position.y,
+          group.position.z - Math.sin(car.heading) * 2
+        );
+      }
     },
   };
 
   // Vrai Lyon (données OpenStreetMap) si le fichier a été généré sur le
   // serveur avec tools/fetch-osm.mjs, sinon ville procédurale.
-  let osmData = null;
-  try {
-    const res = await fetch('/lyon-osm.json');
-    if (res.ok) osmData = await res.json();
-  } catch { /* pas de données : ville procédurale */ }
+  loading.set('Construction des quais et des rues…', 74);
+  await nextPaint();
+  const osmData = await osmPromise;
 
   if (osmData?.buildings?.length > 50) {
     buildRealCity(ctx, osmData);
@@ -273,7 +357,11 @@ async function boot() {
     env.daylight = daylight;
     env.night = 1 - daylight;
     env.dusk = dusk;
-    env.sunDir.set(-Math.cos(ang) * 0.9, elev, 0.42).normalize();
+    // x positif = EST dans la projection OSM de Lyon. À l'aube (ang = 0),
+    // le soleil apparaît donc côté Rhône/Alpes ; au crépuscule x devient
+    // négatif, côté Saône/Fourvière. La lune, placée à l'opposé plus bas,
+    // suit automatiquement le même lever est → coucher ouest pendant la nuit.
+    env.sunDir.set(Math.cos(ang) * 0.9, elev, 0.42).normalize();
 
     // Ciel
     const u = sky.uniforms;
@@ -303,21 +391,34 @@ async function boot() {
       .lerp(ENV_NIGHT.sun, env.night);
     if (shadowsEnabled) sun.castShadow = daylight > 0.04;
 
-    // La lumière vient du soleil le jour, de la lune la nuit
+    // La lumière vient du soleil le jour, de la lune la nuit. La lune suit
+    // exactement l'orbite opposée au lieu d'utiliser une direction fixe.
     if (elev >= 0.02) _lightDir.copy(env.sunDir);
-    else _lightDir.set(0.5, 0.8, -0.3).normalize();
+    else _lightDir.copy(env.sunDir).multiplyScalar(-1);
     env.lightDir = _lightDir;
 
-    // Astres visibles
-    const p = controls?.position ?? SPAWN;
-    sunMesh.position.set(p.x, 0, p.z).addScaledVector(env.sunDir, 620);
+    // Astres visibles : orbite centrée sur Lyon et assez large pour que les
+    // levers/couchers aient lieu AU-DELÀ des limites jouables. Avant, les
+    // astres restaient à 620 m du joueur et pouvaient donc surgir au milieu
+    // du Grand Lyon quand on se déplaçait sur la carte.
+    const astroRadius = Math.max(900, (ctx.worldBound ?? 500) * 1.55);
+    // L'éloignement ne doit pas réduire leur taille apparente : on compense
+    // proportionnellement la taille des sphères et de leurs halos.
+    const astroScale = astroRadius / 620;
+    sunMesh.position.copy(env.sunDir).multiplyScalar(astroRadius);
+    sunMesh.scale.setScalar(astroScale);
     sunMesh.visible = elev > -0.12;
     halo.position.copy(sunMesh.position);
+    halo.scale.setScalar(220 * astroScale);
     halo.material.opacity = Math.max(0, Math.min(1, elev * 3 + 0.25));
     halo.visible = sunMesh.visible;
-    moonMesh.position.set(p.x, 0, p.z)
-      .addScaledVector(env.sunDir, -620);
+    moonMesh.position.copy(env.sunDir).multiplyScalar(-astroRadius);
+    moonMesh.scale.setScalar(astroScale * 1.5);
     moonMesh.visible = elev < 0.1;
+    moonHalo.position.copy(moonMesh.position);
+    moonHalo.scale.setScalar(120 * astroScale);
+    moonHalo.material.opacity = THREE.MathUtils.clamp(-elev * 2 + 0.25, 0.18, 0.48);
+    moonHalo.visible = moonMesh.visible;
   }
 
   // --- Progression : XP, niveaux, succès ---
@@ -394,47 +495,209 @@ async function boot() {
     camera, renderer.domElement, ctx.colliders,
     (x, z) => ctx.terrainHeight?.(x, z) ?? 0
   );
+  const tutorial = createTutorial({ isTouch: IS_TOUCH });
   // Hook de debug (derrière ?debug) : téléportation/inspection pour les tests
   if (new URLSearchParams(location.search).has('debug')) {
     window.__game = { controls, ctx, state, camera, ui, renderer, quality };
   }
+  // Distance du premier mur ou du sol le long d'un rayon. Mutualisée entre
+  // l'arme à pied et les mitrailleuses de bord.
+  const worldHitDistance = (origin, dir, maxDist) => {
+    for (let d = 1; d < maxDist; d += 1.5) {
+      const x = origin.x + dir.x * d, y = origin.y + dir.y * d, z = origin.z + dir.z * d;
+      if (y <= (ctx.terrainHeight?.(x, z) ?? 0)) return d;
+      for (const b of ctx.colliders.nearby(x, z, 1)) {
+        if (x > b.minX && x < b.maxX && y > b.minY && y < b.maxY &&
+            z > b.minZ && z < b.maxZ) return d;
+      }
+    }
+    return Infinity;
+  };
   const weapon = createWeapon(camera, scene, ctx.shootables, {
     onAmmoChange: (ammo, reloading, spec) => ui.setAmmo(ammo, reloading, state.weaponEquipped, spec),
     onShot: (a, b) => net.send({ t: 'shot', a, b }),
+    onRocketExplosion: (point) => ctx.onRocketExplosion?.(point),
     getGroundY: () => controls.position.y,
     onWeaponChange: (spec) => ui.toast(`${spec.emoji} ${spec.nom} en main ! (2 pour changer d'arme)`),
     // Les tirs s'arrêtent sur les murs et le sol (boîtes de collision) :
     // marche de rayon grossière, appelée une fois par coup tiré
-    worldHit: (origin, dir, maxDist) => {
-      for (let d = 1; d < maxDist; d += 1.5) {
-        const x = origin.x + dir.x * d, y = origin.y + dir.y * d, z = origin.z + dir.z * d;
-        if (y <= (ctx.terrainHeight?.(x, z) ?? 0)) return d;
-        for (const b of ctx.colliders.nearby(x, z, 1)) {
-          if (x > b.minX && x < b.maxX && y > b.minY && y < b.maxY &&
-              z > b.minZ && z < b.maxZ) return d;
-        }
-      }
-      return Infinity;
-    },
+    worldHit: worldHitDistance,
   });
+  // Les armes déjà ramassées lors d'une précédente session reviennent dans
+  // l'inventaire sans être automatiquement sorties au démarrage.
+  for (const item of state.inventory) {
+    if (item.startsWith('weapon:')) weapon.give(item.slice(7), { equip: false });
+  }
   if (window.__game) window.__game.weapon = weapon; // hook de debug (?debug)
   const remotes = createRemotePlayers(scene, ctx.shootables, {
     getListenerPos: () => controls.position, // enceintes des autres joueurs
-    onHitRemote: (id) => {
+    onHitRemote: (id, hit) => {
       audio.hitmarker();
       ui.hitmarker();
       navigator.vibrate?.(18);
-      // dmg selon l'arme en main — borné et rythmé côté serveur
-      net.send({ t: 'hit', target: id, dmg: weapon.damage });
+      // Les mitrailleuses de bord ne dépendent jamais de l'arme rangée du
+      // personnage. Le Mirage frappe un peu plus fort que le coucou.
+      const dmg = hit?.jetpack ? 9
+        : hit?.aircraft ? (hit.jet ? 32 : 25)
+          : weapon.damage;
+      net.send({ t: 'hit', target: id, dmg });
     },
   });
+  const planeRaycaster = new THREE.Raycaster();
+  ctx.onPlaneVolley = (origins, direction, aircraft) => {
+    if (state.overlayOpen || state.photoMode || state.sanctuary) return;
+    const range = aircraft.jet ? 520 : 280;
+    const hitObjects = new Set();
+    let relayEnd = null;
+    for (const origin of origins) {
+      planeRaycaster.set(origin, direction);
+      planeRaycaster.far = range;
+      const wallD = worldHitDistance(origin, direction, range);
+      const hits = planeRaycaster.intersectObjects(ctx.shootables, false);
+      let end;
+      if (hits.length && hits[0].distance <= wallD) {
+        const hit = hits[0];
+        end = hit.point.clone();
+        hit.aircraft = true;
+        hit.jet = Boolean(aircraft.jet);
+        if (!hitObjects.has(hit.object)) {
+          hitObjects.add(hit.object);
+          hit.object.userData.onHit?.(hit);
+        }
+        weapon.fx.spawnImpact(end);
+      } else if (wallD <= range) {
+        end = planeRaycaster.ray.at(wallD, new THREE.Vector3());
+        weapon.fx.spawnImpact(end);
+      } else {
+        end = planeRaycaster.ray.at(range, new THREE.Vector3());
+      }
+      weapon.fx.spawnTracer(origin.toArray(), end.toArray(), true);
+      relayEnd ??= end;
+    }
+    if (origins[0] && relayEnd) {
+      net.send({ t: 'shot', a: origins[0].toArray(), b: relayEnd.toArray(), aircraft: 1 });
+    }
+    audio.gunshot();
+    navigator.vibrate?.(8);
+  };
+  // Explosion spécifique des bombes : onde de choc au sol, colonne chaude
+  // puis large chapeau de fumée. Les géométries sont partagées et seules les
+  // matières (qui doivent pâlir indépendamment) sont propres à chaque nuage.
+  const bombClouds = [];
+  const bombStemGeo = new THREE.CylinderGeometry(1, 1.35, 1, 12);
+  const bombPuffGeo = new THREE.SphereGeometry(1, 10, 7);
+  const bombRingGeo = new THREE.RingGeometry(1, 1.12, 40);
+  const bombSmokeHot = new THREE.Color(0xd95724);
+  const bombSmokeCold = new THREE.Color(0x292d31);
+  function removeBombCloud(cloud) {
+    scene.remove(cloud.group);
+    for (const mat of cloud.materials) mat.dispose();
+  }
+  function spawnBombMushroom(point, {
+    scale = 1, duration = 6.2, baseBurst = true,
+  } = {}) {
+    if (baseBurst) weapon.fx.spawnExplosion(point);
+    const p = Array.isArray(point) ? new THREE.Vector3(...point) : point;
+    if (bombClouds.length >= 4) removeBombCloud(bombClouds.shift());
+
+    const smokeMat = new THREE.MeshLambertMaterial({
+      color: bombSmokeHot, transparent: true, opacity: 0.9,
+      depthWrite: false, side: THREE.DoubleSide,
+    });
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: 0xffb126, transparent: true, opacity: 0.9,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xff5b2d, transparent: true, opacity: 0.72,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const group = new THREE.Group();
+    group.position.copy(p);
+    group.scale.setScalar(scale);
+    const stem = new THREE.Mesh(bombStemGeo, smokeMat);
+    group.add(stem);
+    const cap = new THREE.Group();
+    const puffLayout = [
+      [0, 0, 0, 5.2], [-4.2, -0.2, 0, 3.8], [4.2, 0.1, 0, 4.1],
+      [0, 0.5, -3.4, 3.7], [0.5, 0.2, 3.6, 3.9],
+      [-2.7, 1.2, -2.5, 3.5], [3.0, 1.0, 2.3, 3.6],
+    ];
+    for (const [x, y, z, s] of puffLayout) {
+      const puff = new THREE.Mesh(bombPuffGeo, smokeMat);
+      puff.position.set(x, y, z);
+      puff.scale.set(s * 1.25, s * 0.72, s);
+      cap.add(puff);
+    }
+    group.add(cap);
+    const glow = new THREE.Mesh(bombPuffGeo, glowMat);
+    glow.scale.set(5, 3.5, 5);
+    glow.position.y = 2.2;
+    group.add(glow);
+    const ring = new THREE.Mesh(bombRingGeo, ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.14;
+    group.add(ring);
+    const light = new THREE.PointLight(
+      0xff7b28,
+      80 * Math.max(0.4, scale),
+      95 * scale,
+      2
+    );
+    light.position.y = 5;
+    group.add(light);
+    scene.add(group);
+    bombClouds.push({
+      group, stem, cap, glow, ring, light,
+      smokeMat, glowMat, ringMat,
+      materials: [smokeMat, glowMat, ringMat], age: 0, duration,
+    });
+  }
+  ctx.updatables.push((dt) => {
+    for (let i = bombClouds.length - 1; i >= 0; i--) {
+      const c = bombClouds[i];
+      c.age += dt;
+      const t = Math.min(1, c.age / c.duration);
+      const rise = 1 - Math.pow(1 - Math.min(1, t * 1.9), 3);
+      const stemH = 2 + rise * 22;
+      c.stem.scale.set(1.3 + rise * 2.5, stemH, 1.3 + rise * 2.5);
+      c.stem.position.y = stemH / 2;
+      c.cap.position.y = 8 + rise * 18;
+      c.cap.scale.setScalar(0.5 + rise * 1.25 + t * 0.4);
+      c.cap.rotation.y += dt * 0.16;
+      c.ring.scale.setScalar(2 + Math.min(1, t * 4) * 48);
+      c.glow.scale.setScalar(5 + Math.min(1, t * 6) * 8);
+      c.smokeMat.color.copy(bombSmokeHot).lerp(bombSmokeCold, Math.min(1, t * 2.1));
+      c.smokeMat.opacity = Math.max(0, 0.92 * (1 - Math.pow(t, 2.4)));
+      c.glowMat.opacity = Math.max(0, 0.9 * (1 - t * 5));
+      c.ringMat.opacity = Math.max(0, 0.72 * (1 - t * 3.2));
+      c.light.intensity = Math.max(0, 80 * (1 - t * 5));
+      if (t >= 1) {
+        removeBombCloud(c);
+        bombClouds.splice(i, 1);
+      }
+    }
+  });
+  ctx.onPlaneBomb = (point) => {
+    spawnBombMushroom(point);
+    navigator.vibrate?.([70, 30, 120]);
+    net.send({ t: 'bomb', p: point.toArray() });
+  };
+  // Le bazooka reprend exactement la silhouette de l'explosion du Mirage,
+  // mais à environ un cinquième de sa taille et sur une durée plus courte.
+  ctx.onRocketExplosion = (point) => {
+    spawnBombMushroom(point, { scale: 0.22, duration: 2.8, baseBurst: false });
+  };
   const spray = createSpray(scene, camera, ctx.taggables, {
+    shootables: ctx.shootables,
     onToast: ui.toast,
     onModeChange: (on, paintColor) => {
       if (on && state.weaponEquipped) weapon.toggle(false);
       ui.setTagMode(on ? paintColor : null);
     },
     onSaved: (res) => {
+      tutorial.tagSaved();
       if (res.xp != null) {
         ui.setXp(res.xp);
         audio.reward();
@@ -459,10 +722,57 @@ async function boot() {
   });
 
   // Armes à ramasser sur la map, du marteau au bazooka (voir world/loot.js)
-  buildLoot(ctx, {
+  const loot = buildLoot(ctx, {
     onPickup: (id) => {
       audio.reward();
+      rememberInventoryItem(`weapon:${id}`);
       weapon.give(id); // équipe (toast via onWeaponChange) ou recharge
+    },
+  });
+
+  // La radio portable est désormais un vrai objet à trouver devant la salle
+  // d'arcade. Elle rejoint l'inventaire persistant comme les autres objets.
+  const radioPickup = buildRadioPickup(ctx, {
+    hasItem: (id) => state.inventory.includes(id),
+    onPickup: () => {
+      state.hasRadio = true;
+      rememberInventoryItem('radio');
+      audio.reward();
+      ui.toast('📻 Radio récupérée ! Elle est dans ton inventaire — touche B pour l’utiliser.');
+      ui.spawnConfetti(20);
+    },
+  });
+
+  // Momo l'armurier, au pied de la Grande Roue : quête persistante qui
+  // s'appuie sur les armes déjà enregistrées dans l'inventaire du compte.
+  buildWeaponQuest(ctx, {
+    getStatus: () => state.arsenalQuest,
+    hasItem: (id) => state.inventory.includes(id),
+    getItemTarget: (id) => id === 'radio'
+      ? radioPickup.target(controls.position)
+      : loot.nearest(id, controls.position),
+    startQuest: async () => {
+      const res = await apiFetch('/quests/arsenal', {
+        method: 'POST', body: JSON.stringify({ action: 'start' }),
+      });
+      state.arsenalQuest = res.status;
+      return res;
+    },
+    completeQuest: async () => {
+      const res = await apiFetch('/quests/arsenal', {
+        method: 'POST', body: JSON.stringify({ action: 'complete' }),
+      });
+      state.arsenalQuest = res.status;
+      if (res.xp != null) ui.setXp(res.xp);
+      progress.refresh();
+      return res;
+    },
+    onProgress: (quest) => ui.setQuest(quest),
+    onReward: (res) => {
+      if (!res.xpGain) return;
+      ui.spawnConfetti(36);
+      ui.toast(`⭐ Quête terminée : +${res.xpGain} XP`);
+      audio.reward();
     },
   });
 
@@ -546,8 +856,84 @@ async function boot() {
   // Capture d'écran stylée : touche C (desktop) ou bouton 📸 (tactile)
   const capture = createCapture({ renderer, scene, camera, onToast: ui.toast });
 
-  // Avant-bras en vue subjective (purement cosmétique, voir player/arms.js)
+  // Avant-bras en vue subjective. En jetpack, ils portent aussi les deux
+  // mitraillettes dont les bouches servent d'origine réelle aux traceurs.
   const arms = createArms(camera);
+
+  const jetpackRaycaster = new THREE.Raycaster();
+  const jetpackDirection = new THREE.Vector3();
+  let jetpackTrigger = false;
+  let jetpackCooldown = 0;
+
+  function fireJetpackVolley() {
+    const origins = arms.getJetpackMuzzles();
+    if (!origins.length) return;
+    camera.getWorldDirection(jetpackDirection).normalize();
+    const range = 120;
+    const hitObjects = new Set();
+    let relayEnd = null;
+
+    for (const origin of origins) {
+      jetpackRaycaster.set(origin, jetpackDirection);
+      jetpackRaycaster.far = range;
+      const wallD = worldHitDistance(origin, jetpackDirection, range);
+      const hits = jetpackRaycaster.intersectObjects(ctx.shootables, false);
+      let end;
+      if (hits.length && hits[0].distance <= wallD) {
+        const hit = hits[0];
+        hit.jetpack = true;
+        end = hit.point.clone();
+        if (!hitObjects.has(hit.object)) {
+          hitObjects.add(hit.object);
+          hit.object.userData.onHit?.(hit);
+        }
+        weapon.fx.spawnImpact(end);
+      } else if (wallD <= range) {
+        end = jetpackRaycaster.ray.at(wallD, new THREE.Vector3());
+        weapon.fx.spawnImpact(end);
+      } else {
+        end = jetpackRaycaster.ray.at(range, new THREE.Vector3());
+      }
+      weapon.fx.spawnTracer(origin.toArray(), end.toArray(), true);
+      relayEnd ??= end;
+    }
+
+    if (relayEnd) {
+      net.send({ t: 'shot', a: origins[0].toArray(), b: relayEnd.toArray(), jetpack: 1 });
+    }
+    arms.pulseJetpackGuns();
+    audio.gunshot();
+    navigator.vibrate?.(8);
+  }
+
+  const jetpackGuns = {
+    setTrigger(on) {
+      jetpackTrigger = Boolean(on);
+      if (jetpackTrigger && state.weaponEquipped) weapon.toggle(false);
+    },
+    update(dt) {
+      jetpackCooldown -= dt;
+      if (!controls.flying || controls.vehicle) {
+        jetpackTrigger = false;
+        return;
+      }
+      const inputOk = IS_TOUCH || state.pointerLocked;
+      const canShoot = inputOk && jetpackTrigger && jetpackCooldown <= 0 &&
+        !state.overlayOpen && !state.tagMode && !state.sanctuary && !state.photoMode;
+      if (!canShoot) return;
+      jetpackCooldown = 0.08;
+      fireJetpackVolley();
+    },
+  };
+
+  if (!IS_TOUCH) {
+    window.addEventListener('mousedown', (e) => {
+      if (e.button === 0 && controls.flying && !controls.vehicle) jetpackGuns.setTrigger(true);
+    });
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 0) jetpackGuns.setTrigger(false);
+    });
+  }
 
   // --- Enceinte portable (touche B) : boucles procédurales WebAudio, zéro
   // asset et coût quasi nul. Les autres joueurs l'entendent (champ `mus`
@@ -556,20 +942,58 @@ async function boot() {
   const boomModel = buildBoomboxModel();
   boomModel.visible = false;
   camera.add(boomModel);
-  function cycleBoombox() {
-    state.boombox = (state.boombox + 1) % (TRACKS.length + 1);
+  function cycleBoombox({ tracksOnly = false } = {}) {
+    if (!state.hasRadio) {
+      ui.toast('🔒 Radio verrouillée : récupère-la devant la salle d’arcade pour la mission de Momo !');
+      return;
+    }
+    state.boombox = tracksOnly
+      ? (state.boombox % TRACKS.length) + 1
+      : (state.boombox + 1) % (TRACKS.length + 1);
     if (state.boombox === 0) {
       boombox.stop();
       boomModel.visible = false;
       ui.toast('📻 Enceinte coupée.');
     } else {
+      if (state.weaponEquipped) weapon.toggle(false);
+      if (state.tagMode) spray.setMode(false);
       boombox.setVolume(0.3);
       boombox.start(state.boombox);
       boomModel.visible = true;
-      ui.toast(`📻 Enceinte : ${TRACKS[state.boombox - 1].nom} — B pour changer, les autres t'entendent !`);
+      ui.toast(`📻 Enceinte : ${TRACKS[state.boombox - 1].nom} — B ou touche l’enceinte pour changer !`);
       navigator.vibrate?.(12);
     }
   }
+
+  // La façade de l'enceinte est un vrai contrôle dans le monde 3D : clic ou
+  // toucher dessus passe à la piste suivante sans jamais couper la radio.
+  const radioRaycaster = new THREE.Raycaster();
+  const radioPointer = new THREE.Vector2();
+  function isRadioAt(clientX, clientY) {
+    if (!state.boombox || !boomModel.visible || state.overlayOpen) return false;
+    const rect = renderer.domElement.getBoundingClientRect();
+    radioPointer.set(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1
+    );
+    camera.updateWorldMatrix(true, true);
+    radioRaycaster.setFromCamera(radioPointer, camera);
+    return radioRaycaster.intersectObject(boomModel, true).length > 0;
+  }
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || !isRadioAt(e.clientX, e.clientY)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    cycleBoombox({ tracksOnly: true });
+  }, { capture: true });
+  // `touchstart` est un événement séparé de `pointerdown` sur certains
+  // navigateurs : on l'arrête pour que le même geste ne déplace pas la vue.
+  renderer.domElement.addEventListener('touchstart', (e) => {
+    const t = e.changedTouches[0];
+    if (!t || !isRadioAt(t.clientX, t.clientY)) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, { capture: true, passive: false });
 
   // --- Emotes ridicules (3/4/5 ou bouton 😜) : passent par le chat de
   // proximité, donc visibles en bulle au-dessus de la tête pour les autres
@@ -591,17 +1015,15 @@ async function boot() {
   }
 
   // --- Jetpack : touche J (une fois ramassé à la Confluence) range/ressort
-  // le jetpack ET décolle/atterrit en un geste — visible en vue subjective
-  // (voir buildJetpackViewModel plus bas), comme l'arme ou l'enceinte.
+  // le jetpack ET décolle/atterrit en un geste. Le sac et ses bonbonnes ne
+  // sont jamais dessinés devant la caméra ; seuls les bras/manettes/canons
+  // visibles dans arms.js constituent la vue subjective.
   // Particules de propulsion mutualisées, son de réacteur modulé.
   const jetGeo = new THREE.SphereGeometry(0.12, 5, 5);
   const jetMat = new THREE.MeshBasicMaterial({
     color: 0xffb347, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
   });
   const jetParticles = []; // { mesh, vel, life, maxLife }
-  const jetModel = buildJetpackViewModel();
-  jetModel.visible = false;
-  camera.add(jetModel);
   function toggleJetpack() {
     if (!state.hasJetpack) {
       ui.toast('🚀 Va chercher le jetpack à la pointe de la Confluence !');
@@ -609,11 +1031,39 @@ async function boot() {
     }
     if (state.driving) return;
     const on = !controls.flying;
+    if (on && state.weaponEquipped) weapon.toggle(false);
+    if (on && state.tagMode) spray.setMode(false);
     controls.setFlying(on);
     state.flying = on;
-    jetModel.visible = on;
+    if (!on) jetpackGuns.setTrigger(false);
     if (on) { audio.jetStart(); ui.toast('🚀 Jetpack sorti, décollage ! Espace pour monter, J pour ranger.'); }
     else { audio.jetStop(); ui.toast('🎒 Jetpack rangé.'); }
+  }
+
+  function toggleRcPlane() {
+    if (!state.hasRcPlane) {
+      ui.toast('📡 Trouve le petit avion et son pupitre sur le tarmac de l’aéroport !');
+      return;
+    }
+    const rc = ctx.rcPlaneController;
+    if (!rc) return;
+    if (rc.active) {
+      rc.stop();
+      ui.toast('📡 Avion RC rangé dans l’inventaire.');
+      return;
+    }
+    if (state.driving || controls.flying) {
+      ui.toast('Range d’abord ton véhicule ou ton jetpack.');
+      return;
+    }
+    if (state.weaponEquipped) weapon.toggle(false);
+    const p = controls.position;
+    const heading = controls.yaw;
+    rc.startAt(
+      p.x - Math.sin(heading) * 2.2,
+      p.z - Math.cos(heading) * 2.2,
+      heading
+    );
   }
   function spawnJetParticles() {
     const p = controls.position;
@@ -699,8 +1149,12 @@ async function boot() {
     if (name) ui.toast(`💨 ${name} a quitté la ville.`);
   });
   net.on('shot', (msg) => {
-    weapon.fx.spawnTracer(msg.a, msg.b);
+    weapon.fx.spawnTracer(msg.a, msg.b, Boolean(msg.aircraft));
     weapon.fx.spawnImpact(msg.b);
+  });
+  net.on('explosion', (msg) => {
+    spawnBombMushroom(msg.p);
+    navigator.vibrate?.([60, 25, 90]);
   });
   net.on('hp', (msg) => {
     if (msg.id === myNetId) {
@@ -730,7 +1184,7 @@ async function boot() {
       if (controls.flying) {
         controls.setFlying(false);
         state.flying = false;
-        jetModel.visible = false;
+        jetpackGuns.setTrigger(false);
         audio.jetStop();
       }
       npcs.calm(); // la Garde a eu sa vengeance
@@ -792,6 +1246,10 @@ async function boot() {
       else ui.closeTopOverlay();
       return;
     }
+    if (e.code === 'KeyL' && ui.leaderboardsOpen()) {
+      ui.toggleLeaderboards(false);
+      return;
+    }
     if (state.overlayOpen) return;
 
     // Entrée : ouvrir le chat de proximité
@@ -803,6 +1261,8 @@ async function boot() {
       else capture.toggleMode(true);
     }
     if (e.code === 'KeyJ') toggleJetpack();
+    if (e.code === 'KeyK' && controls.vehicle?.jet) controls.dropPlaneBomb();
+    if (e.code === 'KeyH' && controls.vehicle?.plane) controls.togglePlaneCamera();
     if (e.code === 'KeyB') cycleBoombox();
     if (e.code === 'Digit3') emote(0);
     if (e.code === 'Digit4') emote(1);
@@ -829,9 +1289,14 @@ async function boot() {
     createTouchControls({
       controls, weapon, spray, tagEditor, ui, voice, capture, emote,
       jetpack: () => toggleJetpack(),
+      jetpackGuns,
+      rcPlane: () => toggleRcPlane(),
       interact: () => nearestInteractable?.action(),
       map: () => poiMap.toggle(),
       radio: () => cycleBoombox(),
+      admin: () => ui.toggleAdmin(),
+      invite: () => ui.invite(),
+      quality,
     });
     // Le prompt « ▶ JOUER » est lui-même tactile : plus besoin de viser le bouton E.
     ui.onPromptTap(() => nearestInteractable?.action());
@@ -895,14 +1360,28 @@ async function boot() {
     const dt = Math.min(clock.getDelta(), 0.05);
 
     controls.update(dt);
+    // Les outils tenus en main ne peuvent pas réapparaître via un raccourci
+    // pendant le vol : les mains restent exclusivement sur les manettes.
+    if (controls.flying && state.weaponEquipped) weapon.toggle(false);
+    if (controls.flying && state.tagMode) spray.setMode(false);
+    // Une radio allumée est réellement tenue : aucun raccourci ne peut faire
+    // apparaître une arme ou une bombe de peinture dans la seconde main.
+    if (state.boombox && !controls.flying && !controls.vehicle) {
+      if (state.weaponEquipped) weapon.toggle(false);
+      if (state.tagMode) spray.setMode(false);
+    }
     weapon.update(dt, controls.isMoving());
     // Bras en vue subjective : masqués au volant/aux commandes (caméra
     // externe ou poste de pilotage), sinon la pose suit ce qui est en main
     arms.setVisible(!controls.vehicle);
-    const armMode = state.weaponEquipped ? 'weapon'
-      : state.boombox ? 'boombox'
-      : controls.flying ? 'jetpack' : 'idle';
+    const armMode = controls.flying ? 'jetpack'
+      : state.weaponEquipped ? 'weapon'
+        : state.boombox ? 'boombox' : 'idle';
     arms.update(dt, armMode, controls.isMoving(), weapon.holder);
+    jetpackGuns.update(dt);
+    // La radio peut continuer à jouer en vol, mais son modèle porté ne doit
+    // jamais flotter devant la caméra en jetpack ou dans un avion.
+    boomModel.visible = Boolean(state.boombox && !controls.flying && !controls.vehicle);
     spray.update(dt);
     remotes.update();
     voice.update();
@@ -915,7 +1394,11 @@ async function boot() {
 
     // Moteur de la décapotable : la hauteur suit la vitesse
     if (state.driving) {
-      audio.engineUpdate(Math.min(1, Math.abs(controls.vehicle?.speed ?? 0) / 38));
+      const engineTopSpeed = controls.vehicle?.jet ? 220 : controls.vehicle?.plane ? 68 : 38;
+      audio.engineUpdate(
+        Math.min(1, Math.abs(controls.vehicle?.speed ?? 0) / engineTopSpeed),
+        controls.vehicle?.throttle
+      );
     }
 
     // Jetpack : poussée sonore + gerbe de particules sous les pieds
@@ -967,9 +1450,12 @@ async function boot() {
       ui.setInfo({ fps: fpsValue, players: remotes.count(), pos: controls.position });
     }
 
+    tutorial.update(controls.position, ARCADE);
     renderer.render(scene, camera);
   }
   loop();
+  loading.done();
+  tutorial.start();
 
   ui.toast('Bienvenue à Lyon ! La salle d’arcade est au nord de Bellecour.');
   // Signale le palier auto-détecté seulement s'il a réduit la qualité (rien
@@ -1005,55 +1491,47 @@ function makeHaloTexture() {
   return new THREE.CanvasTexture(canvas);
 }
 
-// Enceinte portable en main (coin bas-gauche de la vue, comme l'arme à droite)
+// Enceinte portable tenue d'une main sur le bord gauche de la vue.
 function buildBoomboxModel() {
   const g = new THREE.Group();
   const dark = new THREE.MeshLambertMaterial({ color: 0x23262d });
-  const grey = new THREE.MeshLambertMaterial({ color: 0x555b66 });
-  const accent = new THREE.MeshLambertMaterial({ color: 0xff3df0 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.2, 0.12), dark);
+  const rim = new THREE.MeshLambertMaterial({ color: 0x697381 });
+  const cone = new THREE.MeshLambertMaterial({ color: 0x343b46 });
+  const cap = new THREE.MeshLambertMaterial({ color: 0x11151b });
+  const accent = new THREE.MeshLambertMaterial({ color: 0xff3df0, emissive: 0x3b082f });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.23, 0.14), dark);
   g.add(body);
-  for (const dx of [-0.09, 0.09]) {
-    const hp = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.02, 10), grey);
-    hp.rotation.x = Math.PI / 2;
-    hp.position.set(dx, -0.01, 0.065);
-    g.add(hp);
+  for (const dx of [-0.105, 0.105]) {
+    const speakerRim = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.02, 16), rim);
+    speakerRim.rotation.x = Math.PI / 2;
+    speakerRim.position.set(dx, -0.015, 0.078);
+    g.add(speakerRim);
+    const speakerCone = new THREE.Mesh(new THREE.CylinderGeometry(0.043, 0.062, 0.014, 16), cone);
+    speakerCone.rotation.x = Math.PI / 2;
+    speakerCone.position.set(dx, -0.015, 0.091);
+    g.add(speakerCone);
+    const dustCap = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.01, 12), cap);
+    dustCap.rotation.x = Math.PI / 2;
+    dustCap.position.set(dx, -0.015, 0.103);
+    g.add(dustCap);
   }
-  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.03), accent);
-  bar.position.y = 0.13;
-  g.add(bar);
-  for (const dx of [-0.14, 0.14]) {
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.06, 0.03), grey);
-    arm.position.set(dx, 0.1, 0);
-    g.add(arm);
-  }
-  // Tenue à bout de bras, tournée vers le joueur
-  g.position.set(-0.34, -0.3, -0.55);
-  g.rotation.set(0.1, 2.6, 0);
-  return g;
-}
-
-// Jetpack rangé/sorti : dossard + bonbonnes visibles au bas de la vue
-// (mêmes teintes que le modèle du monde, voir buildJetpackPad dans city.js)
-function buildJetpackViewModel() {
-  const g = new THREE.Group();
-  const metal = new THREE.MeshLambertMaterial({ color: 0xd23b3b });
-  const dark = new THREE.MeshLambertMaterial({ color: 0x2a2e36 });
-  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.36, 0.14), dark);
-  g.add(pack);
-  for (const dx of [-0.17, 0.17]) {
-    const tank = new THREE.Mesh(new THREE.CapsuleGeometry(0.09, 0.28, 5, 8), metal);
-    tank.position.set(dx, 0, 0);
-    g.add(tank);
-    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.1, 6), dark);
-    nozzle.position.set(dx, -0.24, 0);
-    g.add(nozzle);
-  }
-  // Porté dans le dos, pas tenu devant le visage : bas de l'écran, penché
-  // vers l'arrière (comme un vrai sac sanglé aux épaules). On ne voit jamais
-  // son propre dos en vue subjective — juste un coin de bretelles/bonbonnes
-  // qui dépasse en bas de cadre, comme le reste de l'équipement porté.
-  g.position.set(0, -0.5, -0.28);
-  g.rotation.set(-0.35, 0, 0);
+  const display = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.025, 0.012), accent);
+  display.position.set(0, 0.075, 0.079);
+  g.add(display);
+  // Poignée semi-circulaire : la main gauche attrape son montant droit.
+  const handle = new THREE.Mesh(new THREE.TorusGeometry(0.115, 0.014, 6, 16, Math.PI), rim);
+  handle.position.y = 0.125;
+  g.add(handle);
+  // Volume invisible mais raycastable, un peu plus large que la façade pour
+  // rendre le toucher confortable sur téléphone.
+  const hitArea = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5, 0.34, 0.22),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  hitArea.userData.radioControl = true;
+  g.add(hitArea);
+  // Haut-parleurs face à la caméra (+z), radio déportée vers l'extérieur.
+  g.position.set(-0.5, -0.26, -0.76);
+  g.rotation.set(-0.05, -0.05, -0.08);
   return g;
 }

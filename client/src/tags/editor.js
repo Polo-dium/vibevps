@@ -5,30 +5,39 @@ const SIZE = 512;
 
 export function createTagEditor({ onToast, onOpenChange }) {
   const root = document.createElement('div');
-  root.className = 'overlay hidden';
+  root.className = 'overlay tag-editor-overlay hidden';
   root.innerHTML = `
-    <div class="panel" style="width:920px; display:flex; gap:20px;">
-      <div>
-        <h2>ÉDITEUR DE TAG</h2>
-        <canvas id="tag-editor-canvas" width="${SIZE}" height="${SIZE}" style="width:440px;height:440px;"></canvas>
+    <div class="panel" id="tag-editor-panel" role="dialog" aria-modal="true" aria-labelledby="tag-editor-title">
+      <div class="tag-editor-header">
+        <h2 id="tag-editor-title">ÉDITEUR DE TAG</h2>
+        <button class="ghost" id="tag-close">← Retour</button>
       </div>
-      <div style="flex:1; display:flex; flex-direction:column;">
-        <div class="tag-tools" id="tag-palette"></div>
-        <div class="tag-tools">
-          <label style="font-size:13px;">Taille</label>
-          <input type="range" id="tag-brush" min="4" max="60" value="18" style="flex:1;">
-          <button class="ghost" id="tag-eraser">Gomme</button>
-          <button class="ghost" id="tag-undo">Annuler</button>
-          <button class="ghost" id="tag-clear">Vider</button>
+      <div class="tag-editor-body">
+        <div class="tag-editor-drawing">
+          <div class="tag-canvas-wrap">
+            <canvas id="tag-editor-canvas" width="${SIZE}" height="${SIZE}"></canvas>
+          </div>
+          <div class="tag-drawing-tools">
+            <button class="ghost" id="tag-eraser">Gomme</button>
+            <button class="ghost" id="tag-undo">↶ Annuler</button>
+            <button class="ghost" id="tag-clear">Vider</button>
+          </div>
         </div>
-        <input type="text" id="tag-name" placeholder="Nom du tag" maxlength="24">
-        <div class="err" id="tag-err"></div>
-        <div class="tag-tools">
-          <button id="tag-save">Sauvegarder &amp; équiper</button>
-          <button class="ghost" id="tag-close">Fermer (Échap)</button>
+        <div class="tag-editor-sidebar">
+          <label class="tag-tool-label">Couleur</label>
+          <div class="tag-tools" id="tag-palette"></div>
+          <div class="tag-tools tag-brush-row">
+            <label class="tag-tool-label" for="tag-brush">Taille</label>
+            <input type="range" id="tag-brush" min="4" max="60" value="18">
+          </div>
+          <input type="text" id="tag-name" placeholder="Nom du tag" maxlength="24">
+          <div class="err" id="tag-err"></div>
+          <div class="tag-save-row">
+            <button id="tag-save">Sauvegarder &amp; équiper</button>
+          </div>
+          <h2 class="tag-library-title">MES TAGS <span>(clic = équiper, F pour sprayer)</span></h2>
+          <div class="tag-lib" id="tag-lib"></div>
         </div>
-        <h2 style="font-size:15px; margin-top:14px;">MES TAGS <span style="color:#7f9ab0;font-size:12px;">(clic = équiper, F pour sprayer)</span></h2>
-        <div class="tag-lib" id="tag-lib"></div>
       </div>
     </div>`;
   document.body.appendChild(root);
@@ -65,6 +74,16 @@ export function createTagEditor({ onToast, onOpenChange }) {
   root.querySelector('#tag-clear').onclick = () => { pushUndo(); g.clearRect(0, 0, SIZE, SIZE); };
   root.querySelector('#tag-undo').onclick = popUndo;
   root.querySelector('#tag-close').onclick = close;
+
+  // Raccourci naturel sur ordinateur, sans voler Ctrl+Z aux autres écrans.
+  window.addEventListener('keydown', (e) => {
+    if (root.classList.contains('hidden')) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ' && !e.shiftKey) {
+      e.preventDefault();
+      popUndo();
+    }
+  });
 
   function pushUndo() {
     undoStack.push(g.getImageData(0, 0, SIZE, SIZE));

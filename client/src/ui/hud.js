@@ -21,6 +21,7 @@ export function createUi() {
       <div id="xp-bar"><div id="xp-fill"></div></div>
     </div>
     <div id="hud-daily" class="hidden" title="Défis du jour (L)">🎯 0/3</div>
+    <div id="hud-quest" class="hidden"></div>
     <div id="levelbanner" class="hidden"></div>
     <div id="mic-indicator" class="hidden">🎤 EN DIRECT</div>
     <div id="chatfeed"></div>
@@ -221,6 +222,7 @@ export function createUi() {
   const infoEl = hud.querySelector('#hud-info');
   const rangeEl = hud.querySelector('#hud-range');
   const ammoEl = hud.querySelector('#hud-ammo');
+  const questEl = hud.querySelector('#hud-quest');
   const toastsEl = hud.querySelector('#toasts');
 
   function setPrompt(text) {
@@ -246,6 +248,23 @@ export function createUi() {
       `${players + 1} joueur(s) en ligne · ${fps} fps\n` +
       `x ${pos.x.toFixed(0)}  z ${pos.z.toFixed(0)}`;
     infoEl.style.whiteSpace = 'pre';
+  }
+
+  function setQuest(quest) {
+    if (!quest) {
+      questEl.classList.add('hidden');
+      questEl.innerHTML = '';
+      return;
+    }
+    const done = quest.items.filter((item) => item.done).length;
+    questEl.innerHTML = `
+      <div class="quest-title">${escapeHtml(quest.icon ?? '🧭')} ${escapeHtml(quest.title)}</div>
+      <div class="quest-count">${done}/${quest.items.length}</div>
+      <div class="quest-items">${quest.items.map((item) =>
+        `<span class="${item.done ? 'done' : ''}">${item.done ? '✓' : '○'} ${escapeHtml(item.label)}</span>`
+      ).join('')}</div>
+      ${quest.hint ? `<div class="quest-hint">🧭 INDICE : ${escapeHtml(quest.hint)}</div>` : ''}`;
+    questEl.classList.remove('hidden');
   }
 
   // Bandeau générique (chrono de course…) : réutilise l'encart du stand de
@@ -322,6 +341,8 @@ export function createUi() {
         state.auth = JSON.parse(saved);
         me = await apiFetch('/me');
         state.isAdmin = Boolean(me.admin);
+        state.inventory = Array.isArray(me.inventory) ? me.inventory : [];
+        state.arsenalQuest = Number(me.arsenalQuest) || 0;
       } catch {
         state.auth = null;
         localStorage.removeItem('vibevps_auth');
@@ -333,9 +354,21 @@ export function createUi() {
       overlay.className = 'overlay';
       overlay.innerHTML = `
         <div class="panel home-panel">
+          <div class="home-visual" aria-hidden="true">
+            <div class="home-moon"></div>
+            <div class="home-fourviere">✦</div>
+            <div class="home-crayon"></div>
+            <div class="home-buildings"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="home-river"></div>
+            <div class="home-player">▲</div>
+          </div>
           <div class="home-title">LYON <span>ARCADE</span></div>
           <p class="sub">Lyon en low-poly, direct dans ton navigateur : tague Bellecour,
           pilote un avion, joue aux bornes et défie les gones.</p>
+          <div class="home-features" aria-label="Fonctionnalités du jeu">
+            <span>🏙️ Lyon ouvert</span><span>👥 Multijoueur</span><span>🎨 Graffiti</span><span>🕹️ Mini-jeux</span>
+          </div>
+          <p class="home-meta">GRATUIT · PC ET MOBILE · AUCUN TÉLÉCHARGEMENT</p>
           <div id="home-resume" class="hidden">
             <button id="home-play">▶ JOUER</button>
             <div class="home-links">
@@ -343,14 +376,14 @@ export function createUi() {
               <a href="#" id="home-protect">🔒 protéger mon pseudo</a>
             </div>
             <div id="home-pinrow" class="hidden">
-              <input type="password" id="home-newpin" placeholder="Choisis un code secret (4 car. min)" maxlength="24">
+              <input type="password" id="home-newpin" aria-label="Nouveau code secret" autocomplete="new-password" placeholder="Choisis un code secret (4 car. min)" maxlength="24">
               <div class="err" id="home-pinerr"></div>
               <button id="home-pinsave">ENREGISTRER LE CODE</button>
             </div>
           </div>
           <div id="home-form" class="hidden">
-            <input type="text" id="name-input" placeholder="Ton pseudo" maxlength="16">
-            <input type="password" id="pin-input" placeholder="Code secret (facultatif)" maxlength="24">
+            <input type="text" id="name-input" aria-label="Ton pseudo" autocomplete="username" placeholder="Ton pseudo" maxlength="16">
+            <input type="password" id="pin-input" aria-label="Code secret facultatif" autocomplete="current-password" placeholder="Code secret (facultatif)" maxlength="24">
             <p class="home-note">Avec un code secret, ton pseudo est protégé : tu le retrouves
             sur n'importe quel appareil, personne ne peut te le piquer.</p>
             <div class="err" id="name-err"></div>
@@ -414,11 +447,14 @@ export function createUi() {
       const go = async () => {
         err.textContent = '';
         try {
-          const auth = await apiFetch('/register', {
+          const response = await apiFetch('/register', {
             method: 'POST',
             body: JSON.stringify({ name: input.value, pin: pinInput.value }),
           });
+          const { inventory = [], arsenalQuest = 0, ...auth } = response;
           state.auth = auth;
+          state.inventory = Array.isArray(inventory) ? inventory : [];
+          state.arsenalQuest = Number(arsenalQuest) || 0;
           state.isAdmin = false;
           localStorage.setItem('vibevps_auth', JSON.stringify(auth));
           done(auth);
@@ -434,21 +470,27 @@ export function createUi() {
 
   // --- Panneau des classements (L) ---
   const lbOverlay = document.createElement('div');
-  lbOverlay.className = 'overlay hidden';
+  lbOverlay.className = 'overlay leaderboard-overlay hidden';
   lbOverlay.innerHTML = `
-    <div class="panel" style="width:900px;">
-      <h2>🎯 DÉFIS DU JOUR <span id="daily-streak"></span></h2>
-      <div id="daily-grid"></div>
-      <h2 style="margin-top:16px;">CLASSEMENTS</h2>
-      <div id="lb-grid"></div>
-      <h2 style="margin-top:16px;">🏆 SUCCÈS</h2>
-      <div id="ach-grid"></div>
-      <div style="margin-top:14px; text-align:right;">
-        <button class="ghost" id="lb-close">Fermer (Échap ou L)</button>
+    <div class="panel leaderboard-panel">
+      <header class="leaderboard-head">
+        <div><strong>LYON ARCADE</strong><span>PROGRESSION ET CLASSEMENTS</span></div>
+        <button class="ghost" id="lb-close" aria-label="Fermer les classements">×</button>
+      </header>
+      <div class="leaderboard-scroll">
+        <h2>🎯 DÉFIS DU JOUR <span id="daily-streak"></span></h2>
+        <div id="daily-grid"></div>
+        <h2 style="margin-top:16px;">CLASSEMENTS</h2>
+        <div id="lb-grid"></div>
+        <h2 style="margin-top:16px;">🏆 SUCCÈS</h2>
+        <div id="ach-grid"></div>
       </div>
     </div>`;
   document.body.appendChild(lbOverlay);
   lbOverlay.querySelector('#lb-close').onclick = () => toggleLeaderboards(false);
+  lbOverlay.addEventListener('pointerdown', (e) => {
+    if (e.target === lbOverlay) toggleLeaderboards(false);
+  });
 
   // --- Défis quotidiens : badge compact + panneau détaillé -----------------
   const dailyBadge = hud.querySelector('#hud-daily');
@@ -527,13 +569,19 @@ export function createUi() {
       // Rafraîchit depuis le serveur puis met à jour l'affichage
       progressRef?.refresh().then(() => renderAchievements());
       lbOverlay.classList.remove('hidden');
+      lbOverlay.querySelector('.leaderboard-scroll').scrollTop = 0;
       state.overlayOpen = true;
       document.exitPointerLock?.();
+      setTimeout(() => lbOverlay.querySelector('#lb-close').focus(), 30);
     } else {
       lbOverlay.classList.add('hidden');
       state.overlayOpen = false;
     }
     return show;
+  }
+
+  function leaderboardsOpen() {
+    return !lbOverlay.classList.contains('hidden');
   }
 
   // --- Créateur de borne IA ---
@@ -678,10 +726,10 @@ export function createUi() {
   }
 
   return {
-    ensureAuth, invite, toast, setPrompt, onPromptTap, setInfo, setRange, setBanner, setAmmo,
+    ensureAuth, invite, toast, setPrompt, onPromptTap, setInfo, setQuest, setRange, setBanner, setAmmo,
     setHp, damageFlash, killBanner, setTagMode, hitmarker, deathScreen,
     setXp, spawnConfetti, achievementUnlocked, bindProgress, setDaily,
-    toggleLeaderboards, openCreator, toggleAdmin, closeTopOverlay,
+    toggleLeaderboards, leaderboardsOpen, openCreator, toggleAdmin, closeTopOverlay,
     openChat, onChatSend, addChatLine, setMicState,
   };
 }

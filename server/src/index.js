@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import http from 'node:http';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -13,6 +14,14 @@ const PORT = Number(process.env.PORT ?? 3000);
 
 const app = express();
 app.disable('x-powered-by');
+// L'état multijoueur et la carte OSM sont très compressibles. Cette couche
+// protège aussi les déploiements où le reverse proxy n'active pas gzip/Brotli.
+app.use(compression({ threshold: 1024 }));
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
 app.use(express.json({ limit: '1mb' }));
 app.use('/api', api);
 
@@ -64,7 +73,9 @@ app.get('/', (req, res, next) => {
 app.get('/lyon-osm.json', (req, res) => {
   const distOsm = path.join(distDir, 'lyon-osm.json');
   const file = fs.existsSync(publicOsm) ? publicOsm : distOsm;
-  res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  // La carte change peu : une heure de cache évite 3 Mo à chaque visite,
+  // tout en laissant les mises à jour OSM se propager rapidement.
+  res.setHeader('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
   if (fs.existsSync(file)) res.sendFile(file);
   else res.status(404).end();
 });
@@ -76,10 +87,14 @@ if (fs.existsSync(distDir)) {
   // déploiement (symptôme : « c'est toujours pareil » malgré les mises à jour).
   app.use(express.static(distDir, {
     setHeaders: (res, filePath) => {
-      if (filePath.endsWith('index.html') || filePath.endsWith('lyon-osm.json')) {
+      if (filePath.endsWith('index.html')) {
         res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+      } else if (filePath.endsWith('lyon-osm.json')) {
+        res.setHeader('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
       } else {
-        res.setHeader('Cache-Control', 'public, max-age=604800');
+        // Les fichiers Vite portent leur hash : ils sont immuables et peuvent
+        // être gardés un an sans empêcher le prochain déploiement.
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       }
     },
   }));

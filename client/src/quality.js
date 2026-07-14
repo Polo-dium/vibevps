@@ -39,6 +39,12 @@ export function createQuality(isTouch) {
     get preset() { return PRESETS[level]; },
     get label() { return LABELS[level]; },
     onChange(fn) { listeners.push(fn); },
+    set(next) {
+      if (!PRESETS[next] || next === level) return level;
+      level = next;
+      notify();
+      return level;
+    },
     cycle() {
       level = LEVELS[(LEVELS.indexOf(level) + 1) % LEVELS.length];
       notify();

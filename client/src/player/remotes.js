@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { hashColor } from '../world/utils.js';
 import { buildHuman } from '../world/human.js';
-import { buildPlaneModel } from '../world/aviation.js';
+import { buildMirageModel, buildPlaneModel } from '../world/aviation.js';
 import { createMusicSource, gainForDistance } from '../music.js';
 import * as net from '../net.js';
 
@@ -25,7 +25,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     scene.add(human.group);
 
     for (const mesh of human.hitMeshes) {
-      mesh.userData.onHit = () => onHitRemote?.(id);
+      mesh.userData.onHit = (hit) => onHitRemote?.(id, hit);
       shootables?.push(mesh);
     }
 
@@ -56,6 +56,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     if (!r) return;
     if (r.car) scene.remove(r.car);
     if (r.plane) scene.remove(r.plane);
+    if (r.jet) scene.remove(r.jet);
     r.music?.stop();
     scene.remove(r.human.group);
     if (shootables) {
@@ -84,10 +85,14 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
   net.on('chat', (msg) => showChat(msg.id, msg.text));
   net.on('states', (msg) => {
     const now = performance.now() / 1000;
-    for (const [id, x, y, z, ry, , veh, vry, mus] of msg.s) {
+    for (const [id, x, y, z, ry, , veh, vry, mus, vpx, vrz, vjet] of msg.s) {
       const r = remotes.get(id);
       if (!r) continue;
-      r.buffer.push({ t: now, p: [x, y, z], ry, veh: veh ?? 0, vry: vry ?? 0, mus: mus ?? 0 });
+      r.buffer.push({
+        t: now, p: [x, y, z], ry,
+        veh: veh ?? 0, vry: vry ?? 0, mus: mus ?? 0,
+        vpx: vpx ?? 0, vrz: vrz ?? 0, vjet: vjet ?? 0,
+      });
       if (r.buffer.length > 30) r.buffer.shift();
     }
   });
@@ -135,19 +140,32 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
       // Véhicule visible quand le joueur conduit : cabriolet fantôme (1)
       // ou avion fantôme (2), teintés à la couleur du joueur
       const vehCode = b.veh ?? a.veh ?? 0;
+      const jetCode = b.vjet ?? a.vjet ?? 0;
       const veh = vehCode > 0;
       if (vehCode === 1 && !r.car) {
         r.car = makeGhostCabrio(r.baseColor);
         scene.add(r.car);
       }
-      if (vehCode === 2 && !r.plane) {
+      if (vehCode === 2 && !jetCode && !r.plane) {
         r.plane = makeGhostPlane(r.baseColor);
         scene.add(r.plane);
+      }
+      if (vehCode === 2 && jetCode && !r.jet) {
+        r.jet = makeGhostMirage(r.baseColor);
+        scene.add(r.jet);
       }
       let dvry = (b.vry ?? 0) - (a.vry ?? 0);
       while (dvry > Math.PI) dvry -= Math.PI * 2;
       while (dvry < -Math.PI) dvry += Math.PI * 2;
       const vry = (a.vry ?? 0) + dvry * alpha;
+      let dvpx = (b.vpx ?? 0) - (a.vpx ?? 0);
+      let dvrz = (b.vrz ?? 0) - (a.vrz ?? 0);
+      while (dvpx > Math.PI) dvpx -= Math.PI * 2;
+      while (dvpx < -Math.PI) dvpx += Math.PI * 2;
+      while (dvrz > Math.PI) dvrz -= Math.PI * 2;
+      while (dvrz < -Math.PI) dvrz += Math.PI * 2;
+      const vpx = (a.vpx ?? 0) + dvpx * alpha;
+      const vrz = (a.vrz ?? 0) + dvrz * alpha;
       if (r.car) {
         r.car.visible = vehCode === 1;
         if (r.car.visible) {
@@ -156,11 +174,18 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
         }
       }
       if (r.plane) {
-        r.plane.visible = vehCode === 2;
+        r.plane.visible = vehCode === 2 && !jetCode;
         if (r.plane.visible) {
           r.plane.position.copy(g.position);
-          r.plane.rotation.y = vry;
+          r.plane.rotation.set(vpx, vry, vrz, 'YXZ');
           r.plane.userData.prop.rotation.z += frameDt * 25;
+        }
+      }
+      if (r.jet) {
+        r.jet.visible = vehCode === 2 && Boolean(jetCode);
+        if (r.jet.visible) {
+          r.jet.position.copy(g.position);
+          r.jet.rotation.set(vpx, vry, vrz, 'YXZ');
         }
       }
 
@@ -198,6 +223,10 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
 // Avion fantôme des pilotes distants (veh: 2), teinté à leur couleur
 function makeGhostPlane(tint) {
   return buildPlaneModel(tint.clone().multiplyScalar(0.9).getHex());
+}
+
+function makeGhostMirage(tint) {
+  return buildMirageModel(tint.clone().multiplyScalar(0.85).getHex());
 }
 
 // Cabriolet fantôme affiché sous les joueurs distants qui conduisent —

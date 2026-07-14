@@ -10,6 +10,25 @@ export const api = Router();
 const GAME_COOLDOWN_MS = 120_000;
 const MAX_CUSTOM_GAMES = 30;
 const MAX_IMAGE_BYTES = 400_000;
+const INVENTORY_ITEMS = new Set([
+  'jetpack', 'rc-plane', 'radio',
+  'weapon:marteau', 'weapon:pompe', 'weapon:minigun', 'weapon:bazooka',
+]);
+const ARSENAL_ITEMS = [
+  'weapon:marteau', 'weapon:pompe', 'weapon:minigun', 'weapon:bazooka', 'radio',
+];
+const ARSENAL_XP = 150;
+
+function playerInventory(player) {
+  try {
+    const items = JSON.parse(player?.inventory || '[]');
+    return Array.isArray(items)
+      ? [...new Set(items.filter((id) => typeof id === 'string' && INVENTORY_ITEMS.has(id)))]
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 function auth(req, res, next) {
   const header = req.headers.authorization || '';
@@ -52,7 +71,11 @@ api.post('/register', (req, res) => {
   if (existing) {
     // Pseudo protégé + bon code secret → c'est une CONNEXION
     if (pin && existing.pin_hash && existing.pin_hash === hashPin(existing.id, pin)) {
-      return res.json({ id: existing.id, name: existing.name, token: existing.token });
+      return res.json({
+        id: existing.id, name: existing.name, token: existing.token,
+        inventory: playerInventory(existing),
+        arsenalQuest: existing.arsenal_quest ?? 0,
+      });
     }
     return res.status(409).json({
       error: existing.pin_hash
@@ -64,7 +87,7 @@ api.post('/register', (req, res) => {
   const token = crypto.randomBytes(24).toString('hex');
   q.createPlayer.run(id, name, token, Date.now());
   if (pin) q.setPin.run(hashPin(id, pin), id);
-  res.json({ id, name, token });
+  res.json({ id, name, token, inventory: [], arsenalQuest: 0 });
 });
 
 // Protéger (ou changer le code de) son pseudo une fois connecté
@@ -83,6 +106,55 @@ api.get('/me', auth, (req, res) => {
     name: req.player.name,
     admin: Boolean(req.player.is_admin),
     protected: Boolean(req.player.pin_hash),
+    inventory: playerInventory(req.player),
+    arsenalQuest: req.player.arsenal_quest ?? 0,
+  });
+});
+
+// Un objet est ajouté une seule fois. Le serveur garde la source de vérité
+// afin que l'inventaire suive un pseudo protégé sur un nouvel appareil.
+api.post('/me/inventory', auth, (req, res) => {
+  const id = String(req.body?.id ?? '');
+  if (!INVENTORY_ITEMS.has(id)) {
+    return res.status(400).json({ error: 'Objet inconnu.' });
+  }
+  const inventory = playerInventory(req.player);
+  if (!inventory.includes(id)) {
+    inventory.push(id);
+    q.setInventory.run(JSON.stringify(inventory), req.player.id);
+  }
+  res.json({ ok: true, inventory });
+});
+
+// Quête de l'armurier : le serveur vérifie les quatre armes et la radio avant de
+// verser la récompense. L'UPDATE conditionnel rend les +150 XP impossibles à
+// réclamer deux fois, même avec deux requêtes simultanées.
+api.post('/quests/arsenal', auth, (req, res) => {
+  const action = String(req.body?.action ?? '');
+  let xpGain = 0;
+  if (action === 'start') {
+    q.startArsenalQuest.run(req.player.id);
+  } else if (action === 'complete') {
+    const fresh = q.playerById.get(req.player.id);
+    if ((fresh?.arsenal_quest ?? 0) < 1) {
+      return res.status(409).json({ error: 'Parle d’abord à l’armurier.' });
+    }
+    const inventory = playerInventory(fresh);
+    const missing = ARSENAL_ITEMS.filter((id) => !inventory.includes(id));
+    if (missing.length) {
+      return res.status(409).json({ error: 'Il reste de l’équipement à retrouver.', missing });
+    }
+    const info = q.completeArsenalQuest.run(ARSENAL_XP, req.player.id);
+    if (info.changes) xpGain = ARSENAL_XP;
+  } else {
+    return res.status(400).json({ error: 'Action de quête inconnue.' });
+  }
+  const player = q.playerById.get(req.player.id);
+  res.json({
+    ok: true,
+    status: player.arsenal_quest ?? 0,
+    xp: player.xp,
+    xpGain,
   });
 });
 
