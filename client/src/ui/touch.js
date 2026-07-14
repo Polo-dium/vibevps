@@ -267,7 +267,8 @@ export function createTouchControls({
     if (isPlane) {
       const f = controls.flightTelemetry;
       if (f) {
-        const cameraMode = isRc ? ` · ${controls.vehicle?.thirdPerson ? 'POURSUITE' : 'FPV'}` : '';
+        const rcCamLabels = { sol: 'PILOTE SOL', poursuite: 'POURSUITE', fpv: 'FPV' };
+        const cameraMode = isRc ? ` · ${rcCamLabels[controls.vehicle?.camMode ?? 'sol']}` : '';
         planeInstruments.textContent =
           `GAZ ${Math.round(f.throttle * 100)}% · ${Math.round(f.speed * 3.6)} km/h · ALT ${Math.round(f.altitude)} m${cameraMode}`;
       }
@@ -511,7 +512,13 @@ export function createTouchControls({
     else interact();
   });
   bind('#tb-camera', () => {
-    const thirdPerson = controls.togglePlaneCamera();
-    ui.toast(thirdPerson ? '📷 Caméra poursuite' : '📷 Caméra embarquée');
+    const mode = controls.togglePlaneCamera();
+    const labels = {
+      sol: '📷 Vue du pilote au sol',
+      poursuite: '📷 Caméra poursuite',
+      fpv: '📷 Caméra embarquée',
+      cockpit: '📷 Caméra embarquée',
+    };
+    if (mode) ui.toast(labels[mode] ?? `📷 ${mode}`);
   });
 }

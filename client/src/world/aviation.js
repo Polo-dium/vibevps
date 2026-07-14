@@ -430,7 +430,7 @@ function makeRemoteControlPlane(ctx, px, pz, ry) {
     heading: ry, speed: 0, pitch: 0, roll: 0, throttle: 0,
     plane: true, rcPlane: true, remoteControl: true,
     position: launch.clone(), velocity: new THREE.Vector3(),
-    thirdPerson: false, camBack: 2.8, camUp: 1.15,
+    thirdPerson: false, camMode: 'sol', camBack: 2.8, camUp: 1.15,
     cameraEyeForward: 0.25, cameraEyeUp: 0.13,
     maxSpeed: 14, acceleration: 1.6, ceiling: 180,
     controlSpeed: 5, takeoffSpeed: 4, groundPitchMax: 0.42,
@@ -450,6 +450,7 @@ function makeRemoteControlPlane(ctx, px, pz, ry) {
       new THREE.Euler(0, launchHeading, 0, 'YXZ')
     );
     car.thirdPerson = false;
+    car.camMode = 'sol'; // on redécolle toujours avec la vue du pilote au sol
     group.position.copy(launch);
     group.quaternion.copy(car.orientation);
   }
@@ -470,7 +471,7 @@ function makeRemoteControlPlane(ctx, px, pz, ry) {
     resetModel();
     refreshGateLabel();
     ctx.startDrive?.(car, group);
-    ctx.notify?.('📡 Avion RC : mêmes manches, 50 km/h max · CAM pour vue poursuite · SAUTER pour revenir au joueur.');
+    ctx.notify?.('📡 Avion RC : mêmes manches, 50 km/h max · H/CAM change de vue (pilote au sol, poursuite, embarquée) · SAUTER pour revenir au joueur.');
   }
 
   function stop() {

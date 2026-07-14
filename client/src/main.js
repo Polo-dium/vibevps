@@ -1262,7 +1262,16 @@ async function boot() {
     }
     if (e.code === 'KeyJ') toggleJetpack();
     if (e.code === 'KeyK' && controls.vehicle?.jet) controls.dropPlaneBomb();
-    if (e.code === 'KeyH' && controls.vehicle?.plane) controls.togglePlaneCamera();
+    if (e.code === 'KeyH' && controls.vehicle?.plane) {
+      const camMode = controls.togglePlaneCamera();
+      const camLabels = {
+        sol: '📷 Vue du pilote au sol',
+        poursuite: '📷 Caméra poursuite',
+        fpv: '📷 Caméra embarquée',
+        cockpit: '📷 Caméra embarquée',
+      };
+      if (camMode) ui.toast(camLabels[camMode] ?? `📷 ${camMode}`);
+    }
     if (e.code === 'KeyB') cycleBoombox();
     if (e.code === 'Digit3') emote(0);
     if (e.code === 'Digit4') emote(1);

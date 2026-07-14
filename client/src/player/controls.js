@@ -44,6 +44,15 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   const planeUp = new THREE.Vector3(0, 1, 0);
   const planeDesired = new THREE.Vector3();
   const planeCamTarget = new THREE.Vector3();
+  // Vue « pilote au sol » de l'avion RC : un zoom auto garde le modèle
+  // lisible quand il s'éloigne ; il faut le rendre à 1 en quittant la vue.
+  let rcGroundZoom = false;
+  function clearRcZoom() {
+    if (!rcGroundZoom) return;
+    rcGroundZoom = false;
+    camera.zoom = 1;
+    camera.updateProjectionMatrix();
+  }
 
   if (!IS_TOUCH) {
     domElement.addEventListener('click', () => {
@@ -336,7 +345,20 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       }
 
       const viewPos = v.remoteControl ? v.position : pos;
-      if (v.thirdPerson) {
+      if (v.remoteControl && (v.camMode ?? 'sol') === 'sol') {
+        // Vue d'aéromodélisme : la caméra reste dans les yeux du joueur
+        // resté au sol avec la radiocommande, et suit le modèle du regard.
+        // Le zoom accompagne la distance pour que l'avion reste lisible.
+        camera.up.set(0, 1, 0);
+        camera.position.set(pos.x, pos.y + EYE_HEIGHT, pos.z);
+        const dist = camera.position.distanceTo(viewPos);
+        camera.zoom = THREE.MathUtils.clamp(dist / 30, 1, 3.2);
+        camera.updateProjectionMatrix();
+        rcGroundZoom = true;
+        planeCamTarget.copy(viewPos);
+        camera.lookAt(planeCamTarget);
+      } else if (v.thirdPerson) {
+        clearRcZoom();
         // Caméra de poursuite (berlines, avions) : derrière et au-dessus,
         // regard sur le véhicule — le braquage tourne la caméra avec le cap
         const back = v.camBack ?? 8.2, up = v.camUp ?? 3.4;
@@ -363,6 +385,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         }
       } else if (v.plane && v.orientation) {
         // Caméra FPV fixée sur le nez du modèle radiocommandé.
+        clearRcZoom();
         camera.up.copy(planeUp);
         camera.position.copy(viewPos)
           .addScaledVector(planeForward, v.cameraEyeForward ?? 0.2)
@@ -371,6 +394,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         camera.lookAt(planeCamTarget);
       } else {
         // Assis au volant (décapotables) : caméra relevée, côté conducteur
+        clearRcZoom();
         camera.position.set(
           pos.x - Math.cos(v.heading) * 0.45,
           pos.y + 1.42,
@@ -474,9 +498,18 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       if (vehicle?.plane && vehicle.jet) vehicle.dropBomb?.();
     },
     togglePlaneCamera() {
-      if (!vehicle?.plane) return false;
+      if (!vehicle?.plane) return null;
+      if (vehicle.remoteControl) {
+        // Avion RC : trois vues en cycle — pilote au sol (réaliste, on suit
+        // le modèle du regard), poursuite, puis caméra embarquée.
+        const modes = ['sol', 'poursuite', 'fpv'];
+        const next = modes[(modes.indexOf(vehicle.camMode ?? 'sol') + 1) % modes.length];
+        vehicle.camMode = next;
+        vehicle.thirdPerson = next === 'poursuite';
+        return next;
+      }
       vehicle.thirdPerson = !vehicle.thirdPerson;
-      return vehicle.thirdPerson;
+      return vehicle.thirdPerson ? 'poursuite' : 'cockpit';
     },
     jump() { wantJump = true; },
     // Entrer/sortir du mode véhicule ({ heading, speed, onHorn, onCrash })
@@ -485,6 +518,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       vehicle = v;
       bodyHalf = v ? 1.05 : HALF_W;
       camera.up.set(0, 1, 0);
+      clearRcZoom();
       if (v) {
         yaw = v.heading; // on regarde d'abord la route
         if (v.plane) {
