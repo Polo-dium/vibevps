@@ -275,6 +275,16 @@ async function boot() {
       ui.toast('📡 Avion RC trouvé ! Il est maintenant disponible dans ton inventaire.');
       ui.spawnConfetti(20);
     },
+    // École de pilotage (voir world/aviation.js) : les brevets sont des
+    // objets d'inventaire persistants, comme le jetpack ou la radio.
+    onBrevet: (type) => {
+      const id = type === 'rc' ? 'brevet-rc' : 'brevet-avion';
+      if (!rememberInventoryItem(id)) return;
+      ui.spawnConfetti(24);
+      ui.toast(type === 'rc'
+        ? '🎓 Brevet d’aéromodélisme obtenu ! Les avions de l’aérodrome te sont ouverts.'
+        : '🎓 Brevet de pilote obtenu ! Le Mirage 2000 t’attend sur le tarmac.');
+    },
     // Conduite des décapotables (voir world/traffic.js)
     startDrive: (car, group) => {
       // Entrer dans un véhicule range toujours le jetpack. Sans cette remise
@@ -1381,11 +1391,16 @@ async function boot() {
     }
     weapon.update(dt, controls.isMoving());
     // Bras en vue subjective : masqués au volant/aux commandes (caméra
-    // externe ou poste de pilotage), sinon la pose suit ce qui est en main
-    arms.setVisible(!controls.vehicle);
-    const armMode = controls.flying ? 'jetpack'
-      : state.weaponEquipped ? 'weapon'
-        : state.boombox ? 'boombox' : 'idle';
+    // externe ou poste de pilotage), sinon la pose suit ce qui est en main.
+    // Exception : la vue « pilote au sol » de l'avion RC montre les mains
+    // sur la radiocommande — on pilote depuis le corps du joueur.
+    const rcSolView = Boolean(controls.vehicle?.remoteControl &&
+      (controls.vehicle.camMode ?? 'sol') === 'sol');
+    arms.setVisible(!controls.vehicle || rcSolView);
+    const armMode = rcSolView ? 'radiocommande'
+      : controls.flying ? 'jetpack'
+        : state.weaponEquipped ? 'weapon'
+          : state.boombox ? 'boombox' : 'idle';
     arms.update(dt, armMode, controls.isMoving(), weapon.holder);
     jetpackGuns.update(dt);
     // La radio peut continuer à jouer en vol, mais son modèle porté ne doit

@@ -133,14 +133,72 @@ const GRIP_R = { pos: [0.025, -0.06, -0.06], rot: [0.42, -0.38, 0.1] }; // poign
 const GRIP_L = { pos: [-0.02, -0.02, -0.38], rot: [0.3, 0.55, -0.12] }; // garde-main
 const _fist = new THREE.Vector3();
 
+// Radiocommande de l'avion RC (vue « pilote au sol ») : les poings viennent
+// se poser sur les flancs de l'émetteur, pouces vers les manches — même
+// compensation du poing que le mode arme, mais dans le repère caméra.
+// (Attention : à z≈0.55 devant la caméra, tout ce qui descend sous ~30° de
+// l'axe optique sort du champ en FOV 75 — garder l'émetteur vers -0.32.)
+// Coudes écartés en bas d'écran, poings convergeant sur les flancs du
+// boîtier : les avant-bras arrivent en biais (et pas dressés face à la
+// caméra, où ils se liraient comme deux gros panneaux verticaux).
+const RC_GRIP_R = { pos: [0.105, -0.33, -0.54], rot: [0.5, 0.47, -0.2] };
+const RC_GRIP_L = { pos: [-0.105, -0.33, -0.54], rot: [0.5, -0.47, 0.2] };
+
+// Émetteur : boîtier incliné vers le joueur, deux manches, antenne, diode.
+function buildRcTransmitter() {
+  const group = new THREE.Group();
+  const bodyMat = new THREE.MeshLambertMaterial({ color: 0x2b333f });
+  const stickMat = new THREE.MeshLambertMaterial({ color: 0x171c23 });
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.085, 0.2), bodyMat);
+  group.add(box);
+  for (const dx of [-0.085, 0.085]) {
+    const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.016, 0.085, 6), stickMat);
+    stick.position.set(dx, 0.075, 0.02);
+    stick.rotation.x = 0.15;
+    group.add(stick);
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.017, 6, 5), stickMat);
+    knob.position.set(dx, 0.117, 0.026);
+    group.add(knob);
+  }
+  // Antenne claire, courte et bien penchée vers l'avant : elle ne doit
+  // jamais barrer l'écran quand la caméra suit l'avion dans le ciel.
+  const antenna = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.004, 0.005, 0.2, 5),
+    new THREE.MeshLambertMaterial({ color: 0xb9c2cc })
+  );
+  antenna.position.set(-0.11, 0.1, -0.14);
+  antenna.rotation.x = -0.95;
+  group.add(antenna);
+  const led = new THREE.Mesh(
+    new THREE.SphereGeometry(0.011, 6, 5),
+    new THREE.MeshBasicMaterial({ color: 0x53ff7a })
+  );
+  led.position.set(0.115, 0.048, 0.06);
+  group.add(led);
+  // Réduit et posé bas : l'émetteur occupe le bas de l'écran sans jamais
+  // cacher le modèle qu'on suit du regard.
+  group.scale.setScalar(0.62);
+  group.position.set(0, -0.32, -0.55);
+  group.rotation.x = 0.72; // plateau des manches tourné vers le regard
+  return group;
+}
+
 export function createArms(camera) {
   const rightParts = buildArm(1);
   const leftParts = buildArm(-1);
   const right = rightParts.group;
   const left = leftParts.group;
   camera.add(right, left);
-  let attachedTo = camera; // camera (poses lerpées) ou le holder d'une arme
+  let attachedTo = camera; // camera (poses lerpées), holder d'arme ou solRig
   let viewVisible = true;
+
+  // Vue « pilote au sol » de l'avion RC : bras + émetteur vivent dans un
+  // sous-groupe dédié, enfant de la caméra.
+  const solRig = new THREE.Group();
+  camera.add(solRig);
+  const rcRadio = buildRcTransmitter();
+  rcRadio.visible = false;
+  solRig.add(rcRadio);
 
   let bobTime = 0;
   const cur = {
@@ -157,13 +215,15 @@ export function createArms(camera) {
     cur3.rot.z += (target.rot[2] - cur3.rot.z) * k;
   }
 
-  // mode : 'weapon' | 'boombox' | 'jetpack' | 'idle'
+  // mode : 'weapon' | 'boombox' | 'jetpack' | 'radiocommande' | 'idle'
   // weaponHolder : le groupe THREE de l'arme (weapon.js), lu en direct en
   // mode 'weapon' pour un calage parfait avec le recul/balancement/recharge.
   function update(dt, mode, isMoving, weaponHolder) {
     const k = 1 - Math.exp(-9 * dt);
     const jetpackActive = mode === 'jetpack';
     const boomboxActive = mode === 'boombox';
+    const rcActive = mode === 'radiocommande';
+    rcRadio.visible = rcActive;
     // La radio se porte d'une seule main : le bras droit reste totalement
     // hors champ, le gauche est tendu vers l'extérieur.
     right.visible = viewVisible && !boomboxActive;
@@ -174,6 +234,20 @@ export function createArms(camera) {
       flash.material.opacity = Math.max(0, flash.material.opacity - dt * 18);
       const s = 0.8 + flash.material.opacity * 0.8;
       flash.scale.setScalar(s);
+    }
+
+    if (rcActive) {
+      // Mains verrouillées sur les flancs de la radiocommande.
+      if (attachedTo !== solRig) {
+        solRig.add(right, left);
+        attachedTo = solRig;
+      }
+      for (const [arm, grip] of [[right, RC_GRIP_R], [left, RC_GRIP_L]]) {
+        arm.rotation.set(...grip.rot);
+        _fist.set(0, 0, HAND_LOCAL_Z).applyEuler(arm.rotation);
+        arm.position.set(grip.pos[0] - _fist.x, grip.pos[1] - _fist.y, grip.pos[2] - _fist.z);
+      }
+      return;
     }
 
     if (mode === 'weapon' && weaponHolder) {

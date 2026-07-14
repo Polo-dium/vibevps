@@ -13,6 +13,9 @@ const MAX_IMAGE_BYTES = 400_000;
 const INVENTORY_ITEMS = new Set([
   'jetpack', 'rc-plane', 'radio',
   'weapon:marteau', 'weapon:pompe', 'weapon:minigun', 'weapon:bazooka',
+  // École de pilotage : brevets délivrés côté client (progression douce,
+  // pas d'enjeu compétitif), conservés avec le compte.
+  'brevet-rc', 'brevet-avion',
 ]);
 const ARSENAL_ITEMS = [
   'weapon:marteau', 'weapon:pompe', 'weapon:minigun', 'weapon:bazooka', 'radio',

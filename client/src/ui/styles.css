@@ -522,7 +522,8 @@ button.ghost {
   left: calc(50% + 50px); bottom: calc(38px + env(safe-area-inset-bottom));
   transform: none; width: 54px; height: 54px;
 }
-#touch-ui.plane-mode.rc-mode #tb-camera {
+/* Changement de vue disponible dans TOUS les avions (RC, hélice, Mirage) */
+#touch-ui.plane-mode #tb-camera {
   display: block; position: fixed; z-index: 23;
   left: 50%; top: calc(52px + env(safe-area-inset-top));
   transform: translateX(-50%); width: 58px; height: 46px;

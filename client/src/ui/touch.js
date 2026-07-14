@@ -341,6 +341,18 @@ export function createTouchControls({
         hint: 'À récupérer devant la salle d’arcade',
         action: state.boombox > 0 ? 'CHANGER' : 'UTILISER',
       },
+      {
+        id: 'brevet-rc', emoji: '🎓', title: 'Brevet d’aéromodélisme',
+        found: state.inventory.includes('brevet-rc'), active: false,
+        hint: 'Décolle l’avion RC et essaie toutes les commandes',
+        action: '',
+      },
+      {
+        id: 'brevet-avion', emoji: '🛩️', title: 'Brevet de pilote',
+        found: state.inventory.includes('brevet-avion'), active: false,
+        hint: 'Décolle un avion à hélice (il ouvre le Mirage)',
+        action: '',
+      },
     ];
     const weapons = weapon.inventory.map((item) => ({
       id: `weapon:${item.id}`, emoji: item.emoji, title: item.nom,
@@ -356,7 +368,7 @@ export function createTouchControls({
           <small>${item.active ? 'En cours d’utilisation' : item.hint}</small>
         </div>
         ${item.found
-          ? `<button data-inventory-action="${item.id}">${item.action}</button>`
+          ? (item.action ? `<button data-inventory-action="${item.id}">${item.action}</button>` : '')
           : '<span class="inventory-locked">NON TROUVÉ</span>'}
       </article>
     `).join('');

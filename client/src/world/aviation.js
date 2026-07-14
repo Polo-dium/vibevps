@@ -33,13 +33,28 @@ export function buildPlaneModel(color = 0xd23b3b) {
   add(new THREE.SphereGeometry(0.56, 8, 6), body, 0, 1.15, -2.05);
   // Verrière
   add(new THREE.SphereGeometry(0.42, 8, 6), dark, 0, 1.62, -0.7);
-  // Ailes hautes + haubans
-  add(new THREE.BoxGeometry(7.4, 0.14, 1.5), cream, 0, 1.85, -0.6);
-  add(new THREE.BoxGeometry(0.09, 0.8, 0.09), cream, -1.6, 1.4, -0.6, 0, 0, 0.5);
-  add(new THREE.BoxGeometry(0.09, 0.8, 0.09), cream, 1.6, 1.4, -0.6, 0, 0, -0.5);
+  // Ailes hautes + haubans — surélevées et reculées pour dégager la vue
+  // depuis le cockpit (l'aile ne doit plus barrer l'horizon du pilote).
+  add(new THREE.BoxGeometry(7.4, 0.14, 1.5), cream, 0, 2.02, -0.85);
+  add(new THREE.BoxGeometry(0.09, 1.0, 0.09), cream, -1.6, 1.5, -0.85, 0, 0, 0.5);
+  add(new THREE.BoxGeometry(0.09, 1.0, 0.09), cream, 1.6, 1.5, -0.85, 0, 0, -0.5);
   // Empennage : dérive + plan fixe
   add(new THREE.BoxGeometry(0.12, 1.05, 0.9), body, 0, 1.85, 2.25);
   add(new THREE.BoxGeometry(2.5, 0.1, 0.8), cream, 0, 1.45, 2.3);
+  // Poste de pilotage, visible en vue embarquée (l'œil est DANS la
+  // verrière : ses faces arrière sont éliminées, la vue reste dégagée) :
+  // tableau de bord penché vers le pilote, trois cadrans et le manche.
+  // (Le tableau dépasse du DOS du fuselage — dessous il serait invisible,
+  // caché par la peau de la carlingue dont le haut culmine vers y=1,6.)
+  const dash = add(new THREE.BoxGeometry(0.5, 0.14, 0.07), dark, 0, 1.58, -0.98, -0.3);
+  const gaugeMat = new THREE.MeshLambertMaterial({ color: 0xd8e4d8, emissive: 0x2c4030 });
+  for (const dx of [-0.14, 0, 0.14]) {
+    const gauge = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.02, 10), gaugeMat);
+    gauge.position.set(dx, 1.62, -0.935);
+    gauge.rotation.x = Math.PI / 2 - 0.3;
+    group.add(gauge);
+  }
+  group.userData.dash = dash;
   // Hélice (tourne : voir les updatables) + casserole
   const prop = new THREE.Mesh(new THREE.BoxGeometry(0.16, 2.3, 0.06), dark);
   prop.position.set(0, 1.15, -2.55);
@@ -101,8 +116,17 @@ export function buildMirageModel(color = 0xb8c5d2) {
   // fuselage à z=-3,85 : plus de disque plat ni de marche entre les deux.
   add(new THREE.ConeGeometry(0.82, 3.3, 12), body, 0, 0.92, -5.5, -Math.PI / 2);
   add(new THREE.CylinderGeometry(0.72, 0.62, 0.65, 12), dark, 0, 0.92, 3.7, Math.PI / 2);
-  const canopy = add(new THREE.SphereGeometry(0.5, 12, 8), glass, 0, 1.48, -1.45, 0.12, 0, 0);
+  // Bulle du cockpit posée SUR le dos du fuselage (sommet ~1,65) : la tête
+  // du pilote loge dans le verre, à l'extérieur du cylindre.
+  const canopy = add(new THREE.SphereGeometry(0.5, 12, 8), glass, 0, 1.62, -1.45, 0.12, 0, 0);
   canopy.scale.set(0.78, 0.72, 1.55);
+  // Poste de pilotage (vue embarquée : l'œil est dans la bulle, dont les
+  // faces arrière sont éliminées) : casquette d'instruments au ras du
+  // fuselage (le corps est DoubleSide : plus bas, le tableau serait noyé
+  // dans la peau de la carlingue) + petite glace de HUD.
+  add(new THREE.BoxGeometry(0.44, 0.12, 0.07), dark, 0, 1.68, -1.98, -0.35);
+  const hudMat = new THREE.MeshLambertMaterial({ color: 0x9fe8c0, emissive: 0x1f5c38 });
+  add(new THREE.PlaneGeometry(0.12, 0.09), hudMat, 0, 1.82, -1.92, -0.25);
 
   const wingGeo = new THREE.BufferGeometry();
   wingGeo.setAttribute('position', new THREE.Float32BufferAttribute([
@@ -431,13 +455,20 @@ function makeRemoteControlPlane(ctx, px, pz, ry) {
     plane: true, rcPlane: true, remoteControl: true,
     position: launch.clone(), velocity: new THREE.Vector3(),
     thirdPerson: false, camMode: 'sol', camBack: 2.8, camUp: 1.15,
-    cameraEyeForward: 0.25, cameraEyeUp: 0.13,
+    // Vue embarquée : caméra reculée derrière la dérive, tout le modèle
+    // (carlingue + ailes) reste visible devant, solidaire de la cellule.
+    cockpit: { x: 0, y: 0.52, z: 1.25 },
     maxSpeed: 14, acceleration: 1.6, ceiling: 180,
     controlSpeed: 5, takeoffSpeed: 4, groundPitchMax: 0.42,
     stallSpeed: 2.5, liftRange: 5.5, velocityResponse: 3.2,
     collisionRadius: 0.36,
   };
   let controlling = false;
+
+  // École de pilotage, étape 1 : le premier vol valide chaque commande puis
+  // le décollage. Le brevet RC ouvre ensuite les avions grandeur nature.
+  const training = { gaz: false, lacet: false, tangage: false, roulis: false, decollage: false };
+  const trainingDone = () => Object.values(training).every(Boolean);
 
   function resetModel() {
     car.speed = 0;
@@ -471,7 +502,9 @@ function makeRemoteControlPlane(ctx, px, pz, ry) {
     resetModel();
     refreshGateLabel();
     ctx.startDrive?.(car, group);
-    ctx.notify?.('📡 Avion RC : mêmes manches, 50 km/h max · H/CAM change de vue (pilote au sol, poursuite, embarquée) · SAUTER pour revenir au joueur.');
+    ctx.notify?.(ctx.hasInventoryItem?.('brevet-rc')
+      ? '📡 Avion RC : mêmes manches, 50 km/h max · H/CAM change de vue (pilote au sol, poursuite, embarquée) · SAUTER pour revenir au joueur.'
+      : '🎓 Leçon de pilotage — GAZ : Z/S (manche gauche ↕) · LACET : Q/D (manche gauche ↔) · TANGAGE/ROULIS : flèches (manche droit). Décolle et essaie chaque commande pour obtenir ton brevet !');
   }
 
   function stop() {
@@ -517,6 +550,22 @@ function makeRemoteControlPlane(ctx, px, pz, ry) {
     if (!controlling) return;
     group.position.copy(car.position);
     if (car.orientation) group.quaternion.copy(car.orientation);
+
+    // Validation de la leçon : les taux ne montent que sous une vraie
+    // commande, l'élève doit donc réellement toucher à tout pour valider.
+    if (!ctx.hasInventoryItem?.('brevet-rc') && !trainingDone()) {
+      const check = (key, ok, label) => {
+        if (training[key] || !ok) return;
+        training[key] = true;
+        if (!trainingDone()) ctx.notify?.(`✅ ${label}`);
+      };
+      check('gaz', car.throttle > 0.3, 'Gaz maîtrisés');
+      check('lacet', Math.abs(car.yawRate ?? 0) > 0.22, 'Lacet testé');
+      check('tangage', Math.abs(car.pitchRate ?? 0) > 0.3, 'Tangage testé');
+      check('roulis', Math.abs(car.rollRate ?? 0) > 0.5, 'Roulis testé');
+      check('decollage', car.position.y > launch.y + 6, 'Décollage réussi');
+      if (trainingDone()) ctx.onBrevet?.('rc');
+    }
   });
 }
 
@@ -538,6 +587,14 @@ function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false } = {}) {
     pitch: 0, roll: 0, throttle: 0,
     plane: true, jet, thirdPerson: true,
     camBack: jet ? 18 : 13, camUp: jet ? 6.5 : 5.2,
+    // Siège du pilote, dans la verrière : capot/nez visibles devant, ailes
+    // sur les côtés, tableau de bord au premier plan (vue embarquée).
+    // L'œil reste DANS la verrière (faces arrière éliminées → vue dégagée)
+    // et sous l'aile haute du coucou pour la garder visible en plafond.
+    // L'œil doit rester AU-DESSUS du dos du fuselage (~1,65) : plus bas, on
+    // se retrouve dans la peau de la carlingue (DoubleSide sur le Mirage).
+    // Sur le Mirage, la tête loge dans la bulle posée sur le fuselage.
+    cockpit: jet ? { x: 0, y: 1.78, z: -1.35 } : { x: 0, y: 1.74, z: -0.5 },
     maxSpeed: jet ? 220 : 68,
     acceleration: jet ? 1.05 : 0.72,
     ceiling: jet ? 900 : 520,
@@ -568,14 +625,24 @@ function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false } = {}) {
     label: jet ? 'E — Piloter le Mirage 2000' : "E — Piloter l'avion",
     action: () => {
       if (!driving) {
+        // École de pilotage : RC → avion à hélice → Mirage. Les brevets sont
+        // des objets d'inventaire persistants (suivent le compte).
+        if (!jet && !ctx.hasInventoryItem?.('brevet-rc')) {
+          ctx.notify?.('🎓 Apprends d’abord à voler : décolle l’avion radiocommandé du terrain d’aéromodélisme (bord du tarmac) et essaie toutes les commandes.');
+          return;
+        }
+        if (jet && !ctx.hasInventoryItem?.('brevet-avion')) {
+          ctx.notify?.('🎓 Le Mirage 2000 ne se prête pas aux débutants : décolle d’abord un avion à hélice pour obtenir ton brevet de pilote.');
+          return;
+        }
         driving = true;
         ctx.colliders.remove?.(box);
         gate.label = 'E — Sauter de l’avion';
         car.speed = 0;
         ctx.startDrive?.(car, group);
         ctx.notify?.(jet
-          ? '✈️ Mirage 2000 : 790 km/h · double TIR · BOMBE (rayon létal 50 m). Tire le manche vers toi pour monter !'
-          : '🛩️ Gauche : gaz/lacet · droite : tangage/roulis · double TIR. Tire le manche vers toi après 60 km/h !');
+          ? '✈️ Mirage 2000 : 790 km/h · double TIR · BOMBE (rayon létal 50 m) · H/CAM : vue cockpit ou poursuite. Tire le manche vers toi pour monter !'
+          : '🛩️ Gauche : gaz/lacet · droite : tangage/roulis · double TIR · H/CAM : vue cockpit ou poursuite. Tire le manche vers toi après 60 km/h !');
       } else {
         // On saute : l'avion redescend se poser, le joueur tombe (jetpack ?)
         park();
@@ -639,6 +706,12 @@ function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false } = {}) {
     if (!driving) return;
     const q = ctx.playerPos?.();
     if (!q) return;
+    // Brevet de pilote : délivré au premier vrai décollage en avion à hélice
+    // (12 m sol), il ouvre l'accès au Mirage.
+    if (!jet && !ctx.hasInventoryItem?.('brevet-avion') &&
+        q.y > (ctx.terrainHeight?.(q.x, q.z) ?? 0) + 12) {
+      ctx.onBrevet?.('avion');
+    }
     group.position.set(q.x, q.y, q.z);
     if (car.orientation) group.quaternion.copy(car.orientation);
     else group.rotation.set(car.pitch ?? 0, car.heading, car.roll ?? 0, 'YXZ');
