@@ -522,6 +522,14 @@ button.ghost {
   left: calc(50% + 50px); bottom: calc(38px + env(safe-area-inset-bottom));
   transform: none; width: 54px; height: 54px;
 }
+/* Zone de regard : glisser depuis le haut de l'écran tourne la tête du
+   pilote (vue embarquée). Sous les boutons (z 23) pour les laisser cliquables. */
+#plane-look { display: none; }
+#touch-ui.plane-mode #plane-look {
+  display: block; position: fixed; z-index: 20;
+  top: 0; left: 0; right: 0; height: 46%;
+  touch-action: none; pointer-events: auto;
+}
 /* Changement de vue disponible dans TOUS les avions (RC, hélice, Mirage) */
 #touch-ui.plane-mode #tb-camera {
   display: block; position: fixed; z-index: 23;

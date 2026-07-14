@@ -33,11 +33,21 @@ export function buildPlaneModel(color = 0xd23b3b) {
   add(new THREE.SphereGeometry(0.56, 8, 6), body, 0, 1.15, -2.05);
   // Verrière
   add(new THREE.SphereGeometry(0.42, 8, 6), dark, 0, 1.62, -0.7);
-  // Ailes hautes + haubans — surélevées et reculées pour dégager la vue
-  // depuis le cockpit (l'aile ne doit plus barrer l'horizon du pilote).
-  add(new THREE.BoxGeometry(7.4, 0.14, 1.5), cream, 0, 2.02, -0.85);
-  add(new THREE.BoxGeometry(0.09, 1.0, 0.09), cream, -1.6, 1.5, -0.85, 0, 0, 0.5);
-  add(new THREE.BoxGeometry(0.09, 1.0, 0.09), cream, 1.6, 1.5, -0.85, 0, 0, -0.5);
+  // Aile parasol + haubans — montée haut exprès : depuis le siège (œil à
+  // 1,74, bord d'attaque à ~31° au-dessus de l'axe), elle n'occupe que le
+  // tout haut de l'écran, au niveau du bouton caméra, sans gêner l'horizon.
+  add(new THREE.BoxGeometry(7.4, 0.14, 1.5), cream, 0, 2.26, -0.5);
+  // Intrados teinté + bord d'attaque sombre : vus du siège à contre-jour,
+  // ils empêchent l'aile de se fondre dans le bleu du ciel.
+  const underside = add(
+    new THREE.PlaneGeometry(7.4, 1.5),
+    new THREE.MeshLambertMaterial({ color: 0xcfc8b4 }),
+    0, 2.185, -0.5, Math.PI / 2
+  );
+  underside.userData.noShadow = true;
+  add(new THREE.BoxGeometry(7.4, 0.06, 0.08), dark, 0, 2.21, -1.24);
+  add(new THREE.BoxGeometry(0.09, 1.3, 0.09), cream, -1.6, 1.62, -0.5, 0, 0, 0.5);
+  add(new THREE.BoxGeometry(0.09, 1.3, 0.09), cream, 1.6, 1.62, -0.5, 0, 0, -0.5);
   // Empennage : dérive + plan fixe
   add(new THREE.BoxGeometry(0.12, 1.05, 0.9), body, 0, 1.85, 2.25);
   add(new THREE.BoxGeometry(2.5, 0.1, 0.8), cream, 0, 1.45, 2.3);

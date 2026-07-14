@@ -23,6 +23,7 @@ export function createTouchControls({
       <span class="plane-stick-label plane-stick-right-label">ROULIS</span>
       <div class="plane-stick-knob"></div>
     </div>
+    <div id="plane-look"></div>
     <div id="plane-instruments">GAZ 0% · 0 km/h · ALT 0 m</div>
     <button class="tbtn tbtn-fire plane-fire plane-fire-left" id="tb-fire-left">TIR</button>
     <button class="tbtn plane-bomb" id="tb-bomb">BOMBE</button>
@@ -523,6 +524,34 @@ export function createTouchControls({
     if (controls.vehicle?.rcPlane) rcPlane?.();
     else interact();
   });
+  // Glisser depuis le haut de l'écran : la tête du pilote suit le doigt
+  // (vue embarquée des avions ; sans effet dans les autres vues).
+  const lookZone = root.querySelector('#plane-look');
+  let lookTouch = null;
+  lookZone.addEventListener('touchstart', (e) => {
+    if (lookTouch) return;
+    const t = e.changedTouches[0];
+    lookTouch = { id: t.identifier, x: t.clientX, y: t.clientY };
+  }, { passive: true });
+  lookZone.addEventListener('touchmove', (e) => {
+    if (!lookTouch) return;
+    for (const t of e.changedTouches) {
+      if (t.identifier !== lookTouch.id) continue;
+      controls.planeLook((t.clientX - lookTouch.x) * 2.6, (t.clientY - lookTouch.y) * 2.6);
+      lookTouch.x = t.clientX;
+      lookTouch.y = t.clientY;
+    }
+    e.preventDefault();
+  }, { passive: false });
+  const endLook = (e) => {
+    if (!lookTouch) return;
+    for (const t of e.changedTouches) {
+      if (t.identifier === lookTouch.id) lookTouch = null;
+    }
+  };
+  lookZone.addEventListener('touchend', endLook, { passive: true });
+  lookZone.addEventListener('touchcancel', endLook, { passive: true });
+
   bind('#tb-camera', () => {
     const mode = controls.togglePlaneCamera();
     const labels = {

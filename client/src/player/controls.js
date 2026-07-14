@@ -504,6 +504,12 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     dropPlaneBomb() {
       if (vehicle?.plane && vehicle.jet) vehicle.dropBomb?.();
     },
+    // Regard du pilote au doigt (mobile) : mêmes offsets de cou que la
+    // souris — n'agit qu'en vue embarquée d'un avion (voir addLook).
+    planeLook(dx, dy) {
+      if (!vehicle?.plane) return;
+      addLook(dx, dy);
+    },
     togglePlaneCamera() {
       if (!vehicle?.plane) return null;
       lookYaw = 0;
