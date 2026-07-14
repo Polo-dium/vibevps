@@ -22,9 +22,36 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
   const rand = makeRand(4242);
   const L = Math.min((ctx.worldBound ?? 134) - 6, maxHalf);
 
-  // --- Avenues : une chaussée de chaque côté de chaque fleuve, qui épouse
-  // le méandre (x = centre du fleuve à ce z ± demi-largeur + retrait).
+  // --- Avenues : une chaussée de chaque côté de chaque fleuve. Si les
+  // contours RÉELS de berge existent (ctx.quayContours, mode OSM), l'avenue
+  // suit la berge : promenade piétonne de 6 m au bord de l'eau, puis la
+  // route — plus jamais de voitures qui roulent au-dessus de l'eau là où
+  // la ligne médiane sous-estime la largeur réelle du fleuve.
   // side = côté immeubles (pour y ranger les voitures garées).
+  const W0 = ctx.worldBound ?? 200;
+  const bankLookup = (band, side) => {
+    if (!ctx.quayContours?.length) return null;
+    const res = 8;
+    const n = Math.ceil((2 * W0) / res);
+    const arr = new Float32Array(n).fill(NaN);
+    const half = riverHalf(band);
+    for (const { pts } of ctx.quayContours) {
+      for (const [x, z] of pts) {
+        const cx = riverCx(band, z);
+        if (Math.abs(x - cx) > half + 50) continue; // autre bande / trop loin
+        if (side > 0 ? x < cx : x > cx) continue; // mauvaise rive
+        const i = Math.floor((z + W0) / res);
+        if (i < 0 || i >= n) continue;
+        // bord d'eau le plus EXTÉRIEUR à ce z : la route passe derrière
+        if (Number.isNaN(arr[i]) || (side > 0 ? x > arr[i] : x < arr[i])) arr[i] = x;
+      }
+    }
+    // bouche-trous : report avant/arrière
+    for (let i = 1; i < n; i++) if (Number.isNaN(arr[i])) arr[i] = arr[i - 1];
+    for (let i = n - 2; i >= 0; i--) if (Number.isNaN(arr[i])) arr[i] = arr[i + 1];
+    if (Number.isNaN(arr[0])) return null;
+    return (z) => arr[Math.max(0, Math.min(n - 1, Math.floor((z + W0) / res)))];
+  };
   const avenues = [];
   for (const band of bands) {
     const half = riverHalf(band);
@@ -32,15 +59,18 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
     const zHi = Math.min(band.zMax ?? L, L);
     if (zHi - zLo < 60) continue;
     for (const side of [-1, 1]) {
+      const bank = bankLookup(band, side);
       avenues.push({
         side,
         zLo, zHi,
-        ax: (z) => riverCx(band, z) + side * (half + 11.5),
+        ax: bank
+          ? (z) => bank(z) + side * (6 + AVENUE_W / 2)
+          : (z) => riverCx(band, z) + side * (half + 11.5),
       });
     }
   }
   const roadTex = makeAvenueTexture();
-  const roadMat = new THREE.MeshLambertMaterial({ map: roadTex });
+  const roadMat = new THREE.MeshLambertMaterial({ map: roadTex, color: 0x6e7176 }); // enrobé sombre, vraie route noire
   for (const av of avenues) {
     // Ruban de chaussée tessellé le long de la courbe
     const STEP = 8, pos = [], uv = [];

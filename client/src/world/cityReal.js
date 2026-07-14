@@ -404,9 +404,10 @@ function buildQuayEdges(ctx, mask) {
         x1, TOP, z1, x2 + p2x * 0.55, TOP, z2 + p2z * 0.55, x1 + p1x * 0.55, TOP, z1 + p1z * 0.55
       );
       const wy = 0.03;
+      // Promenade piétonne de 6 m : la route des quais commence juste après
       walkPos.push(
-        x1, wy, z1, x2, wy, z2, x2 + p2x * 5, wy, z2 + p2z * 5,
-        x1, wy, z1, x2 + p2x * 5, wy, z2 + p2z * 5, x1 + p1x * 5, wy, z1 + p1z * 5
+        x1, wy, z1, x2, wy, z2, x2 + p2x * 6, wy, z2 + p2z * 6,
+        x1, wy, z1, x2 + p2x * 6, wy, z2 + p2z * 6, x1 + p1x * 6, wy, z1 + p1z * 6
       );
     }
   }
