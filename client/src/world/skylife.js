@@ -64,25 +64,34 @@ export function createSkylife(ctx) {
     flocks.push({ group, birds, drift: rand() * Math.PI * 2 });
   }
 
-  // --- Avion de ligne + traînée de condensation ---------------------------
-  // Une croix minuscule très haut, dont la position ne dépend que de
-  // l'horloge : tout le monde voit le même vol au même endroit.
-  const LINER_PERIOD = 210000; // une traversée toutes les 3 min 30
-  const liner = new THREE.Mesh(
-    new THREE.BoxGeometry(7, 0.7, 5),
-    new THREE.MeshBasicMaterial({ color: 0xe8edf2 })
-  );
-  liner.userData.noShadow = true;
-  ctx.scene.add(liner);
-  const trail = new THREE.Mesh(
-    new THREE.PlaneGeometry(320, 3.4),
-    new THREE.MeshBasicMaterial({
-      color: 0xffffff, transparent: true, opacity: 0.16,
+  // --- Avions de ligne + traînées de condensation --------------------------
+  // QUATRE vols très haut, caps « au hasard » mais déterministes (l'index
+  // sème l'angle) : leur position ne dépend que de l'horloge, tout le monde
+  // voit les mêmes chemtrails. La traînée court sur TOUTE la traversée : un
+  // plan couché étiré du point d'entrée jusqu'à l'avion.
+  const liners = [];
+  const linerGeo = new THREE.BoxGeometry(7, 0.7, 5);
+  const linerMat = new THREE.MeshBasicMaterial({ color: 0xe8edf2 });
+  const trailGeo = new THREE.PlaneGeometry(1, 3.8);
+  for (let i = 0; i < 4; i++) {
+    const mesh = new THREE.Mesh(linerGeo, linerMat);
+    mesh.userData.noShadow = true;
+    ctx.scene.add(mesh);
+    const trailMesh = new THREE.Mesh(trailGeo, new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0.14,
       blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-    })
-  );
-  trail.userData.noShadow = true;
-  ctx.scene.add(trail);
+    }));
+    trailMesh.userData.noShadow = true;
+    ctx.scene.add(trailMesh);
+    liners.push({
+      mesh, trailMesh,
+      heading: i * 1.83 + 0.65, // caps bien répartis, figés par l'index
+      lateral: (i - 1.5) * bound * 0.42, // décalé du centre, couvre la carte
+      alt: 430 + i * 28,
+      period: 200000 + i * 41000,
+      phase: i * 67000,
+    });
+  }
 
   // --- Fumées de cheminée aux transitions jour/nuit -----------------------
   const smokeTex = (() => {
@@ -131,16 +140,26 @@ export function createSkylife(ctx) {
       }
     }
 
-    // Ligne droite nord-ouest → sud-est, très haut, cap constant
-    const lt = (now % LINER_PERIOD) / LINER_PERIOD;
-    const lx = -bound * 1.2 + lt * bound * 2.4;
-    const lz = -bound * 0.8 + lt * bound * 1.3;
-    liner.position.set(lx, 470, lz);
-    liner.rotation.y = Math.atan2(bound * 2.4, bound * 1.3);
-    trail.position.set(lx - 170 * Math.sin(liner.rotation.y), 470, lz - 170 * Math.cos(liner.rotation.y));
-    trail.rotation.set(-Math.PI / 2, 0, Math.PI / 2 - liner.rotation.y);
-    // La traînée s'estompe en début de traversée (elle « naît » avec l'avion)
-    trail.material.opacity = 0.16 * Math.min(1, lt * 5);
+    // Chaque vol traverse la carte en ligne droite selon SON cap, la
+    // traînée s'étirant du bord d'entrée jusqu'à l'avion.
+    const R = bound * 1.35;
+    for (const l of liners) {
+      const lt = ((now + l.phase) % l.period) / l.period;
+      const dirX = Math.sin(l.heading), dirZ = Math.cos(l.heading);
+      // point d'entrée décalé latéralement, trajet 2R le long du cap
+      const sx = -dirX * R + dirZ * l.lateral;
+      const sz = -dirZ * R - dirX * l.lateral;
+      const dist = lt * 2 * R;
+      const lx = sx + dirX * dist, lz = sz + dirZ * dist;
+      l.mesh.position.set(lx, l.alt, lz);
+      l.mesh.rotation.y = Math.atan2(dirX, dirZ);
+      // traînée : plan couché du départ à l'avion (léger retrait au nez)
+      const half = Math.max(1, dist - 12) / 2;
+      l.trailMesh.scale.x = half * 2;
+      l.trailMesh.position.set(sx + dirX * half, l.alt - 0.6, sz + dirZ * half);
+      l.trailMesh.rotation.set(-Math.PI / 2, 0, Math.PI / 2 - l.mesh.rotation.y);
+      l.trailMesh.material.opacity = 0.14 * Math.min(1, lt * 8);
+    }
 
     // Fumées : visibles surtout aux transitions (aube/crépuscule)
     const glow = ctx.env?.dusk ?? 0;

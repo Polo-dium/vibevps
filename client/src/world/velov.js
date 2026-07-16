@@ -53,6 +53,7 @@ function makeVelov(ctx, x0, z0, ry0) {
 
   function park() {
     driving = false;
+    if (ctx.activeBike === group) ctx.activeBike = null;
     gate.label = 'E — Emprunter le Vélo’v';
     gate.x = group.position.x;
     gate.z = group.position.z;
@@ -68,6 +69,7 @@ function makeVelov(ctx, x0, z0, ry0) {
         driving = true;
         gate.label = 'E — Poser le Vélo’v';
         car.speed = 0;
+        ctx.activeBike = group; // main.js y pose l'enceinte, dans le panier
         ctx.startDrive?.(car, group);
         ctx.notify?.('🚲 Vélo’v : Z/S pédale et freine, Q/D braque — repose-le où tu veux (E).');
       } else {

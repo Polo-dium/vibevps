@@ -49,6 +49,42 @@ export function createWeather(ctx, { audio, camera } = {}) {
   rain.userData.noShadow = true;
   ctx.scene.add(rain);
 
+  // Gros nuages d'averse : des sprites doux gris sombre très haut, en
+  // grappes — 30 sprites au total, coût GPU dérisoire. Ils se lèvent avec
+  // la pluie (opacité = amount) et dérivent lentement.
+  const cloudTex = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    for (const [cx2, cy2, r] of [[46, 74, 42], [82, 66, 46], [64, 52, 38]]) {
+      const grad = g.createRadialGradient(cx2, cy2, 6, cx2, cy2, r);
+      grad.addColorStop(0, 'rgba(74,80,90,0.55)');
+      grad.addColorStop(1, 'rgba(74,80,90,0)');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 128, 128);
+    }
+    return new THREE.CanvasTexture(c);
+  })();
+  const clouds = [];
+  const bound = ctx.worldBound ?? 200;
+  let cseed = 4807; // le sommet du Mont Blanc, forcément
+  const crand = () => { cseed = (cseed * 1664525 + 1013904223) >>> 0; return cseed / 4294967296; };
+  for (let i = 0; i < 10; i++) {
+    const gx = (crand() * 2 - 1) * bound * 0.9;
+    const gz = (crand() * 2 - 1) * bound * 0.9;
+    for (let j = 0; j < 3; j++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: cloudTex, transparent: true, opacity: 0, depthWrite: false,
+      }));
+      const s = 90 + crand() * 120;
+      sp.scale.set(s * (1.3 + crand() * 0.6), s * 0.5, 1);
+      sp.position.set(gx + (crand() * 2 - 1) * 70, 185 + crand() * 45, gz + (crand() * 2 - 1) * 70);
+      sp.userData.noShadow = true;
+      ctx.scene.add(sp);
+      clouds.push({ sp, drift: 1.2 + crand() * 1.6 });
+    }
+  }
+
   // La brume se resserre sous l'averse : on garde la densité d'origine et
   // on la module (le fog est posé par main.js selon la taille de la carte).
   let baseFog = null;
@@ -59,6 +95,14 @@ export function createWeather(ctx, { audio, camera } = {}) {
     if (ctx.scene.fog?.isFogExp2) {
       if (baseFog == null) baseFog = ctx.scene.fog.density;
       ctx.scene.fog.density = baseFog * (1 + amount * 1.4);
+    }
+    for (const c of clouds) {
+      c.sp.material.opacity = amount * 0.6;
+      c.sp.visible = amount > 0.01;
+      if (c.sp.visible) {
+        c.sp.position.x += c.drift * dt;
+        if (c.sp.position.x > bound * 1.1) c.sp.position.x = -bound * 1.1;
+      }
     }
     if (amount <= 0.01) {
       rain.visible = false;

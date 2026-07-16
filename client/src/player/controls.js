@@ -3,7 +3,7 @@ import { state } from '../state.js';
 import { spawnPoint } from '../world/layout.js';
 
 const MOVE_SPEED = 10.0; // sprint automatique : on court tout le temps
-const ACCEL = 14; // réactivité des déplacements
+const ACCEL = 17; // réactivité des déplacements (relevée : plus nerveux)
 const JUMP_SPEED = 10.2; // ×√2 vs 7,2 : hauteur de saut DOUBLÉE (h = v²/2g)
 const SLIDE_TIME = 0.62; // glissade à l'atterrissage quand on pousse encore
 const GRAVITY = 21;
@@ -35,6 +35,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   let bodyHalf = HALF_W; // s'élargit au volant
   // Mode jetpack : vol libre, propulsion sur Espace
   let flying = false;
+  let hover = false; // HOLD : maintien d'altitude (glissière tactile)
   let flyThrust = false; // poussée active cette frame (pour les particules)
   let touchThrust = false; // bouton de poussée tactile
   // Objets temporaires réutilisés par la physique de vol (zéro allocation
@@ -463,10 +464,16 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       const thrusting = active && (keys.has('Space') || wantJump || touchThrust);
       flyThrust = thrusting;
       if (thrusting) {
+        hover = false; // pousser reprend la main sur le maintien d'altitude
         vel.y += 26 * dt;
         vel.y = Math.min(vel.y, 15);
       }
-      vel.y -= 11 * dt; // gravité de vol, plus douce
+      if (hover && !thrusting) {
+        // HOLD : le jetpack tient l'altitude tout seul, on circule à plat
+        vel.y += (0 - vel.y) * (1 - Math.exp(-7 * dt));
+      } else {
+        vel.y -= 11 * dt; // gravité de vol, plus douce
+      }
       vel.y = Math.max(vel.y, -14);
       wantJump = false;
 
@@ -672,9 +679,11 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     // Jetpack
     setFlying(on) {
       flying = on;
-      if (!on) flyThrust = false;
+      if (!on) { flyThrust = false; hover = false; }
       if (on) { skydive = false; parachute = false; } // le jetpack rattrape la chute
     },
+    setHover(on) { hover = Boolean(on) && flying; },
+    get hovering() { return hover; },
     get flying() { return flying; },
     get flyThrust() { return flyThrust; },
     setTouchThrust(on) { touchThrust = on; },

@@ -91,6 +91,12 @@ button.ghost {
 }
 #scope .scope-h { width: 44vmin; height: 1px; transform: translate(-50%, -50%); }
 #scope .scope-v { width: 1px; height: 44vmin; transform: translate(-50%, -50%); }
+#scope::after {
+  /* point central FIN (3 px), à la place du réticule standard de 6 px */
+  content: ''; position: absolute; left: 50%; top: 50%;
+  width: 3px; height: 3px; margin: -1.5px;
+  background: rgba(255, 255, 255, 0.95); border-radius: 50%;
+}
 #scope #scope-zoom {
   position: absolute; left: 50%; top: calc(50% + 17vmin);
   transform: translateX(-50%);
@@ -744,6 +750,19 @@ button.ghost {
   bottom: calc(14px + env(safe-area-inset-bottom));
   left: calc(12px + env(safe-area-inset-left));
   width: 88px; height: 88px;
+}
+/* Jetpack : HOLD (maintien d'altitude) au-dessus du bouton SAUT — on
+   l'atteint naturellement en glissant le doigt vers le haut depuis SAUT */
+#tb-hold { display: none; }
+#touch-ui.fly-mode #tb-hold {
+  display: block; position: fixed; z-index: 23;
+  bottom: calc(200px + env(safe-area-inset-bottom));
+  right: calc(12px + env(safe-area-inset-right));
+  width: 64px; height: 64px;
+  border-color: #ffb52e; color: #ffcf66; font-size: 13px;
+}
+#touch-ui.fly-mode #tb-hold.active {
+  background: rgba(255, 181, 46, 0.35); color: #fff;
 }
 /* Sniper : bascule de lunette ×6/×12 au-dessus du TIR */
 #touch-ui.sniper-mode #tb-zoom {

@@ -35,9 +35,11 @@ export const WEAPONS = {
   },
   akimbo: {
     nom: 'Double pistolets', emoji: '🔫🔫',
-    // La cadence de la minigun (0,05 s = 1200 coups/min) dans un chargeur
-    // de 30 : ça crache TRÈS vite et ça recharge souvent. Tir alterné G/D.
-    fire: 0.05, mag: 30, reload: 1.9, range: 70, dmg: 8, akimbo: true,
+    // La cadence de la minigun (0,05 s = 1200 coups/min), 30 balles DANS
+    // CHAQUE pistolet (mag = total affiché). Deux détentes indépendantes :
+    // clic gauche = pistolet droit, clic droit (ou bouton TIR gauche en
+    // tactile) = pistolet gauche ; les deux maintenues = tir alterné.
+    fire: 0.05, mag: 60, magSide: 30, reload: 1.9, range: 70, dmg: 8, akimbo: true,
   },
   sniper: {
     nom: 'Fusil de précision', emoji: '🎯',
@@ -92,7 +94,13 @@ export function createWeapon(camera, scene, shootables, {
   const FLASH_HOME = new THREE.Vector3(0.02, 0.013, -0.62);
   flash.position.copy(FLASH_HOME);
   holder.add(flash);
-  let akimboSide = 1; // double pistolets : le canon qui tire alterne G/D
+  let akimboSide = 1; // double pistolets : dernier canon parti (1 = droit)
+  let triggerLeftDown = false; // détente du pistolet GAUCHE (akimbo)
+  const akimboAmmo = { 1: 30, '-1': 30 }; // 30 balles dans CHAQUE pistolet
+  function refillAkimbo() {
+    akimboAmmo[1] = spec.magSide ?? 30;
+    akimboAmmo['-1'] = spec.magSide ?? 30;
+  }
 
   // Fusil de précision : la mise en joue zoome la caméra et remplace
   // l'arme par la lunette (overlay via onScope).
@@ -280,10 +288,18 @@ export function createWeapon(camera, scene, shootables, {
 
   // --- Entrées ---
   window.addEventListener('mousedown', (e) => {
-    if (e.button === 0 && !IS_TOUCH) triggerDown = true;
+    if (IS_TOUCH) return;
+    if (e.button === 0) triggerDown = true;
+    // Akimbo : clic DROIT = pistolet gauche
+    if (e.button === 2 && spec.akimbo && state.weaponEquipped) triggerLeftDown = true;
   });
   window.addEventListener('mouseup', (e) => {
-    if (e.button === 0 && !IS_TOUCH) triggerDown = false;
+    if (IS_TOUCH) return;
+    if (e.button === 0) triggerDown = false;
+    if (e.button === 2) triggerLeftDown = false;
+  });
+  window.addEventListener('contextmenu', (e) => {
+    if (spec.akimbo && state.weaponEquipped && state.pointerLocked) e.preventDefault();
   });
   window.addEventListener('keydown', (e) => {
     if (state.overlayOpen) return;
@@ -316,6 +332,7 @@ export function createWeapon(camera, scene, shootables, {
     spec = WEAPONS[id];
     modelFor(id).visible = true;
     ammo = spec.mag;
+    refillAkimbo();
     reloading = 0;
     cooldown = 0;
     flash.position.copy(FLASH_HOME);
@@ -343,7 +360,7 @@ export function createWeapon(camera, scene, shootables, {
     if (!WEAPONS[id]) return;
     if (!owned.includes(id)) owned.push(id);
     if (!equip) return;
-    if (id === curId) { ammo = spec.mag; onAmmoChange(ammo, reloading > 0, spec); return; }
+    if (id === curId) { ammo = spec.mag; refillAkimbo(); onAmmoChange(ammo, reloading > 0, spec); return; }
     select(id);
   }
 
@@ -360,12 +377,9 @@ export function createWeapon(camera, scene, shootables, {
     navigator.vibrate?.(8); // retour haptique sur mobile
     if (state.rangeSession) state.rangeSession.shots += 1;
 
-    // Double pistolets : le flash (donc le départ du traceur) saute d'un
-    // canon à l'autre à chaque coup.
-    if (spec.akimbo) {
-      akimboSide = -akimboSide;
-      flash.position.set(0.16 * akimboSide, 0.025, -0.47);
-    }
+    // Double pistolets : le flash (donc le départ du traceur) part du canon
+    // dont la détente a parlé — akimboSide est fixé par update().
+    if (spec.akimbo) flash.position.set(0.16 * akimboSide, 0.025, -0.47);
 
     raycaster.far = spec.range;
     const muzzle = new THREE.Vector3();
@@ -390,7 +404,12 @@ export function createWeapon(camera, scene, shootables, {
       return;
     }
 
-    ammo -= 1;
+    if (spec.akimbo) {
+      akimboAmmo[akimboSide] -= 1;
+      ammo = akimboAmmo[1] + akimboAmmo['-1'];
+    } else {
+      ammo -= 1;
+    }
     flash.material.opacity = 1;
     flash.rotation.z = Math.random() * Math.PI;
     if (spec.rocket) audio.rocket();
@@ -447,7 +466,7 @@ export function createWeapon(camera, scene, shootables, {
   function update(dt, isMoving) {
     flash.material.opacity = Math.max(0, flash.material.opacity - dt * 14);
     recoil = Math.max(0, recoil - dt * 9);
-    swing = Math.max(0, swing - dt * 4.5);
+    swing = Math.max(0, swing - dt * 3.2); // grand moulinet lisible
 
     // Traceurs en vol
     for (let i = tracers.length - 1; i >= 0; i--) {
@@ -542,6 +561,7 @@ export function createWeapon(camera, scene, shootables, {
       reloading -= dt;
       if (reloading <= 0) {
         ammo = spec.mag;
+        refillAkimbo();
         onAmmoChange(ammo, false, spec);
       }
     }
@@ -562,6 +582,20 @@ export function createWeapon(camera, scene, shootables, {
         if (freeToAct && cooldown <= 0 && reloading <= 0 && ammo > 0) shoot();
       }
       if (aiming && (!freeToAct || reloading > 0)) setAiming(false);
+    } else if (spec.akimbo && state.weaponEquipped) {
+      // Deux détentes indépendantes : chaque bouton vide SON pistolet.
+      // Les deux maintenues ensemble : tir alterné droite/gauche.
+      if (freeToAct && cooldown <= 0 && reloading <= 0) {
+        let side = 0;
+        if (triggerDown && triggerLeftDown) side = -akimboSide;
+        else if (triggerDown) side = 1;
+        else if (triggerLeftDown) side = -1;
+        if (side !== 0 && akimboAmmo[side] <= 0) side = 0; // ce canon est vide
+        if (side !== 0) {
+          akimboSide = side;
+          shoot();
+        }
+      }
     } else {
       const canShoot = freeToAct &&
         triggerDown && cooldown <= 0 && reloading <= 0 && (spec.melee || ammo > 0);
@@ -574,8 +608,16 @@ export function createWeapon(camera, scene, shootables, {
     const bobY = Math.abs(Math.cos(bobTime)) * (isMoving ? 0.008 : 0.002);
     const reloadDip = reloading > 0 ? Math.sin((reloading / (spec.reload || RELOAD_TIME)) * Math.PI) * 0.16 : 0;
     const swingArc = Math.sin(swing * Math.PI); // lève puis abat
-    holder.position.set(0.26 + bobX, -0.24 - bobY - reloadDip + swingArc * 0.1, -0.45 + recoil * 0.06);
-    holder.rotation.set(recoil * 0.09 - reloadDip * 0.8 - swingArc * 1.1, 0, 0);
+    // Marteau : le bras remonte jusqu'EN HAUT de l'écran (grand moulinet)
+    // avant de s'abattre. Akimbo : porte-arme centré, un pistolet par côté.
+    const lift = spec.melee ? swingArc * 0.55 : swingArc * 0.1;
+    const swingTilt = swingArc * (spec.melee ? 2.5 : 1.1);
+    holder.position.set(
+      (spec.akimbo ? 0 : 0.26) + bobX,
+      -0.24 - bobY - reloadDip + lift,
+      -0.45 + recoil * 0.06
+    );
+    holder.rotation.set(recoil * 0.09 - reloadDip * 0.8 - swingTilt, 0, 0);
   }
 
   return {
@@ -585,7 +627,11 @@ export function createWeapon(camera, scene, shootables, {
     give,
     equip,
     cycle,
-    setTrigger(down) { triggerDown = down; },
+    // side 'r' (défaut) = détente principale, 'l' = pistolet gauche akimbo
+    setTrigger(down, side = 'r') {
+      if (side === 'l') triggerLeftDown = down;
+      else triggerDown = down;
+    },
     // Lunette du fusil de précision : bascule ×6 ↔ ×12 (molette ou bouton)
     toggleScopeZoom() {
       scopeZoom = scopeZoom === 6 ? 12 : 6;
@@ -718,6 +764,9 @@ function buildMarteauModel() {
   // Tête perpendiculaire au bout du manche : masse d'un côté, panne de l'autre
   add(new THREE.BoxGeometry(0.17, 0.065, 0.065), steel, 0, -0.05, -0.54);
   add(new THREE.CylinderGeometry(0.042, 0.048, 0.05, 8), steel, 0.1, -0.05, -0.54, 0, 0, Math.PI / 2);
+  // Pivoté de 90° autour de l'axe du manche : la tête est VERTICALE, le
+  // plat de la masse tourné vers le sol — on frappe à plat, comme un maillet.
+  group.rotation.z = -Math.PI / 2;
 
   return group;
 }

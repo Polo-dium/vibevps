@@ -5,7 +5,8 @@ import { PAINT_COLORS, COLOR_MIN_LEVEL } from '../tags/spray.js';
 // boutons d'action. Activé uniquement sur écran tactile.
 export function createTouchControls({
   controls, weapon, spray, tagEditor, ui, voice, capture, emote,
-  jetpack, jetpackGuns, rcPlane, interact, map, radio, admin, invite, quality,
+  jetpack, jetpackGuns, rcPlane, interact, map, radio, placeBoombox,
+  admin, invite, quality,
 }) {
   const root = document.createElement('div');
   root.id = 'touch-ui';
@@ -58,6 +59,7 @@ export function createTouchControls({
                 <button id="tb-tag"><b>🎨</b><span>Créer un tag</span></button>
                 <button id="tb-color" aria-expanded="false" aria-controls="spray-palette"><b>🌈</b><span>Couleur spray</span></button>
                 <button id="tb-radio"><b>📻</b><span>Radio</span></button>
+                <button id="tb-boombox-pose"><b>🔊</b><span>Poser l’enceinte</span></button>
                 <button id="tb-gun"><b>🔫</b><span>Arme en main</span></button>
                 <button id="tb-arme"><b>🔁</b><span>Arme suivante</span></button>
                 <button id="tb-lb"><b>🏆</b><span>Classements</span></button>
@@ -106,6 +108,7 @@ export function createTouchControls({
       <button class="tbtn" id="tb-spray">TAG</button>
       <button class="tbtn" id="tb-use">E</button>
       <button class="tbtn" id="tb-jump">SAUT</button>
+      <button class="tbtn" id="tb-hold">HOLD</button>
       <button class="tbtn tbtn-fire" id="tb-fire">TIR</button>
     </div>`;
   document.body.appendChild(root);
@@ -279,6 +282,9 @@ export function createTouchControls({
     // Armes spéciales : TIR miroir de l'akimbo, bouton de zoom du sniper
     root.classList.toggle('akimbo-mode', Boolean(state.weaponEquipped && weapon.spec?.akimbo && !isPlane));
     root.classList.toggle('sniper-mode', Boolean(state.weaponEquipped && weapon.spec?.sniper && !isPlane));
+    // Jetpack : bouton HOLD visible en vol, allumé quand l'altitude est tenue
+    root.classList.toggle('fly-mode', Boolean(controls.flying));
+    root.querySelector('#tb-hold')?.classList.toggle('active', Boolean(controls.hovering));
     requestAnimationFrame(syncPlaneUi);
   }
   syncPlaneUi();
@@ -448,13 +454,44 @@ export function createTouchControls({
 
   let emoteIdx = 0;
   bind('#tb-emote', () => emote?.(emoteIdx++ % 3)); // fait défiler les emotes
-  // SAUT : en vol (jetpack ou avion) le maintien = poussée, sinon saut simple
-  bind('#tb-jump',
-    () => {
-      if (controls.flying || controls.vehicle?.plane) controls.setTouchThrust(true);
-      else controls.jump();
-    },
-    () => controls.setTouchThrust(false));
+  // SAUT : en vol (jetpack ou avion) le maintien = poussée, sinon saut
+  // simple. En jetpack, GLISSER le doigt vers le haut depuis ce bouton
+  // enclenche HOLD : l'altitude est maintenue, on circule librement.
+  const jumpBtn = root.querySelector('#tb-jump');
+  const holdBtn = root.querySelector('#tb-hold');
+  let jumpTouch = null;
+  jumpBtn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    jumpTouch = { id: t.identifier, y: t.clientY, held: false };
+    if (controls.flying || controls.vehicle?.plane) controls.setTouchThrust(true);
+    else controls.jump();
+  }, { passive: false });
+  jumpBtn.addEventListener('touchmove', (e) => {
+    if (!jumpTouch || !controls.flying) return;
+    for (const t of e.changedTouches) {
+      if (t.identifier !== jumpTouch.id || jumpTouch.held) continue;
+      if (jumpTouch.y - t.clientY > 60) {
+        jumpTouch.held = true;
+        controls.setTouchThrust(false);
+        controls.setHover(true);
+        ui.toast('🚁 HOLD : altitude maintenue — SAUT ou re-toucher HOLD pour libérer.');
+        navigator.vibrate?.(18);
+      }
+    }
+    e.preventDefault();
+  }, { passive: false });
+  const jumpEnd = (e) => {
+    if (!jumpTouch) return;
+    for (const t of e.changedTouches) {
+      if (t.identifier !== jumpTouch.id) continue;
+      if (!jumpTouch.held) controls.setTouchThrust(false);
+      jumpTouch = null;
+    }
+  };
+  jumpBtn.addEventListener('touchend', (e) => { e.preventDefault(); jumpEnd(e); }, { passive: false });
+  jumpBtn.addEventListener('touchcancel', jumpEnd, { passive: true });
+  bind('#tb-hold', () => controls.setHover(!controls.hovering));
   bind('#tb-use', () => interact());
   bind('#tb-spray', () => spray.toggleMode()); // mode bombe de peinture
   bind('#tb-stamp', () => spray.stampTag());
@@ -463,6 +500,7 @@ export function createTouchControls({
   bind('#tb-map', closeThen(() => map?.()));
   bind('#tb-arme', closeThen(() => weapon.cycle())); // change d'arme (celles ramassées)
   bind('#tb-radio', closeThen(() => radio?.())); // enceinte portable (morceau suivant)
+  bind('#tb-boombox-pose', closeThen(() => placeBoombox?.())); // poser/reprendre au sol
   bind('#tb-tag', closeThen(() => tagEditor.open()));
   bind('#tb-chat', closeThen(() => ui.openChat()));
   bind('#tb-photo', closeThen(() => capture?.toggleMode())); // mode photo : zoom + 📸
@@ -495,8 +533,16 @@ export function createTouchControls({
   const fireButtons = [
     root.querySelector('#tb-fire'),
     root.querySelector('#tb-fire-left'),
-    root.querySelector('#tb-fire2'), // akimbo : le TIR miroir, côté gauche
   ];
+  // Akimbo : le TIR miroir (gauche) ne commande QUE le pistolet gauche
+  const fire2 = root.querySelector('#tb-fire2');
+  fire2.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    weapon.setTrigger(true, 'l');
+  }, { passive: false });
+  const fire2End = (e) => { e.preventDefault?.(); weapon.setTrigger(false, 'l'); };
+  fire2.addEventListener('touchend', fire2End, { passive: false });
+  fire2.addEventListener('touchcancel', fire2End, { passive: true });
   for (const fireBtn of fireButtons) fireBtn.addEventListener('touchstart', (e) => {
     e.preventDefault();
     const t = e.changedTouches[0];

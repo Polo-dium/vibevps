@@ -11,7 +11,7 @@ import { buildLoot } from './world/loot.js';
 import { buildRadioPickup } from './world/radioPickup.js';
 import { buildWeaponQuest } from './world/weaponQuest.js';
 import { buildBannerPlane, buildAirport } from './world/aviation.js';
-import { createMusicSource, TRACKS } from './music.js';
+import { createMusicSource, TRACKS, gainForDistance } from './music.js';
 import { createPoiMap } from './ui/map.js';
 import { createControls, IS_TOUCH } from './player/controls.js';
 import { createWeapon } from './player/weapon.js';
@@ -240,6 +240,7 @@ async function boot() {
   scene.add(moonHalo);
 
   // --- Construction du monde ---
+  let radioHintShown = false; // indice « radio de bord », une fois par session
   const ctx = {
     scene,
     colliders: new ColliderGrid(),
@@ -307,6 +308,11 @@ async function boot() {
         controls.teleport(group.position.x, group.position.y, group.position.z);
       }
       if (car.plane && state.weaponEquipped) weapon.toggle(false);
+      // Radio de bord : la musique de l'enceinte joue aussi au volant/en vol
+      if (state.hasRadio && !state.boombox && !radioHintShown) {
+        radioHintShown = true;
+        ui.toast('📻 Radio de bord : B (ou le bouton Radio du menu) pour l’allumer en roulant !');
+      }
       car.onHorn = () => audio.horn();
       car.onCrash = () => {
         audio.crash();
@@ -1063,6 +1069,42 @@ async function boot() {
   const boomModel = buildBoomboxModel();
   boomModel.visible = false;
   camera.add(boomModel);
+  const BOOM_HELD_POS = boomModel.position.clone();
+  const BOOM_HELD_ROT = boomModel.rotation.clone();
+  // L'enceinte vit dans TROIS états : tenue (enfant de la caméra), posée au
+  // sol (dans la scène, volume qui décroît avec la distance, récupérée
+  // automatiquement à +100 m) ou dans le panier du Vélo'v.
+  let boomMode = 'held'; // 'held' | 'placed' | 'basket'
+  function setBoomMode(mode) {
+    if (boomMode === mode) return;
+    if (mode === 'held') {
+      camera.add(boomModel);
+      boomModel.position.copy(BOOM_HELD_POS);
+      boomModel.rotation.copy(BOOM_HELD_ROT);
+      boombox.setVolume(state.boombox ? 0.3 : 0);
+    } else {
+      scene.add(boomModel); // placé/panier : coordonnées MONDE, mises à jour au loop
+    }
+    boomMode = mode;
+  }
+  function toggleBoomboxPlacement() {
+    if (!state.boombox) {
+      ui.toast('📻 Allume d’abord l’enceinte (B ou le bouton Radio).');
+      return;
+    }
+    if (boomMode === 'placed') {
+      setBoomMode('held');
+      ui.toast('📻 Enceinte reprise en main.');
+      return;
+    }
+    const p = controls.position;
+    const gx = p.x - Math.sin(controls.yaw) * 1.3;
+    const gz = p.z - Math.cos(controls.yaw) * 1.3;
+    setBoomMode('placed');
+    boomModel.position.set(gx, Math.max(0, ctx.terrainHeight?.(gx, gz) ?? 0) + 0.16, gz);
+    boomModel.rotation.set(0, controls.yaw + Math.PI, 0);
+    ui.toast('🔊 Enceinte posée — touche-la pour changer de piste ; à plus de 100 m, elle te revient.');
+  }
   function cycleBoombox({ tracksOnly = false } = {}) {
     if (!state.hasRadio) {
       ui.toast('🔒 Radio verrouillée : récupère-la devant la salle d’arcade pour la mission de Momo !');
@@ -1074,6 +1116,7 @@ async function boot() {
     if (state.boombox === 0) {
       boombox.stop();
       boomModel.visible = false;
+      setBoomMode('held');
       ui.toast('📻 Enceinte coupée.');
     } else {
       if (state.weaponEquipped) weapon.toggle(false);
@@ -1406,7 +1449,10 @@ async function boot() {
       };
       if (camMode) ui.toast(camLabels[camMode] ?? `📷 ${camMode}`);
     }
-    if (e.code === 'KeyB') cycleBoombox();
+    if (e.code === 'KeyB') {
+      if (e.shiftKey) toggleBoomboxPlacement(); // Maj+B : poser/reprendre
+      else cycleBoombox();
+    }
     if (e.code === 'Digit3') emote(0);
     if (e.code === 'Digit4') emote(1);
     if (e.code === 'Digit5') emote(2);
@@ -1437,6 +1483,7 @@ async function boot() {
       interact: () => nearestInteractable?.action(),
       map: () => poiMap.toggle(),
       radio: () => cycleBoombox(),
+      placeBoombox: () => toggleBoomboxPlacement(),
       admin: () => ui.toggleAdmin(),
       invite: () => ui.invite(),
       quality,
@@ -1509,7 +1556,7 @@ async function boot() {
     if (controls.flying && state.tagMode) spray.setMode(false);
     // Une radio allumée est réellement tenue : aucun raccourci ne peut faire
     // apparaître une arme ou une bombe de peinture dans la seconde main.
-    if (state.boombox && !controls.flying && !controls.vehicle) {
+    if (state.boombox && boomMode === 'held' && !controls.flying && !controls.vehicle) {
       if (state.weaponEquipped) weapon.toggle(false);
       if (state.tagMode) spray.setMode(false);
     }
@@ -1521,8 +1568,9 @@ async function boot() {
     const rcSolView = Boolean(controls.vehicle?.remoteControl &&
       (controls.vehicle.camMode ?? 'sol') === 'sol');
     arms.setVisible(!controls.vehicle || rcSolView);
-    // Pas de réticule quand on suit son avion RC du regard (rien à viser).
-    ui.showCrosshair(!rcSolView);
+    // Pas de réticule en vue « pilote au sol » (rien à viser) ni dans la
+    // lunette du sniper (elle a son propre point fin de 3 px).
+    ui.showCrosshair(!rcSolView && !weapon.aiming);
     // La voile suit le joueur tant qu'elle est ouverte.
     parachute.visible = controls.parachuteOpen;
     if (parachute.visible) {
@@ -1533,12 +1581,33 @@ async function boot() {
     const armMode = rcSolView ? 'radiocommande'
       : controls.flying ? 'jetpack'
         : state.weaponEquipped ? 'weapon'
-          : state.boombox ? 'boombox' : 'idle';
+          : (state.boombox && boomMode === 'held') ? 'boombox' : 'idle';
     arms.update(dt, armMode, controls.isMoving(), weapon.holder);
     jetpackGuns.update(dt);
-    // La radio peut continuer à jouer en vol, mais son modèle porté ne doit
-    // jamais flotter devant la caméra en jetpack ou dans un avion.
-    boomModel.visible = Boolean(state.boombox && !controls.flying && !controls.vehicle);
+    // Enceinte : posée au sol, dans le panier du Vélo'v, ou tenue en main
+    // (jamais flottante devant la caméra en jetpack/avion). Posée, son
+    // volume décroît avec la distance et elle revient toute seule à +100 m.
+    if (state.boombox) {
+      const p2 = controls.position;
+      if (boomMode === 'placed') {
+        const d = Math.hypot(boomModel.position.x - p2.x, boomModel.position.z - p2.z);
+        boombox.setVolume(gainForDistance(d, 0.3, 46));
+        if (d > 100) {
+          setBoomMode('held');
+          ui.toast('📻 Trop loin de ton enceinte : elle est revenue dans ton inventaire.');
+        }
+      } else if (controls.vehicle?.bike && ctx.activeBike) {
+        // Panier du Vélo'v : l'enceinte voyage devant le guidon
+        if (boomMode !== 'basket') setBoomMode('basket');
+        ctx.activeBike.updateMatrixWorld(true);
+        boomModel.position.copy(ctx.activeBike.localToWorld(new THREE.Vector3(0, 1.08, -0.82)));
+        boomModel.rotation.set(0, (controls.vehicle.heading ?? 0) + Math.PI, 0);
+      } else if (boomMode === 'basket') {
+        setBoomMode('held');
+      }
+    }
+    boomModel.visible = Boolean(state.boombox &&
+      (boomMode !== 'held' || (!controls.flying && !controls.vehicle)));
     spray.update(dt);
     remotes.update();
     voice.update();
