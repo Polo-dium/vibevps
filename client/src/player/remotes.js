@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { hashColor } from '../world/utils.js';
 import { buildHuman } from '../world/human.js';
 import { buildMirageModel, buildPlaneModel } from '../world/aviation.js';
+import { buildVelovModel } from '../world/velov.js';
 import { createMusicSource, gainForDistance } from '../music.js';
 import * as net from '../net.js';
 
@@ -153,6 +154,18 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
       if (vehCode === 2 && jetCode && !r.jet) {
         r.jet = makeGhostMirage(r.baseColor);
         scene.add(r.jet);
+      }
+      // 3 = Vélo'v : le vélo apparaît sous l'avatar, qui reste visible
+      if (vehCode === 3 && !r.bike) {
+        r.bike = buildVelovModel();
+        scene.add(r.bike);
+      }
+      if (r.bike) {
+        r.bike.visible = vehCode === 3;
+        if (r.bike.visible) {
+          r.bike.position.copy(g.position);
+          r.bike.rotation.y = (b.vry ?? a.vry ?? 0);
+        }
       }
       let dvry = (b.vry ?? 0) - (a.vry ?? 0);
       while (dvry > Math.PI) dvry -= Math.PI * 2;

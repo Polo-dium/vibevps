@@ -293,10 +293,13 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         wantJump = false;
       } else {
         // --- Voiture : W/S accélère et freine, A/D braque, Espace klaxonne
+        // (un Vélo'v est une « voiture » lente : accélération et plafond
+        // propres au véhicule, mêmes commandes)
         const braking = fwd < 0 && v.speed > 0.5;
-        v.speed += fwd * (braking ? 32 : 18) * dt;
+        v.speed += fwd * (braking ? 32 : (v.acceleration ?? 18)) * dt;
         v.speed *= 1 - 1.1 * dt; // frottements
-        v.speed = Math.max(-14, Math.min(38, v.speed));
+        const capF = v.maxSpeed ?? 38;
+        v.speed = Math.max(-(v.maxReverse ?? 14), Math.min(capF, v.speed));
         if (Math.abs(v.speed) < 0.04 && fwd === 0) v.speed = 0;
         // Braquage proportionnel à la vitesse (pas de rotation à l'arrêt)
         const grip = Math.min(1, Math.abs(v.speed) / 5);
@@ -422,12 +425,14 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         camera.quaternion.copy(v.orientation).multiply(headQuat);
         camera.up.copy(planeUp);
       } else {
-        // Assis au volant (décapotables) : caméra relevée, côté conducteur
+        // Assis au volant (décapotables) : caméra relevée, côté conducteur.
+        // Sur un Vélo'v on est au centre, en selle, un peu plus haut.
         clearRcZoom();
+        const seatSide = v.bike ? 0 : 0.45;
         camera.position.set(
-          pos.x - Math.cos(v.heading) * 0.45,
-          pos.y + 1.42,
-          pos.z + Math.sin(v.heading) * 0.45
+          pos.x - Math.cos(v.heading) * seatSide,
+          pos.y + (v.bike ? 1.55 : 1.42),
+          pos.z + Math.sin(v.heading) * seatSide
         );
         camera.rotation.order = 'YXZ';
         camera.rotation.set(pitch, yaw, 0);
@@ -677,7 +682,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       // Au volant : les autres joueurs voient la voiture (champs optionnels,
       // ignorés par les anciens clients/serveurs). 2 = avion.
       if (vehicle && !vehicle.remoteControl) {
-        s.veh = vehicle.plane ? 2 : 1;
+        s.veh = vehicle.plane ? 2 : vehicle.bike ? 3 : 1; // 3 = Vélo'v
         s.vry = Math.round(vehicle.heading * 1000) / 1000;
         if (vehicle.plane) {
           s.vpx = Math.round((vehicle.pitch ?? 0) * 1000) / 1000;

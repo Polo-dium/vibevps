@@ -25,6 +25,9 @@ import { createQuenelle } from './world/quenelle.js';
 import { createRace } from './world/race.js';
 import { createAirRace } from './world/airrace.js';
 import { createWeather } from './world/weather.js';
+import { buildVelovStations } from './world/velov.js';
+import { createPetanque } from './world/petanque.js';
+import { buildBouchon } from './world/bouchon.js';
 import { createSkylife } from './world/skylife.js';
 import { createFete } from './world/fete.js';
 import { buildSky } from './world/sky.js';
@@ -932,6 +935,26 @@ async function boot() {
   createWeather(ctx, { audio, camera });
   createSkylife(ctx);
   createFete(ctx, { notify: ui.toast });
+
+  // Vélo'v, pétanque et bouchon : la vie lyonnaise au sol
+  buildVelovStations(ctx);
+  createPetanque(ctx, {
+    camera,
+    notify: ui.toast,
+    audio,
+    onScore: async (cm) => {
+      try {
+        const res = await apiFetch('/scores', {
+          method: 'POST',
+          body: JSON.stringify({ gameId: 'petanque', score: Math.max(1, 2000 - cm) }),
+        });
+        if (res.xp != null) ui.setXp(res.xp);
+        applyDaily(res.daily);
+        progress.refresh();
+      } catch { /* pas de réseau : la partie reste un plaisir local */ }
+    },
+  });
+  buildBouchon(ctx, { notify: ui.toast, speak: (t, o) => audio.speak(t, o) });
 
   // La Grande Roue (et tout futur manège) déplace le joueur via ce hook
   ctx.rideTick = (x, y, z) => controls.teleport(x, y, z);

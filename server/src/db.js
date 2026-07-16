@@ -84,6 +84,7 @@ const BUILTINS = [
   // Course chrono : score = 36000 − dixièmes de seconde (MAX = meilleur temps)
   ['grand-prix', 'GRAND PRIX DE LYON'],
   ['grand-prix-ciel', 'GRAND PRIX DU CIEL'], // même barème, mais en avion
+  ['petanque', 'PÉTANQUE DE BELLECOUR'], // score = 2000 − cm du cochonnet
 ];
 const insertBuiltin = db.prepare(
   `INSERT OR IGNORE INTO games (id, title, builtin, created_at) VALUES (?, ?, 1, ?)`
