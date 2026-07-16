@@ -232,8 +232,18 @@ export function setupWs(httpServer) {
         if (!target || target === me) return;
 
         // dmg optionnel selon l'arme (marteau → bazooka), borné : combiné à
-        // la cadence max, un client trafiqué ne fait pas mieux qu'un bazooka
-        const dmg = Math.min(55, Math.max(1, Math.floor(Number(msg.dmg) || HIT_DAMAGE)));
+        // la cadence max, un client trafiqué ne fait pas mieux qu'un bazooka.
+        // Au-delà de 55 (fusil de précision, one-shot 100), une SECONDE
+        // limite s'applique : 1,4 s minimum entre deux touches lourdes.
+        const rawDmg = Math.max(1, Math.floor(Number(msg.dmg) || HIT_DAMAGE));
+        let dmg;
+        if (rawDmg > 55) {
+          if (now - (me.lastBigHitAt ?? 0) < 1400) return;
+          me.lastBigHitAt = now;
+          dmg = Math.min(100, rawDmg);
+        } else {
+          dmg = Math.min(55, rawDmg);
+        }
         target.hp -= dmg;
         target.lastDamagedAt = now;
         if (target.hp > 0) {

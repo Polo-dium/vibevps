@@ -4,7 +4,8 @@ import { spawnPoint } from '../world/layout.js';
 
 const MOVE_SPEED = 10.0; // sprint automatique : on court tout le temps
 const ACCEL = 14; // réactivité des déplacements
-const JUMP_SPEED = 7.2;
+const JUMP_SPEED = 10.2; // ×√2 vs 7,2 : hauteur de saut DOUBLÉE (h = v²/2g)
+const SLIDE_TIME = 0.62; // glissade à l'atterrissage quand on pousse encore
 const GRAVITY = 21;
 const EYE_HEIGHT = 1.62;
 const HALF_W = 0.35; // demi-largeur du joueur
@@ -67,6 +68,12 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   let parachute = false;
   let onParachuteCb = null;
   let onFallDeathCb = null;
+  // Glissade : déclenchée à l'atterrissage d'un vrai saut si on pousse
+  // encore vers l'avant — élan bonus, caméra qui s'abaisse, cap verrouillé.
+  let slide = 0;
+  const slideDir = new THREE.Vector3();
+  let slideCrouch = 0; // abaissement de caméra lissé
+  let airTime = 0;
 
   if (!IS_TOUCH) {
     domElement.addEventListener('click', () => {
@@ -528,27 +535,51 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     const len = Math.hypot(dx, dz);
     if (len > 1) { dx /= len; dz /= len; }
 
-    // Accélération horizontale exponentielle (nerveuse mais fluide)
+    // Accélération horizontale exponentielle (nerveuse mais fluide).
+    // En glissade, le cap est verrouillé et l'élan bonus s'éteint tout seul.
     const k = 1 - Math.exp(-ACCEL * dt);
-    vel.x += (dx * MOVE_SPEED - vel.x) * k;
-    vel.z += (dz * MOVE_SPEED - vel.z) * k;
+    if (slide > 0) {
+      slide -= dt;
+      const boost = MOVE_SPEED * (1.9 * Math.max(0, slide / SLIDE_TIME) + 0.4);
+      vel.x += (slideDir.x * boost - vel.x) * k;
+      vel.z += (slideDir.z * boost - vel.z) * k;
+      if (fwd <= 0.05) slide = 0; // on cesse de pousser → fin de glissade
+    } else {
+      vel.x += (dx * MOVE_SPEED - vel.x) * k;
+      vel.z += (dz * MOVE_SPEED - vel.z) * k;
+    }
 
     if (active && (keys.has('Space') || wantJump) && onGround) {
       vel.y = JUMP_SPEED;
       onGround = false;
+      slide = 0;
     }
     wantJump = false;
     vel.y -= GRAVITY * dt;
 
+    const wasGrounded = onGround;
     onGround = false;
     resolveAxis('y', vel.y * dt);
     // Sol : terrain (colline de Fourvière, lit des fleuves en contrebas) ou 0
     const groundLevel = terrain ? terrain(pos.x, pos.z) : 0;
     if (pos.y <= groundLevel) { pos.y = groundLevel; vel.y = 0; onGround = true; }
+    if (!onGround) {
+      airTime += dt;
+    } else {
+      // Atterrissage d'un vrai saut, ZQSD encore vers l'avant → glissade
+      if (!wasGrounded && airTime > 0.22 && fwd > 0.4 &&
+          Math.hypot(vel.x, vel.z) > 6) {
+        slide = SLIDE_TIME;
+        slideDir.set(vel.x, 0, vel.z).normalize();
+      }
+      airTime = 0;
+    }
     resolveAxis('x', vel.x * dt);
     resolveAxis('z', vel.z * dt);
 
-    camera.position.set(pos.x, pos.y + EYE_HEIGHT, pos.z);
+    // La caméra s'abaisse pendant la glissade (et remonte en douceur)
+    slideCrouch += (((slide > 0) ? 0.72 : 0) - slideCrouch) * (1 - Math.exp(-10 * dt));
+    camera.position.set(pos.x, pos.y + EYE_HEIGHT - slideCrouch, pos.z);
     camera.rotation.order = 'YXZ';
     camera.rotation.set(pitch, yaw, 0);
   }

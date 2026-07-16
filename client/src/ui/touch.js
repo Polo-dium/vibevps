@@ -26,6 +26,8 @@ export function createTouchControls({
     <div id="plane-look"></div>
     <div id="plane-instruments">GAZ 0% · 0 km/h · ALT 0 m</div>
     <button class="tbtn tbtn-fire plane-fire plane-fire-left" id="tb-fire-left">TIR</button>
+    <button class="tbtn tbtn-fire" id="tb-fire2">TIR</button>
+    <button class="tbtn" id="tb-zoom">×6</button>
     <button class="tbtn plane-bomb" id="tb-bomb">BOMBE</button>
     <button class="tbtn plane-exit" id="tb-exit-plane">SAUTER</button>
     <button class="tbtn plane-camera" id="tb-camera">CAM</button>
@@ -274,6 +276,9 @@ export function createTouchControls({
           `GAZ ${Math.round(f.throttle * 100)}% · ${Math.round(f.speed * 3.6)} km/h · ALT ${Math.round(f.altitude)} m${cameraMode}`;
       }
     }
+    // Armes spéciales : TIR miroir de l'akimbo, bouton de zoom du sniper
+    root.classList.toggle('akimbo-mode', Boolean(state.weaponEquipped && weapon.spec?.akimbo && !isPlane));
+    root.classList.toggle('sniper-mode', Boolean(state.weaponEquipped && weapon.spec?.sniper && !isPlane));
     requestAnimationFrame(syncPlaneUi);
   }
   syncPlaneUi();
@@ -487,7 +492,11 @@ export function createTouchControls({
   // À pied, TIR équipe l'arme si besoin. En jetpack, il commande les deux
   // mitraillettes fixées aux avant-bras. Dans un avion, les deux boutons
   // commandent uniquement les mitrailleuses de bord.
-  const fireButtons = [root.querySelector('#tb-fire'), root.querySelector('#tb-fire-left')];
+  const fireButtons = [
+    root.querySelector('#tb-fire'),
+    root.querySelector('#tb-fire-left'),
+    root.querySelector('#tb-fire2'), // akimbo : le TIR miroir, côté gauche
+  ];
   for (const fireBtn of fireButtons) fireBtn.addEventListener('touchstart', (e) => {
     e.preventDefault();
     const t = e.changedTouches[0];
@@ -519,6 +528,12 @@ export function createTouchControls({
     fireBtn.addEventListener('touchend', (e) => { e.preventDefault(); fireEnd(e); }, { passive: false });
     fireBtn.addEventListener('touchcancel', fireEnd, { passive: true });
   }
+  // Lunette du fusil de précision : bascule ×6 ↔ ×12
+  const zoomBtn = root.querySelector('#tb-zoom');
+  bind('#tb-zoom', () => {
+    const z = weapon.toggleScopeZoom();
+    zoomBtn.textContent = `×${z}`;
+  });
   bind('#tb-bomb', () => controls.dropPlaneBomb());
   bind('#tb-exit-plane', () => {
     if (controls.vehicle?.rcPlane) rcPlane?.();

@@ -39,10 +39,18 @@ export const WEAPONS = {
     // de 30 : ça crache TRÈS vite et ça recharge souvent. Tir alterné G/D.
     fire: 0.05, mag: 30, reload: 1.9, range: 70, dmg: 8, akimbo: true,
   },
+  sniper: {
+    nom: 'Fusil de précision', emoji: '🎯',
+    // One-shot : MAINTENIR le tir met en joue (lunette ×6/×12, molette ou
+    // bouton pour basculer), RELÂCHER déclenche le coup. Le serveur borne :
+    // au-delà de 55 dégâts, 1,4 s minimum entre deux touches.
+    fire: 1.5, mag: 5, reload: 3.0, range: 420, dmg: 100, sniper: true,
+  },
 };
 
 export function createWeapon(camera, scene, shootables, {
   onAmmoChange, onShot, onRocketExplosion, getGroundY, onWeaponChange, worldHit,
+  onScope,
 }) {
   // Porte-arme : un seul modèle visible à la fois, construits à la demande
   const holder = new THREE.Group();
@@ -85,6 +93,19 @@ export function createWeapon(camera, scene, shootables, {
   flash.position.copy(FLASH_HOME);
   holder.add(flash);
   let akimboSide = 1; // double pistolets : le canon qui tire alterne G/D
+
+  // Fusil de précision : la mise en joue zoome la caméra et remplace
+  // l'arme par la lunette (overlay via onScope).
+  let aiming = false;
+  let scopeZoom = 6; // ×6 ou ×12
+  function setAiming(on) {
+    if (aiming === on) return;
+    aiming = on;
+    holder.visible = state.weaponEquipped && !on;
+    camera.zoom = on ? scopeZoom : 1;
+    camera.updateProjectionMatrix();
+    onScope?.(on ? scopeZoom : null);
+  }
 
   // --- Effets : traceurs et impacts (aussi utilisés pour les tirs des autres) ---
   const tracers = []; // { mesh, dir, remaining }
@@ -280,6 +301,7 @@ export function createWeapon(camera, scene, shootables, {
   }
 
   function toggle(force) {
+    setAiming(false); // ranger/sortir l'arme désarme toujours la lunette
     state.weaponEquipped = force ?? !state.weaponEquipped;
     holder.visible = state.weaponEquipped;
     onAmmoChange(ammo, reloading > 0, spec);
@@ -288,6 +310,7 @@ export function createWeapon(camera, scene, shootables, {
   // Équipe une arme possédée (ramassée : voir give)
   function select(id) {
     if (!WEAPONS[id] || id === curId) return;
+    setAiming(false);
     modelFor(curId).visible = false;
     curId = id;
     spec = WEAPONS[id];
@@ -525,11 +548,25 @@ export function createWeapon(camera, scene, shootables, {
 
     cooldown -= dt;
     const inputOk = IS_TOUCH || state.pointerLocked;
-    const canShoot =
+    const freeToAct =
       inputOk && !state.overlayOpen && !state.tagMode && !state.sanctuary &&
-      !state.photoMode && // en mode photo, le clic déclenche l'appareil
-      triggerDown && cooldown <= 0 && reloading <= 0 && (spec.melee || ammo > 0);
-    if (canShoot) shoot();
+      !state.photoMode; // en mode photo, le clic déclenche l'appareil
+    if (spec.sniper && state.weaponEquipped) {
+      // Fusil de précision : MAINTENIR met en joue, RELÂCHER tire.
+      if (triggerDown && !aiming && freeToAct &&
+          cooldown <= 0 && reloading <= 0 && ammo > 0) {
+        setAiming(true);
+      }
+      if (aiming && !triggerDown) {
+        setAiming(false);
+        if (freeToAct && cooldown <= 0 && reloading <= 0 && ammo > 0) shoot();
+      }
+      if (aiming && (!freeToAct || reloading > 0)) setAiming(false);
+    } else {
+      const canShoot = freeToAct &&
+        triggerDown && cooldown <= 0 && reloading <= 0 && (spec.melee || ammo > 0);
+      if (canShoot) shoot();
+    }
 
     // Animation : balancement de course + recul (+ moulinet de marteau)
     bobTime += dt * (isMoving ? 10 : 2);
@@ -549,6 +586,17 @@ export function createWeapon(camera, scene, shootables, {
     equip,
     cycle,
     setTrigger(down) { triggerDown = down; },
+    // Lunette du fusil de précision : bascule ×6 ↔ ×12 (molette ou bouton)
+    toggleScopeZoom() {
+      scopeZoom = scopeZoom === 6 ? 12 : 6;
+      if (aiming) {
+        camera.zoom = scopeZoom;
+        camera.updateProjectionMatrix();
+        onScope?.(scopeZoom);
+      }
+      return scopeZoom;
+    },
+    get aiming() { return aiming; },
     fx: { spawnTracer, spawnImpact, spawnExplosion },
     get ammo() { return ammo; },
     get spec() { return spec; },
@@ -574,8 +622,31 @@ export function buildWeaponModel(id) {
     case 'minigun': return buildMinigunModel();
     case 'bazooka': return buildBazookaModel();
     case 'akimbo': return buildAkimboModel();
+    case 'sniper': return buildSniperModel();
     default: return buildAkModel();
   }
+}
+
+// Fusil de précision : canon long, lunette épaisse, crosse ajourée, bipied.
+function buildSniperModel() {
+  const group = new THREE.Group();
+  const metal = new THREE.MeshLambertMaterial({ color: 0x2e3138 });
+  const dark = new THREE.MeshLambertMaterial({ color: 0x191b20 });
+  const kaki = new THREE.MeshLambertMaterial({ color: 0x5c5a3f });
+  const lens = new THREE.MeshPhongMaterial({ color: 0x3a6d8a, shininess: 90, specular: 0xbfe8ff });
+  const add = modelHelpers(group);
+  add(new THREE.BoxGeometry(0.05, 0.075, 0.4), kaki, 0, 0, -0.22); // boîtier
+  add(new THREE.CylinderGeometry(0.013, 0.013, 0.62, 8), dark, 0, 0.01, -0.72, Math.PI / 2); // canon
+  add(new THREE.CylinderGeometry(0.026, 0.026, 0.09, 8), dark, 0, 0.01, -1.0, Math.PI / 2); // frein de bouche
+  add(new THREE.CylinderGeometry(0.034, 0.034, 0.26, 10), metal, 0, 0.085, -0.2, Math.PI / 2); // lunette
+  add(new THREE.CylinderGeometry(0.03, 0.03, 0.012, 10), lens, 0, 0.085, -0.335, Math.PI / 2);
+  add(new THREE.BoxGeometry(0.016, 0.045, 0.03), metal, 0, 0.045, -0.2); // pied de lunette
+  add(new THREE.BoxGeometry(0.045, 0.1, 0.05), kaki, 0, -0.05, 0.02, 0.28); // poignée
+  add(new THREE.BoxGeometry(0.045, 0.075, 0.2), kaki, 0, -0.015, 0.14); // crosse
+  for (const sx of [-1, 1]) {
+    add(new THREE.CylinderGeometry(0.006, 0.006, 0.16, 6), dark, sx * 0.05, -0.07, -0.6, 0, 0, sx * 0.5); // bipied
+  }
+  return group;
 }
 
 // Deux pistolets jumeaux, un par poing (x = ±0,16 — voir les prises

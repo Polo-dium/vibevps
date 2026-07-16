@@ -10,6 +10,11 @@ export function createUi() {
   hud.id = 'hud';
   hud.innerHTML = `
     <div id="crosshair"></div>
+    <div id="scope" class="hidden">
+      <div class="scope-h"></div>
+      <div class="scope-v"></div>
+      <span id="scope-zoom"></span>
+    </div>
     <div id="prompt" class="hidden"></div>
     <div id="hud-info"></div>
     <div id="hud-range" class="hidden"></div>
@@ -164,6 +169,14 @@ export function createUi() {
     hitmarkerEl.classList.remove('hidden');
     clearTimeout(hitmarkerTimer);
     hitmarkerTimer = setTimeout(() => hitmarkerEl.classList.add('hidden'), 110);
+  }
+
+  // Lunette du fusil de précision : vignette noire + croisée + zoom affiché
+  const scopeEl = hud.querySelector('#scope');
+  const scopeZoomEl = hud.querySelector('#scope-zoom');
+  function setScope(zoom) {
+    scopeEl.classList.toggle('hidden', zoom == null);
+    if (zoom != null) scopeZoomEl.textContent = `×${zoom}`;
   }
 
   // Réticule masquable (vue « pilote au sol » de l'avion RC : rien à viser)
@@ -736,7 +749,7 @@ export function createUi() {
 
   return {
     ensureAuth, invite, toast, setPrompt, onPromptTap, setInfo, setQuest, setRange, setBanner, setAmmo,
-    setHp, damageFlash, killBanner, setTagMode, hitmarker, deathScreen, showCrosshair,
+    setHp, damageFlash, killBanner, setTagMode, hitmarker, deathScreen, showCrosshair, setScope,
     setXp, spawnConfetti, achievementUnlocked, bindProgress, setDaily,
     toggleLeaderboards, leaderboardsOpen, openCreator, toggleAdmin, closeTopOverlay,
     openChat, onChatSend, addChatLine, setMicState,

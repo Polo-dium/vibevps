@@ -78,6 +78,24 @@ button.ghost {
 
 /* HUD */
 #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+/* Lunette du fusil de précision : vignette circulaire + croisée fine */
+#scope {
+  position: fixed; inset: 0; pointer-events: none; z-index: 12;
+  background: radial-gradient(circle at 50% 50%,
+    transparent 31%, rgba(0, 0, 0, 0.55) 36%, rgba(0, 0, 0, 0.97) 44%);
+}
+#scope.hidden { display: none; }
+#scope .scope-h, #scope .scope-v {
+  position: absolute; left: 50%; top: 50%;
+  background: rgba(20, 24, 30, 0.85);
+}
+#scope .scope-h { width: 44vmin; height: 1px; transform: translate(-50%, -50%); }
+#scope .scope-v { width: 1px; height: 44vmin; transform: translate(-50%, -50%); }
+#scope #scope-zoom {
+  position: absolute; left: 50%; top: calc(50% + 17vmin);
+  transform: translateX(-50%);
+  color: #cfe8d8; font: 700 15px monospace; letter-spacing: 2px;
+}
 #crosshair {
   position: absolute; left: 50%; top: 50%;
   width: 6px; height: 6px; margin: -3px;
@@ -719,6 +737,22 @@ button.ghost {
   border-color: #ff5252; color: #ff5252; font-size: 20px;
 }
 .tbtn-fire:active { background: rgba(255, 82, 82, 0.35); }
+/* Akimbo : second bouton TIR en MIROIR du premier, côté gauche de l'écran */
+#tb-fire2, #tb-zoom { display: none; }
+#touch-ui.akimbo-mode #tb-fire2 {
+  display: block; position: fixed; z-index: 23;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  left: calc(12px + env(safe-area-inset-left));
+  width: 88px; height: 88px;
+}
+/* Sniper : bascule de lunette ×6/×12 au-dessus du TIR */
+#touch-ui.sniper-mode #tb-zoom {
+  display: block; position: fixed; z-index: 23;
+  bottom: calc(120px + env(safe-area-inset-bottom));
+  right: calc(20px + env(safe-area-inset-right));
+  width: 60px; height: 60px;
+  border-color: #8fd0a8; color: #c8f2d8; font-size: 15px;
+}
 @media (pointer: coarse) {
   #help { display: none; }
   #hud-ammo { right: auto; left: 50%; transform: translateX(-50%); bottom: 12px; }

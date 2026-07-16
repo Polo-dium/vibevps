@@ -587,6 +587,11 @@ async function boot() {
     // Les tirs s'arrêtent sur les murs et le sol (boîtes de collision) :
     // marche de rayon grossière, appelée une fois par coup tiré
     worldHit: worldHitDistance,
+    // Lunette du fusil de précision : overlay + réticule masqué en visée
+    onScope: (zoom) => {
+      ui.setScope(zoom);
+      ui.showCrosshair(zoom == null);
+    },
   });
   // Les armes déjà ramassées lors d'une précédente session reviennent dans
   // l'inventaire sans être automatiquement sorties au démarrage.
@@ -1226,6 +1231,10 @@ async function boot() {
   window.addEventListener('wheel', (e) => {
     if (state.tagMode && !state.overlayOpen) {
       spray.cycleColor(e.deltaY > 0 ? 1 : -1);
+    } else if (!state.overlayOpen && state.weaponEquipped && weapon.spec?.sniper) {
+      // Molette avec le fusil de précision : bascule la lunette ×6 ↔ ×12
+      const z = weapon.toggleScopeZoom();
+      ui.toast(`🔭 Lunette ×${z}`);
     }
   });
 

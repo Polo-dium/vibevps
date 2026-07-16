@@ -14,6 +14,7 @@ const INVENTORY_ITEMS = new Set([
   'jetpack', 'rc-plane', 'radio',
   'weapon:marteau', 'weapon:pompe', 'weapon:minigun', 'weapon:bazooka',
   'weapon:akimbo', // double pistolets (hors quête d'arsenal, volontairement)
+  'weapon:sniper', // fusil de précision (idem)
   // École de pilotage : brevets délivrés côté client (progression douce,
   // pas d'enjeu compétitif), conservés avec le compte.
   'brevet-rc', 'brevet-avion',

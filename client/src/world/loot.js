@@ -10,8 +10,9 @@ import { QUEST_HAMMER_SPOT } from './weaponQuest.js';
 
 const RESPAWN_S = 75;
 const PICKUP_R = 1.7;
-// Rareté : marteau et pompe courants, akimbo et minigun rares, bazooka très rare
-const POOL = ['marteau', 'pompe', 'marteau', 'minigun', 'pompe', 'akimbo', 'marteau', 'pompe', 'bazooka'];
+// Rareté : marteau et pompe courants, akimbo et minigun rares, bazooka et
+// sniper très rares
+const POOL = ['marteau', 'pompe', 'marteau', 'minigun', 'pompe', 'akimbo', 'marteau', 'sniper', 'pompe', 'bazooka'];
 
 export function buildLoot(ctx, { onPickup }) {
   const rand = makeRand(7777);
