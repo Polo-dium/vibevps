@@ -76,7 +76,34 @@ export function getAudioGraph() {
   return { ctx, master };
 }
 
+// Pluie : boucle de bruit filtré persistante, dont seul le gain bouge —
+// zéro allocation par frame, montée/retombée douces avec l'averse.
+let rainNodes = null;
+function ensureRain() {
+  if (rainNodes) return rainNodes;
+  ensure();
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer;
+  src.loop = true;
+  src.playbackRate.value = 0.55;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 850;
+  const g = ctx.createGain();
+  g.gain.value = 0;
+  src.connect(filter).connect(g).connect(master);
+  src.start();
+  rainNodes = { g };
+  return rainNodes;
+}
+
 export const audio = {
+  // Niveau de pluie 0..1 (voir world/weather.js)
+  rain(level) {
+    if (!ctx && level <= 0) return; // ne réveille pas l'audio pour du silence
+    const { g } = ensureRain();
+    g.gain.setTargetAtTime(Math.max(0, Math.min(1, level)) * 0.14, ctx.currentTime, 0.6);
+  },
   // Pas : intensité 0..1 selon la vitesse
   footstep(intensity = 1) {
     if (!ctx) return;

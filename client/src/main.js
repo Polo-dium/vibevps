@@ -23,6 +23,10 @@ import { ARCADE, spawnPoint } from './world/layout.js';
 import { createNpcs } from './world/npcs.js';
 import { createQuenelle } from './world/quenelle.js';
 import { createRace } from './world/race.js';
+import { createAirRace } from './world/airrace.js';
+import { createWeather } from './world/weather.js';
+import { createSkylife } from './world/skylife.js';
+import { createFete } from './world/fete.js';
 import { buildSky } from './world/sky.js';
 import { audio } from './audio.js';
 import { createSpray } from './tags/spray.js';
@@ -898,6 +902,37 @@ async function boot() {
     },
   });
 
+  // Grand Prix du CIEL : même mécanique de score que la course au sol, mais
+  // en avion — le chrono part en traversant le portique doré de l'aérodrome.
+  createAirRace(ctx, {
+    setBanner: ui.setBanner,
+    notify: ui.toast,
+    audio,
+    inPlane: () => Boolean(controls.vehicle?.plane && !controls.vehicle.remoteControl),
+    onFinish: async ({ ms, timeText, record }) => {
+      ui.toast(`✈️ ARRIVÉE ! ${timeText}${record ? ' — record personnel de la session !' : ''}`);
+      ui.spawnConfetti(30);
+      audio.reward();
+      try {
+        const res = await apiFetch('/scores', {
+          method: 'POST',
+          body: JSON.stringify({ gameId: 'grand-prix-ciel', score: Math.max(1, 36000 - Math.round(ms / 100)) }),
+        });
+        if (res.xp != null) ui.setXp(res.xp);
+        applyDaily(res.daily);
+        progress.refresh();
+      } catch (err) {
+        ui.toast('Chrono non enregistré : ' + err.message);
+      }
+    },
+  });
+
+  // Ambiance : averses partagées (Date.now), mouettes/traînées/fumées, et
+  // la Fête des Lumières une nuit sur trois.
+  createWeather(ctx, { audio, camera });
+  createSkylife(ctx);
+  createFete(ctx, { notify: ui.toast });
+
   // La Grande Roue (et tout futur manège) déplace le joueur via ce hook
   ctx.rideTick = (x, y, z) => controls.teleport(x, y, z);
 
@@ -1220,6 +1255,15 @@ async function boot() {
       if (!msg.regen) {
         ui.damageFlash();
         navigator.vibrate?.(45);
+        // Dogfight : avion criblé sous 35 HP → éjection d'urgence, l'avion
+        // part en balistique et explose, la voile s'ouvre toute seule.
+        if (msg.hp <= 35 && controls.vehicle?.plane &&
+            !controls.vehicle.remoteControl && ctx.ejectPlane) {
+          ctx.ejectPlane();
+          controls.openParachute();
+          ui.toast('💥 Avion criblé ! Éjection d’urgence — voile déployée.');
+          audio.crash();
+        }
       }
     }
   });

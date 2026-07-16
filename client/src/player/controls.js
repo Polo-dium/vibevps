@@ -651,6 +651,12 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     },
     get skydiving() { return skydive; },
     get parachuteOpen() { return parachute; },
+    // Éjection d'urgence : la voile s'ouvre toute seule.
+    openParachute() {
+      if (!skydive || parachute) return;
+      parachute = true;
+      onParachuteCb?.();
+    },
     setSkydiveHooks({ onParachute, onFallDeath } = {}) {
       onParachuteCb = onParachute ?? null;
       onFallDeathCb = onFallDeath ?? null;

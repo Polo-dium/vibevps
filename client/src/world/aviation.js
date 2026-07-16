@@ -313,6 +313,7 @@ export function buildAirport(ctx) {
   const L = big ? 230 : 130; // longueur de piste (nord-sud)
 
   ctx.pois?.push({ id: 'aeroport', nom: "Aérodrome de l'Est", emoji: '✈️', x: ax, z: az });
+  ctx.airport = { x: ax, z: az }; // consommé par le Grand Prix du ciel
 
   // Tarmac (plateforme légèrement surélevée : couvre l'herbe en dessous)
   const tarmac = new THREE.Mesh(
@@ -623,6 +624,7 @@ function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false } = {}) {
   function park() {
     driving = false;
     car.trigger = false;
+    ctx.ejectPlane = null;
     gate.label = jet ? 'E — Piloter le Mirage 2000' : "E — Piloter l'avion";
     // L'avion se pose là où on l'a laissé (au sol, même si on saute en vol)
     const gx = group.position.x, gz = group.position.z;
@@ -652,6 +654,9 @@ function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false } = {}) {
         }
         driving = true;
         ctx.colliders.remove?.(box);
+        // Éjection d'urgence (avion criblé en dogfight) : main.js appelle
+        // ce hook, qui rejoue exactement le saut en plein vol.
+        ctx.ejectPlane = () => { if (driving) gate.action(); };
         gate.label = 'E — Sauter de l’avion';
         car.speed = 0;
         ctx.startDrive?.(car, group);
@@ -667,6 +672,7 @@ function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false } = {}) {
           ctx.stopDrive?.(car, group); // téléporte le joueur À L'ALTITUDE actuelle
           driving = false;
           car.trigger = false;
+          ctx.ejectPlane = null;
           ditch = {
             vel: new THREE.Vector3(0, 0, -1)
               .applyQuaternion(group.quaternion)
