@@ -33,6 +33,12 @@ export const WEAPONS = {
     nom: 'Bazooka', emoji: '🚀',
     fire: 1.8, mag: 1, reload: 2.6, range: 150, dmg: 55, rocket: true,
   },
+  akimbo: {
+    nom: 'Double pistolets', emoji: '🔫🔫',
+    // La cadence de la minigun (0,05 s = 1200 coups/min) dans un chargeur
+    // de 30 : ça crache TRÈS vite et ça recharge souvent. Tir alterné G/D.
+    fire: 0.05, mag: 30, reload: 1.9, range: 70, dmg: 8, akimbo: true,
+  },
 };
 
 export function createWeapon(camera, scene, shootables, {
@@ -75,8 +81,10 @@ export function createWeapon(camera, scene, shootables, {
       blending: THREE.AdditiveBlending, depthWrite: false,
     })
   );
-  flash.position.set(0.02, 0.013, -0.62);
+  const FLASH_HOME = new THREE.Vector3(0.02, 0.013, -0.62);
+  flash.position.copy(FLASH_HOME);
   holder.add(flash);
+  let akimboSide = 1; // double pistolets : le canon qui tire alterne G/D
 
   // --- Effets : traceurs et impacts (aussi utilisés pour les tirs des autres) ---
   const tracers = []; // { mesh, dir, remaining }
@@ -287,6 +295,15 @@ export function createWeapon(camera, scene, shootables, {
     ammo = spec.mag;
     reloading = 0;
     cooldown = 0;
+    flash.position.copy(FLASH_HOME);
+    // Akimbo : chaque main sur SON pistolet (arms.js lit ces prises à la
+    // place de ses prises fusil par défaut).
+    holder.userData.grips = spec.akimbo
+      ? {
+        r: { pos: [0.16, -0.05, -0.19], rot: [0.3, -0.06, 0.06] },
+        l: { pos: [-0.16, -0.05, -0.19], rot: [0.3, 0.06, -0.06] },
+      }
+      : null;
     toggle(true);
     onWeaponChange?.(spec);
   }
@@ -319,6 +336,13 @@ export function createWeapon(camera, scene, shootables, {
     recoil = 1;
     navigator.vibrate?.(8); // retour haptique sur mobile
     if (state.rangeSession) state.rangeSession.shots += 1;
+
+    // Double pistolets : le flash (donc le départ du traceur) saute d'un
+    // canon à l'autre à chaque coup.
+    if (spec.akimbo) {
+      akimboSide = -akimboSide;
+      flash.position.set(0.16 * akimboSide, 0.025, -0.47);
+    }
 
     raycaster.far = spec.range;
     const muzzle = new THREE.Vector3();
@@ -549,8 +573,28 @@ export function buildWeaponModel(id) {
     case 'pompe': return buildPompeModel();
     case 'minigun': return buildMinigunModel();
     case 'bazooka': return buildBazookaModel();
+    case 'akimbo': return buildAkimboModel();
     default: return buildAkModel();
   }
+}
+
+// Deux pistolets jumeaux, un par poing (x = ±0,16 — voir les prises
+// akimbo posées sur holder.userData.grips dans select()).
+function buildAkimboModel() {
+  const group = new THREE.Group();
+  const metal = new THREE.MeshLambertMaterial({ color: 0x33363c });
+  const dark = new THREE.MeshLambertMaterial({ color: 0x1c1c1f });
+  const gripWood = new THREE.MeshLambertMaterial({ color: 0x4a3524 });
+  const add = modelHelpers(group);
+  for (const side of [-1, 1]) {
+    const x = side * 0.16;
+    add(new THREE.BoxGeometry(0.034, 0.05, 0.21), metal, x, 0.02, -0.3); // glissière
+    add(new THREE.CylinderGeometry(0.009, 0.009, 0.06, 6), dark, x, 0.028, -0.43, Math.PI / 2);
+    add(new THREE.BoxGeometry(0.03, 0.095, 0.048), gripWood, x, -0.045, -0.2, 0.32); // poignée
+    add(new THREE.BoxGeometry(0.034, 0.018, 0.055), dark, x, -0.008, -0.27); // pontet
+    add(new THREE.BoxGeometry(0.008, 0.014, 0.008), dark, x, 0.052, -0.395); // guidon
+  }
+  return group;
 }
 
 function modelHelpers(group) {

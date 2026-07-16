@@ -269,7 +269,10 @@ export function createArms(camera) {
       // On positionne l'ORIGINE du groupe bras pour que le POING (bout du
       // bras, à HAND_LOCAL_Z le long de son axe TOURNÉ) tombe pile sur le
       // point de préhension — la rotation du bras est donc libre.
-      for (const [arm, grip] of [[right, GRIP_R], [left, GRIP_L]]) {
+      // Une arme peut imposer SES prises (akimbo : chaque main sur son
+      // pistolet) via holder.userData.grips, sinon prises fusil par défaut.
+      const custom = weaponHolder.userData?.grips;
+      for (const [arm, grip] of [[right, custom?.r ?? GRIP_R], [left, custom?.l ?? GRIP_L]]) {
         arm.rotation.set(...grip.rot);
         _fist.set(0, 0, HAND_LOCAL_Z).applyEuler(arm.rotation);
         arm.position.set(grip.pos[0] - _fist.x, grip.pos[1] - _fist.y, grip.pos[2] - _fist.z);
