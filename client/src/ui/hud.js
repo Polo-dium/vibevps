@@ -166,6 +166,15 @@ export function createUi() {
     hitmarkerTimer = setTimeout(() => hitmarkerEl.classList.add('hidden'), 110);
   }
 
+  // Réticule masquable (vue « pilote au sol » de l'avion RC : rien à viser)
+  let crosshairShown = true;
+  function showCrosshair(v) {
+    const on = Boolean(v);
+    if (on === crosshairShown) return;
+    crosshairShown = on;
+    crosshairEl.style.display = on ? '' : 'none';
+  }
+
   // Écran de mort : voile rouge sombre + nom du tueur, disparaît tout seul
   const deathEl = hud.querySelector('#deathscreen');
   let deathTimer = null;
@@ -727,7 +736,7 @@ export function createUi() {
 
   return {
     ensureAuth, invite, toast, setPrompt, onPromptTap, setInfo, setQuest, setRange, setBanner, setAmmo,
-    setHp, damageFlash, killBanner, setTagMode, hitmarker, deathScreen,
+    setHp, damageFlash, killBanner, setTagMode, hitmarker, deathScreen, showCrosshair,
     setXp, spawnConfetti, achievementUnlocked, bindProgress, setDaily,
     toggleLeaderboards, leaderboardsOpen, openCreator, toggleAdmin, closeTopOverlay,
     openChat, onChatSend, addChatLine, setMicState,

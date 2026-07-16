@@ -321,6 +321,16 @@ async function boot() {
           group.position.y,
           group.position.z - Math.sin(car.heading) * 2
         );
+        // Saut d'un avion en plein vol : chute libre à 9,81 m/s² avec une
+        // partie de l'élan de l'appareil — ESPACE ouvre le parachute.
+        const groundHere = ctx.terrainHeight?.(group.position.x, group.position.z) ?? 0;
+        if (car.plane && group.position.y > groundHere + 5) {
+          const fwd = new THREE.Vector3(0, 0, -1);
+          if (group.quaternion) fwd.applyQuaternion(group.quaternion);
+          fwd.multiplyScalar((car.speed ?? 0) * 0.6);
+          controls.startSkydive(fwd.x, Math.min(0, fwd.y), fwd.z);
+          ui.toast('🪂 Chute libre ! ESPACE (ou SAUTER) pour ouvrir le parachute…');
+        }
       }
     },
   };
@@ -505,6 +515,44 @@ async function boot() {
     camera, renderer.domElement, ctx.colliders,
     (x, z) => ctx.terrainHeight?.(x, z) ?? 0
   );
+  // Chute libre après un saut d'avion : la voile est un visuel local (les
+  // autres joueurs te voient simplement tomber), la mort est arbitrée par
+  // le serveur via le canal « ouch » (cause 'chute' → dégâts plafonnés 100).
+  controls.setSkydiveHooks({
+    onParachute: () => {
+      ui.toast('🪂 Voile ouverte ! Dirige-toi avec ZQSD (ou le joystick).');
+      navigator.vibrate?.(25);
+    },
+    onFallDeath: () => {
+      net.send({ t: 'ouch', dmg: 100, by: 'la gravité lyonnaise', cause: 'chute' });
+      ui.damageFlash(true);
+      audio.crash();
+      navigator.vibrate?.([90, 40, 140]);
+    },
+  });
+  // Voile de parachute : demi-coupole rayée + suspentes, posée au-dessus du
+  // joueur tant que la voile est ouverte.
+  const parachute = (() => {
+    const g = new THREE.Group();
+    const canopy = new THREE.Mesh(
+      new THREE.SphereGeometry(3.2, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.42),
+      new THREE.MeshLambertMaterial({ color: 0xe8452c, side: THREE.DoubleSide })
+    );
+    canopy.scale.y = 0.62;
+    g.add(canopy);
+    const pts = [];
+    for (const [dx, dz] of [[-2.6, 0], [2.6, 0], [0, -2.6], [0, 2.6],
+      [-1.9, -1.9], [1.9, 1.9], [-1.9, 1.9], [1.9, -1.9]]) {
+      pts.push(new THREE.Vector3(dx, 0.5, dz), new THREE.Vector3(0, -3.6, 0));
+    }
+    g.add(new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color: 0x2a2e36 })
+    ));
+    g.visible = false;
+    scene.add(g);
+    return g;
+  })();
   const tutorial = createTutorial({ isTouch: IS_TOUCH });
   // Hook de debug (derrière ?debug) : téléportation/inspection pour les tests
   if (new URLSearchParams(location.search).has('debug')) {
@@ -1397,6 +1445,15 @@ async function boot() {
     const rcSolView = Boolean(controls.vehicle?.remoteControl &&
       (controls.vehicle.camMode ?? 'sol') === 'sol');
     arms.setVisible(!controls.vehicle || rcSolView);
+    // Pas de réticule quand on suit son avion RC du regard (rien à viser).
+    ui.showCrosshair(!rcSolView);
+    // La voile suit le joueur tant qu'elle est ouverte.
+    parachute.visible = controls.parachuteOpen;
+    if (parachute.visible) {
+      const pp = controls.position;
+      parachute.position.set(pp.x, pp.y + 5.2, pp.z);
+      parachute.rotation.y = controls.yaw;
+    }
     const armMode = rcSolView ? 'radiocommande'
       : controls.flying ? 'jetpack'
         : state.weaponEquipped ? 'weapon'

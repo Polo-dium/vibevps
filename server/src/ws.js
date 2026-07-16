@@ -273,7 +273,10 @@ export function setupWs(httpServer) {
         const now = Date.now();
         if (now - (me.lastOuchAt ?? 0) < 350) return;
         me.lastOuchAt = now;
-        const dmg = Math.min(25, Math.max(1, Math.floor(Number(msg.dmg) || 0)));
+        // Une chute mortelle (saut d'avion sans parachute) tue net : seul ce
+        // motif autorise 100 points, les autres restent bornés à 25.
+        const cap = msg.cause === 'chute' ? 100 : 25;
+        const dmg = Math.min(cap, Math.max(1, Math.floor(Number(msg.dmg) || 0)));
         me.hp -= dmg;
         me.lastDamagedAt = now;
         if (me.hp > 0) {

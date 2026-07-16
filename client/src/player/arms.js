@@ -242,6 +242,12 @@ export function createArms(camera) {
         solRig.add(right, left);
         attachedTo = solRig;
       }
+      // Compense le zoom de la vue « pilote au sol » : écraser x et y par
+      // 1/zoom en gardant z (la profondeur) rend la projection écran de
+      // CHAQUE point identique au rendu sans zoom (x·f·zoom/z inchangé) —
+      // bras et manette gardent taille et place quand la caméra zoome.
+      const z = camera.zoom || 1;
+      solRig.scale.set(1 / z, 1 / z, 1);
       for (const [arm, grip] of [[right, RC_GRIP_R], [left, RC_GRIP_L]]) {
         arm.rotation.set(...grip.rot);
         _fist.set(0, 0, HAND_LOCAL_Z).applyEuler(arm.rotation);

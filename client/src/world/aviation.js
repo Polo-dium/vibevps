@@ -426,6 +426,7 @@ export function buildAirport(ctx) {
 
 function makeRemoteControlPlane(ctx, px, pz, ry) {
   const group = buildRcPlaneModel();
+  group.scale.setScalar(1.5); // envergure ~1,5 m : le modèle se voit de loin
   const ground = ctx.terrainHeight?.(px, pz) ?? 0;
   const launch = new THREE.Vector3(px, ground + 0.04, pz);
   let launchHeading = ry;
@@ -464,14 +465,15 @@ function makeRemoteControlPlane(ctx, px, pz, ry) {
     heading: ry, speed: 0, pitch: 0, roll: 0, throttle: 0,
     plane: true, rcPlane: true, remoteControl: true,
     position: launch.clone(), velocity: new THREE.Vector3(),
-    thirdPerson: false, camMode: 'sol', camBack: 2.8, camUp: 1.15,
+    thirdPerson: false, camMode: 'sol', camBack: 3.8, camUp: 1.5,
     // Vue embarquée : caméra reculée derrière la dérive, tout le modèle
     // (carlingue + ailes) reste visible devant, solidaire de la cellule.
-    cockpit: { x: 0, y: 0.52, z: 1.25 },
+    // (Cotes ×1,5 : le modèle fait maintenant 1,5 m d'envergure.)
+    cockpit: { x: 0, y: 0.78, z: 1.85 },
     maxSpeed: 14, acceleration: 1.6, ceiling: 180,
     controlSpeed: 5, takeoffSpeed: 4, groundPitchMax: 0.42,
     stallSpeed: 2.5, liftRange: 5.5, velocityResponse: 3.2,
-    collisionRadius: 0.36,
+    collisionRadius: 0.55,
   };
   let controlling = false;
 
@@ -614,6 +616,9 @@ function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false } = {}) {
   let lastBombAt = -Infinity;
   const bombs = [];
   const gunDirection = new THREE.Vector3();
+  // Avion abandonné en plein vol : il continue seul sur sa trajectoire
+  // (balistique) puis explose à l'impact, comme la bombe du Mirage.
+  let ditch = null;
 
   function park() {
     driving = false;
@@ -654,9 +659,25 @@ function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false } = {}) {
           ? '✈️ Mirage 2000 : 790 km/h · double TIR · BOMBE (rayon létal 50 m) · H/CAM : vue cockpit ou poursuite. Tire le manche vers toi pour monter !'
           : '🛩️ Gauche : gaz/lacet · droite : tangage/roulis · double TIR · H/CAM : vue cockpit ou poursuite. Tire le manche vers toi après 60 km/h !');
       } else {
-        // On saute : l'avion redescend se poser, le joueur tombe (jetpack ?)
-        park();
-        ctx.stopDrive?.(car, group);
+        const groundHere = ctx.terrainHeight?.(group.position.x, group.position.z) ?? 0;
+        if (group.position.y > groundHere + 5) {
+          // Saut en plein vol : le pilote part en chute libre (voir
+          // controls.startSkydive côté main.js) et l'avion, livré à
+          // lui-même, poursuit sa trajectoire jusqu'au crash.
+          ctx.stopDrive?.(car, group); // téléporte le joueur À L'ALTITUDE actuelle
+          driving = false;
+          car.trigger = false;
+          ditch = {
+            vel: new THREE.Vector3(0, 0, -1)
+              .applyQuaternion(group.quaternion)
+              .multiplyScalar(Math.max(8, car.speed)),
+          };
+          gate.r = 0; // borne injoignable le temps du crash
+        } else {
+          // Au sol : l'avion se gare simplement là où on le laisse.
+          park();
+          ctx.stopDrive?.(car, group);
+        }
       }
     },
   };
@@ -712,6 +733,32 @@ function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false } = {}) {
       // Une petite veilleuse au ralenti, puis une postcombustion dont longueur,
       // largeur et luminosité suivent directement la manette des gaz.
       updateMirageFlame(group, driving ? 0.06 + car.throttle * 0.94 : 0, dt);
+    }
+    if (ditch) {
+      // Balistique simple : l'avion garde son élan, pique sous la gravité,
+      // et le nez suit doucement la trajectoire de chute.
+      ditch.vel.y -= 9.81 * dt;
+      group.position.addScaledVector(ditch.vel, dt);
+      group.rotateX(-Math.min(0.25 * dt, 0.02)); // rotation.x négative = nez qui pique
+      const groundHere = ctx.terrainHeight?.(group.position.x, group.position.z) ?? 0;
+      if (group.position.y <= groundHere + 0.4) {
+        // Impact : même champignon (et même rayon létal serveur) que la
+        // bombe du Mirage, puis l'avion réapparaît à son parking d'origine.
+        ctx.onPlaneBomb?.(new THREE.Vector3(
+          group.position.x, groundHere + 0.3, group.position.z
+        ));
+        ditch = null;
+        car.heading = ry;
+        group.position.set(px, gy, pz);
+        group.rotation.set(0, ry, 0);
+        gate.x = px;
+        gate.z = pz;
+        gate.r = 4.2;
+        gate.label = jet ? 'E — Piloter le Mirage 2000' : "E — Piloter l'avion";
+        box = planeBox(px, pz, gy);
+        ctx.colliders.push(box);
+      }
+      return;
     }
     if (!driving) return;
     const q = ctx.playerPos?.();

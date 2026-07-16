@@ -50,10 +50,23 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   const headEuler = new THREE.Euler(0, 0, 0, 'YXZ');
   const headQuat = new THREE.Quaternion();
   const seatOffset = new THREE.Vector3();
-  // Vue « pilote au sol » de l'avion RC : PAS de zoom auto — camera.zoom
-  // multiplie aussi l'écart angulaire à l'axe, ce qui éjectait bras et
-  // radiocommande (enfants de la caméra) hors de l'écran. L'avion qui
-  // rapetisse au loin fait partie du charme de l'aéromodélisme.
+  // Vue « pilote au sol » : zoom auto fluide jusqu'à ×3 quand le modèle
+  // s'éloigne. camera.zoom multiplie aussi l'écart angulaire à l'axe : les
+  // bras et la radiocommande (enfants de la caméra) compensent par une
+  // échelle transverse (1/zoom, 1/zoom, 1) — voir arms.js.
+  let rcZoomOn = false;
+  function clearRcZoom() {
+    if (!rcZoomOn) return;
+    rcZoomOn = false;
+    camera.zoom = 1;
+    camera.updateProjectionMatrix();
+  }
+  // Chute libre après un saut d'avion en plein vol : vraie gravité (9,81),
+  // parachute dirigeable sur ESPACE — ou mort à l'impact si trop rapide.
+  let skydive = false;
+  let parachute = false;
+  let onParachuteCb = null;
+  let onFallDeathCb = null;
 
   if (!IS_TOUCH) {
     domElement.addEventListener('click', () => {
@@ -361,11 +374,18 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       if (v.remoteControl && (v.camMode ?? 'sol') === 'sol') {
         // Vue d'aéromodélisme : la caméra reste dans les yeux du joueur
         // resté au sol avec la radiocommande, et suit le modèle du regard.
+        // Le zoom accompagne en douceur l'éloignement du modèle.
         camera.up.set(0, 1, 0);
         camera.position.set(pos.x, pos.y + EYE_HEIGHT, pos.z);
+        const dist = camera.position.distanceTo(viewPos);
+        const targetZoom = THREE.MathUtils.clamp(dist / 40, 1, 3);
+        camera.zoom += (targetZoom - camera.zoom) * (1 - Math.exp(-2.5 * dt));
+        camera.updateProjectionMatrix();
+        rcZoomOn = true;
         planeCamTarget.copy(viewPos);
         camera.lookAt(planeCamTarget);
       } else if (v.thirdPerson) {
+        clearRcZoom();
         // Caméra de poursuite (berlines, avions) : derrière et au-dessus,
         // regard sur le véhicule — le braquage tourne la caméra avec le cap
         const back = v.camBack ?? 8.2, up = v.camUp ?? 3.4;
@@ -393,6 +413,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       } else if (v.plane && v.orientation) {
         // Vue embarquée : assis DANS le cockpit (siège défini par l'avion,
         // carlingue et ailes visibles autour), tête libre à la souris.
+        clearRcZoom();
         const seat = v.cockpit ?? { x: 0, y: 0.2, z: 0 };
         seatOffset.set(seat.x, seat.y, seat.z).applyQuaternion(v.orientation);
         camera.position.copy(viewPos).add(seatOffset);
@@ -402,6 +423,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         camera.up.copy(planeUp);
       } else {
         // Assis au volant (décapotables) : caméra relevée, côté conducteur
+        clearRcZoom();
         camera.position.set(
           pos.x - Math.cos(v.heading) * 0.45,
           pos.y + 1.42,
@@ -443,6 +465,52 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       resolveAxis('x', vel.x * dt);
       resolveAxis('z', vel.z * dt);
 
+      camera.position.set(pos.x, pos.y + EYE_HEIGHT, pos.z);
+      camera.rotation.order = 'YXZ';
+      camera.rotation.set(pitch, yaw, 0);
+      return;
+    }
+
+    if (skydive) {
+      // --- Chute libre après avoir sauté d'un avion ----------------------
+      if (active && (keys.has('Space') || wantJump) && !parachute) {
+        parachute = true;
+        onParachuteCb?.();
+      }
+      wantJump = false;
+      if (parachute) {
+        // Voile ouverte : descente plafonnée en douceur, dérive dirigeable
+        // (ZQSD / joystick) dans la direction du regard.
+        vel.y += (-6 - vel.y) * (1 - Math.exp(-1.8 * dt));
+        const sinP = Math.sin(yaw), cosP = Math.cos(yaw);
+        let fx = (-sinP * fwd + cosP * strafe);
+        let fz = (-cosP * fwd - sinP * strafe);
+        const fl = Math.hypot(fx, fz);
+        if (fl > 1) { fx /= fl; fz /= fl; }
+        const ks = 1 - Math.exp(-1.2 * dt);
+        vel.x += (fx * 11 - vel.x) * ks;
+        vel.z += (fz * 11 - vel.z) * ks;
+      } else {
+        vel.y -= 9.81 * dt; // vraie gravité terrestre, pas celle du jeu
+        const drag = Math.exp(-0.12 * dt); // léger freinage aérodynamique
+        vel.x *= drag;
+        vel.z *= drag;
+      }
+      const impact = -vel.y;
+      onGround = false;
+      resolveAxis('y', vel.y * dt);
+      const gSky = terrain ? terrain(pos.x, pos.z) : 0;
+      if (pos.y <= gSky) {
+        pos.y = gSky;
+        vel.y = 0;
+        onGround = true;
+        skydive = false;
+        parachute = false;
+        // Trop rapide à l'impact (voile fermée, ou ouverte trop tard) : mort.
+        if (impact > 14) onFallDeathCb?.(impact);
+      }
+      resolveAxis('x', vel.x * dt);
+      resolveAxis('z', vel.z * dt);
       camera.position.set(pos.x, pos.y + EYE_HEIGHT, pos.z);
       camera.rotation.order = 'YXZ';
       camera.rotation.set(pitch, yaw, 0);
@@ -533,9 +601,12 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       vehicle = v;
       bodyHalf = v ? 1.05 : HALF_W;
       camera.up.set(0, 1, 0);
+      clearRcZoom();
       lookYaw = 0;
       lookPitch = 0;
       if (v) {
+        skydive = false;
+        parachute = false;
         yaw = v.heading; // on regarde d'abord la route
         if (v.plane) {
           v.pitch = 0;
@@ -566,14 +637,30 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     setFlying(on) {
       flying = on;
       if (!on) flyThrust = false;
+      if (on) { skydive = false; parachute = false; } // le jetpack rattrape la chute
     },
     get flying() { return flying; },
     get flyThrust() { return flyThrust; },
     setTouchThrust(on) { touchThrust = on; },
+    // Saut d'un avion en plein vol : on hérite d'une partie de sa vitesse.
+    startSkydive(vx = 0, vy = 0, vz = 0) {
+      skydive = true;
+      parachute = false;
+      onGround = false;
+      vel.set(vx, vy, vz);
+    },
+    get skydiving() { return skydive; },
+    get parachuteOpen() { return parachute; },
+    setSkydiveHooks({ onParachute, onFallDeath } = {}) {
+      onParachuteCb = onParachute ?? null;
+      onFallDeathCb = onFallDeath ?? null;
+    },
     teleport(x, y, z, ry) {
       pos.set(x, y, z);
       vel.set(0, 0, 0);
       if (ry !== undefined) yaw = ry;
+      skydive = false;
+      parachute = false;
     },
     netState() {
       const s = {
