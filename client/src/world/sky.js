@@ -66,10 +66,17 @@ export function buildSky(scene, radius = 470) {
           if (starAmount > 0.01 && h > 0.05) {
             float st = step(0.9975, hash(floor(dir * 220.0)));
             col += vec3(st) * starAmount * smoothstep(0.05, 0.3, h);
-            // VOIE LACTÉE : une écharpe laiteuse inclinée, granuleuse
-            float band = exp(-pow(dot(dir, normalize(vec3(0.55, 0.25, 0.8))), 2.0) * 26.0);
-            float grain = 0.5 + 0.5 * hash(floor(dir * 38.0));
-            col += vec3(0.55, 0.6, 0.75) * band * grain * starAmount * 0.13 * smoothstep(0.05, 0.3, h);
+            // VOIE LACTÉE : une écharpe laiteuse inclinée, granuleuse — un
+            // cœur dense et brillant dans un voile plus large et diffus
+            float bd = dot(dir, normalize(vec3(0.55, 0.25, 0.8)));
+            float band = exp(-bd * bd * 18.0);
+            float core = exp(-bd * bd * 60.0);
+            float grain = 0.62 + 0.38 * hash(floor(dir * 120.0));
+            col += (vec3(0.5, 0.56, 0.72) * band * 0.3 + vec3(0.72, 0.76, 0.9) * core * grain * 0.34)
+              * starAmount * smoothstep(0.05, 0.3, h);
+            // Sur-densité d'étoiles dans l'écharpe
+            float stMw = step(0.985, hash(floor(dir * 300.0))) * band;
+            col += vec3(0.9) * stMw * starAmount * smoothstep(0.05, 0.3, h);
           }
           gl_FragColor = vec4(col, 1.0);
         }`,

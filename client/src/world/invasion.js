@@ -11,7 +11,7 @@ const DAY_MS = 600000;
 const MAX_ZOMBIES = 9;
 const ZOMBIE_HP = 30;
 const SPEED = 2.6;
-const ATTACK_RANGE = 1.7;
+const ATTACK_RANGE = 1.2;
 const ATTACK_EVERY = 1.3;
 
 const SHIRTS = [0x4a6b3a, 0x5d5a34, 0x3f5d46, 0x6b5a3a];
@@ -108,12 +108,19 @@ export function createInvasion(ctx, { notify, setBanner, onAttack, onEnd, getDam
         zb.g.position.set(nx, Math.max(0, ctx.terrainHeight?.(nx, nz) ?? 0), nz);
         zb.t += dt * 6;
         zb.human.animate(zb.t, SPEED);
-      } else {
+      } else if (Math.abs(p.y - zb.g.position.y) <= 1.2) {
+        // Morsure seulement à portée de bras EN 3D : un joueur en jetpack,
+        // en parachute ou sur un toit au-dessus du zombie est hors d'atteinte.
         zb.attackIn -= dt;
         if (zb.attackIn <= 0) {
           zb.attackIn = ATTACK_EVERY;
           onAttack?.(); // dégâts bornés côté serveur (comme la Garde Royale)
         }
+      } else {
+        // Le gone piétine sous sa proie inaccessible, bras tendus
+        zb.attackIn = Math.max(zb.attackIn, 0.4);
+        zb.t += dt * 6;
+        zb.human.animate(zb.t, SPEED * 0.4);
       }
     }
   });
