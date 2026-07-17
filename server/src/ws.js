@@ -223,6 +223,30 @@ export function setupWs(httpServer) {
       }
 
       // Un joueur déclare avoir touché un autre joueur
+      // Duel western : le défi doit être RÉCIPROQUE (chacun fait E sur
+      // l'autre) pour démarrer — personne n'est téléporté contre son gré.
+      if (msg.t === 'duel') {
+        const targetId = String(msg.target ?? '');
+        const target = players.get(targetId);
+        if (!target || target === me) return;
+        const now = Date.now();
+        if (target.duelWant?.id === id && now - target.duelWant.at < 20000) {
+          target.duelWant = null;
+          me.duelWith = targetId;
+          target.duelWith = id;
+          const at = now + 6000; // décompte de 6 s avant « DÉGAINE ! »
+          me.duelStart = target.duelStart = at;
+          me.duelUntil = target.duelUntil = at + 90000;
+          broadcast({ t: 'duel-start', a: targetId, an: target.name, b: id, bn: me.name, at });
+        } else {
+          me.duelWant = { id: targetId, at: now };
+          if (target.ws.readyState === target.ws.OPEN) {
+            target.ws.send(JSON.stringify({ t: 'duel-ask', from: id, name: me.name }));
+          }
+        }
+        return;
+      }
+
       if (msg.t === 'hit') {
         const now = Date.now();
         if (now - me.lastHitAt < HIT_MIN_INTERVAL_MS) return;
@@ -230,6 +254,20 @@ export function setupWs(httpServer) {
 
         const target = players.get(String(msg.target ?? ''));
         if (!target || target === me) return;
+
+        // Premier coup AU BUT pendant un duel : victoire immédiate (+30 XP)
+        if (me.duelWith === String(msg.target) &&
+            now > (me.duelStart ?? Infinity) && now < (me.duelUntil ?? 0)) {
+          broadcast({
+            t: 'duel-end',
+            winner: id, winnerName: me.name,
+            loser: String(msg.target), loserName: target.name,
+          });
+          q.addXp.run(30, me.playerId);
+          me.duelWith = null;
+          target.duelWith = null;
+          return;
+        }
 
         // dmg optionnel selon l'arme (marteau → bazooka), borné : combiné à
         // la cadence max, un client trafiqué ne fait pas mieux qu'un bazooka.

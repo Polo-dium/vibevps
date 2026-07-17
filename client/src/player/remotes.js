@@ -229,8 +229,17 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
 
   function count() { return remotes.size; }
   function getPos(id) { return remotes.get(id)?.human.group.position ?? null; }
+  // Joueur distant le plus proche (défi en duel : E près de quelqu'un)
+  function nearest(pos, maxD = 4) {
+    let best = null;
+    for (const [id, r] of remotes) {
+      const d = r.human.group.position.distanceTo(pos);
+      if (d < maxD && (!best || d < best.d)) best = { id, name: r.name ?? '?', d };
+    }
+    return best;
+  }
 
-  return { update, count, showChat, getPos };
+  return { update, count, showChat, getPos, nearest };
 }
 
 // Avion fantôme des pilotes distants (veh: 2), teinté à leur couleur

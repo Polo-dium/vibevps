@@ -499,7 +499,12 @@ function buildWaterSurfaces(ctx, polys) {
     mesh.position.y = WATER_Y + (i % 3) * 0.02;
     ctx.scene.add(mesh);
   });
-  ctx.updatables.push((dt) => { tex.offset.y -= dt * 0.012; });
+  // Eau vivante : le défilement principal + une ondulation croisée lente
+  // en X — les vaguelettes semblent se croiser au lieu de couler tout droit
+  ctx.updatables.push((dt) => {
+    tex.offset.y -= dt * 0.012;
+    tex.offset.x = Math.sin(performance.now() / 5200) * 0.04;
+  });
 }
 
 // Ruban aval du Rhône : prolonge visuellement et physiquement le fleuve au
@@ -540,7 +545,10 @@ function buildRiverContinuation(ctx, continuation) {
   }));
   water.position.y = WATER_Y + 0.015;
   ctx.scene.add(water);
-  ctx.updatables.push((dt) => { tex.offset.y -= dt * 0.014; });
+  ctx.updatables.push((dt) => {
+    tex.offset.y -= dt * 0.014;
+    tex.offset.x = Math.sin(performance.now() / 4700) * 0.04;
+  });
 }
 
 // Basilique Notre-Dame de Fourvière : à sa vraie place sur la colline, à

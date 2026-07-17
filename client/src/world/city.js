@@ -1009,6 +1009,25 @@ export function buildSilure(ctx, band) {
     part.userData.onHit = onHit;
     ctx.shootables.push(part);
   }
+  // Sillage en V : deux traînées claires couchées sur l'eau derrière la
+  // bête — l'eau cesse d'être une nappe inerte quand le monstre passe.
+  const wake = new THREE.Group();
+  const wakeMat = new THREE.MeshBasicMaterial({
+    color: 0xcfe8f2, transparent: true, opacity: 0.3,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  });
+  for (const s of [-1, 1]) {
+    const arm = new THREE.Mesh(
+      new THREE.PlaneGeometry(16, 1.1).translate(8, 0, 0), wakeMat
+    );
+    arm.rotation.x = -Math.PI / 2;
+    arm.rotation.z = Math.PI / 2 + s * 0.3; // le V s'ouvre vers l'arrière (+z)
+    arm.userData.noShadow = true;
+    wake.add(arm);
+  }
+  wake.visible = false;
+  ctx.scene.add(wake);
+
   ctx.silure = {
     applyServerMsg(msg) {
       const round = roundOf();
@@ -1029,6 +1048,7 @@ export function buildSilure(ctx, band) {
     const t = Date.now() % APPEAR_MS;
     if (t >= SWIM_MS) {
       fish.visible = false;
+      wake.visible = false;
       announced = false;
       return;
     }
@@ -1038,6 +1058,7 @@ export function buildSilure(ctx, band) {
 
     // Vaincu ce passage-ci : ventre en l'air, il coule puis disparaît
     if (roundOf() === deadRound) {
+      wake.visible = false;
       const sink = (Date.now() - deadAt) / 1000 * 0.7;
       if (sink > 7) { fish.visible = false; return; }
       fish.visible = true;
@@ -1054,6 +1075,11 @@ export function buildSilure(ctx, band) {
     }
     fish.position.set(riverCx(band, fz) + wig * 2, WATER_Y - 1.2 + Math.sin(t / 400) * 0.25, fz);
     tail.rotation.y = Math.sin(t / 120) * 0.5;
+    // Le V du sillage suit la bête au ras de l'eau
+    wake.visible = true;
+    wake.position.set(fish.position.x, WATER_Y + 0.05, fish.position.z);
+    wake.rotation.y = fish.rotation.y;
+    wakeMat.opacity = 0.22 + Math.sin(t / 300) * 0.06;
   });
 }
 

@@ -33,7 +33,10 @@ import { createInvasion } from './world/invasion.js';
 import { createFishing } from './world/fishing.js';
 import { createPigeons } from './world/pigeons.js';
 import { createReflections } from './world/reflections.js';
-import { applySeason, currentSeason } from './world/seasons.js';
+import { applySeason } from './world/seasons.js';
+import { createKoth } from './world/koth.js';
+import { buildGuignol } from './world/guignol.js';
+import { createNeons } from './world/neons.js';
 import { createSkylife } from './world/skylife.js';
 import { createFete } from './world/fete.js';
 import { buildSky } from './world/sky.js';
@@ -610,7 +613,10 @@ async function boot() {
   for (const item of state.inventory) {
     if (item.startsWith('weapon:')) weapon.give(item.slice(7), { equip: false });
   }
-  if (window.__game) window.__game.weapon = weapon; // hook de debug (?debug)
+  if (window.__game) { // hooks de debug (?debug)
+    window.__game.weapon = weapon;
+    window.__game.net = net;
+  }
   const remotes = createRemotePlayers(scene, ctx.shootables, {
     getListenerPos: () => controls.position, // enceintes des autres joueurs
     onHitRemote: (id, hit) => {
@@ -625,6 +631,7 @@ async function boot() {
       net.send({ t: 'hit', target: id, dmg });
     },
   });
+  if (window.__game) window.__game.remotes = remotes; // hook de debug
   const planeRaycaster = new THREE.Raycaster();
   ctx.onPlaneVolley = (origins, direction, aircraft) => {
     if (state.overlayOpen || state.photoMode || state.sanctuary) return;
@@ -1026,6 +1033,29 @@ async function boot() {
     onEnd: (kills) => submitScore('invasion', kills),
   });
 
+  // Roi de la colline : la zone dorée tirée au sort toutes les 10 min
+  createKoth(ctx, {
+    setBanner: ui.setBanner,
+    notify: ui.toast,
+    onScore: (s) => submitScore('koth', s),
+  });
+
+  // Guignol : spectacle toutes les 4 min + le bâton à gagner
+  buildGuignol(ctx, {
+    notify: ui.toast,
+    speak: (t, o) => audio.speak(t, o),
+    hasBaton: () => state.inventory.includes('weapon:baton'),
+    onBaton: () => {
+      weapon.give('baton');
+      rememberInventoryItem('weapon:baton');
+      ui.toast('🏏 Le bâton de Guignol est à toi ! Une tavelle de théâtre, mais elle cogne pour de vrai.');
+      ui.spawnConfetti(18);
+    },
+  });
+
+  // Enseignes de quartier qui s'allument la nuit
+  createNeons(ctx);
+
   // Concours de pêche au bord de la Saône
   createFishing(ctx, {
     notify: ui.toast,
@@ -1393,6 +1423,64 @@ async function boot() {
     spawnBombMushroom(msg.p);
     navigator.vibrate?.([60, 25, 90]);
   });
+  // --- Duel western : E près d'un joueur (sans borne à portée) le défie ---
+  // Le duel ne démarre que si le défi est RÉCIPROQUE (validé serveur).
+  let duelAt = 0;
+  let duelTimer = null;
+  function tryInteract() {
+    if (nearestInteractable) return nearestInteractable.action();
+    const foe = remotes.nearest?.(controls.position, 4);
+    if (foe) {
+      net.send({ t: 'duel', target: foe.id });
+      ui.toast(`⚔️ Défi lancé à ${foe.name} — s'il fait E sur toi, le duel commence !`);
+    }
+  }
+  net.on('duel-ask', (msg) => {
+    ui.toast(`⚔️ ${msg.name} te défie en duel ! Approche-toi de lui et fais E pour accepter.`);
+    navigator.vibrate?.(30);
+  });
+  net.on('duel-start', (msg) => {
+    const B = ctx.bellecourRect ?? { minX: -60, maxX: 60, minZ: -40, maxZ: 56 };
+    const dcx = (B.minX + B.maxX) / 2, dcz = (B.minZ + B.maxZ) / 2 + 14;
+    duelAt = msg.at;
+    state.duelLockUntil = msg.at; // détentes gelées jusqu'au « DÉGAINE ! »
+    const mine = msg.a === myNetId ? 'a' : msg.b === myNetId ? 'b' : null;
+    if (mine) {
+      const side = mine === 'a' ? -1 : 1;
+      const gy = Math.max(0, ctx.terrainHeight?.(dcx + side * 11, dcz) ?? 0);
+      controls.teleport(dcx + side * 11, gy, dcz, side > 0 ? Math.PI / 2 : -Math.PI / 2);
+      if (!state.weaponEquipped) weapon.toggle(true);
+    } else {
+      ui.toast(`⚔️ DUEL à Bellecour : ${msg.an} contre ${msg.bn} — venez voir ça !`);
+    }
+    clearInterval(duelTimer);
+    duelTimer = setInterval(() => {
+      const left = duelAt - Date.now();
+      if (left <= 0) {
+        ui.setBanner('🔫 DÉGAINE !!');
+        audio.announce?.('Dégaine !');
+        setTimeout(() => ui.setBanner(null), 1200);
+        clearInterval(duelTimer);
+      } else {
+        ui.setBanner(`⚔️ DUEL — ${Math.ceil(left / 1000)}…`);
+      }
+    }, 150);
+  });
+  net.on('duel-end', (msg) => {
+    clearInterval(duelTimer);
+    ui.setBanner(null);
+    state.duelLockUntil = 0;
+    if (msg.winner === myNetId) {
+      ui.killBanner('🤠 DUEL GAGNÉ');
+      ui.spawnConfetti(30);
+      audio.reward();
+    } else if (msg.loser === myNetId) {
+      ui.toast(`🤠 ${msg.winnerName} a dégainé plus vite. La revanche t'attend (+30 XP pour lui).`);
+    } else {
+      ui.toast(`🤠 ${msg.winnerName} a remporté son duel contre ${msg.loserName} !`);
+    }
+  });
+
   net.on('hp', (msg) => {
     if (msg.id === myNetId) {
       ui.setHp(msg.hp);
@@ -1500,7 +1588,7 @@ async function boot() {
 
     // Entrée : ouvrir le chat de proximité
     if (e.code === 'Enter') { ui.openChat(); return; }
-    if (e.code === 'KeyE' && nearestInteractable) nearestInteractable.action();
+    if (e.code === 'KeyE') tryInteract();
     // C : ouvre le mode photo (zoom à la molette), C à nouveau déclenche
     if (e.code === 'KeyC') {
       if (capture.modeOn) capture.take();
@@ -1549,7 +1637,7 @@ async function boot() {
       jetpack: () => toggleJetpack(),
       jetpackGuns,
       rcPlane: () => toggleRcPlane(),
-      interact: () => nearestInteractable?.action(),
+      interact: () => tryInteract(),
       map: () => poiMap.toggle(),
       radio: () => cycleBoombox(),
       placeBoombox: () => toggleBoomboxPlacement(),

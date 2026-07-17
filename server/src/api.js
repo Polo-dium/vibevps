@@ -15,6 +15,7 @@ const INVENTORY_ITEMS = new Set([
   'weapon:marteau', 'weapon:pompe', 'weapon:minigun', 'weapon:bazooka',
   'weapon:akimbo', // double pistolets (hors quête d'arsenal, volontairement)
   'weapon:sniper', // fusil de précision (idem)
+  'weapon:baton', // le bâton de Guignol, gagné au castelet
   // École de pilotage : brevets délivrés côté client (progression douce,
   // pas d'enjeu compétitif), conservés avec le compte.
   'brevet-rc', 'brevet-avion',

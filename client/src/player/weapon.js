@@ -41,6 +41,11 @@ export const WEAPONS = {
     // tactile) = pistolet gauche ; les deux maintenues = tir alterné.
     fire: 0.05, mag: 60, magSide: 30, reload: 1.9, range: 70, dmg: 8, akimbo: true,
   },
+  baton: {
+    nom: 'Bâton de Guignol', emoji: '🏏',
+    // La tavelle du théâtre : mêlée rapide, gagnée au castelet de Guignol.
+    fire: 0.38, mag: 0, reload: 0, range: 3.4, dmg: 20, melee: true,
+  },
   sniper: {
     nom: 'Fusil de précision', emoji: '🎯',
     // One-shot : MAINTENIR le tir met en joue (lunette ×6/×12, molette ou
@@ -570,7 +575,8 @@ export function createWeapon(camera, scene, shootables, {
     const inputOk = IS_TOUCH || state.pointerLocked;
     const freeToAct =
       inputOk && !state.overlayOpen && !state.tagMode && !state.sanctuary &&
-      !state.photoMode; // en mode photo, le clic déclenche l'appareil
+      !state.photoMode && // en mode photo, le clic déclenche l'appareil
+      Date.now() >= (state.duelLockUntil ?? 0); // gelé pendant le décompte de duel
     if (spec.sniper && state.weaponEquipped) {
       // Fusil de précision : MAINTENIR met en joue, RELÂCHER tire.
       if (triggerDown && !aiming && freeToAct &&
@@ -669,8 +675,22 @@ export function buildWeaponModel(id) {
     case 'bazooka': return buildBazookaModel();
     case 'akimbo': return buildAkimboModel();
     case 'sniper': return buildSniperModel();
+    case 'baton': return buildBatonModel();
     default: return buildAkModel();
   }
+}
+
+// La tavelle de Guignol : un bâton de théâtre, poignée gainée, ruban rouge
+function buildBatonModel() {
+  const group = new THREE.Group();
+  const wood = new THREE.MeshLambertMaterial({ color: 0xa87b42 });
+  const add = modelHelpers(group);
+  add(new THREE.CylinderGeometry(0.02, 0.024, 0.72, 8), wood, 0, -0.03, -0.36, Math.PI / 2);
+  add(new THREE.CylinderGeometry(0.028, 0.028, 0.14, 8),
+    new THREE.MeshLambertMaterial({ color: 0x54371e }), 0, -0.03, -0.04, Math.PI / 2);
+  add(new THREE.CylinderGeometry(0.026, 0.026, 0.045, 8),
+    new THREE.MeshLambertMaterial({ color: 0xa62633 }), 0, -0.03, -0.66, Math.PI / 2);
+  return group;
 }
 
 // Fusil de précision : canon long, lunette épaisse, crosse ajourée, bipied.

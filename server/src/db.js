@@ -88,6 +88,7 @@ const BUILTINS = [
   ['parkour', 'PARKOUR DES TOITS'], // 36000 − dixièmes, comme les courses
   ['invasion', 'INVASION DES GONES'], // zombies dégommés en une nuit
   ['peche', 'CONCOURS DE PÊCHE'], // taille du poisson en cm
+  ['koth', 'ROI DE LA COLLINE'], // secondes tenues dans la zone en un tour
 ];
 const insertBuiltin = db.prepare(
   `INSERT OR IGNORE INTO games (id, title, builtin, created_at) VALUES (?, ?, 1, ?)`
