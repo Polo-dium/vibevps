@@ -93,6 +93,40 @@ export function createSkylife(ctx) {
     });
   }
 
+  // --- Montgolfières : trois ballons qui dérivent au-dessus des collines --
+  // Position = pure fonction de l'horloge (cercles lents) : mêmes ballons
+  // au même endroit chez tous les joueurs.
+  const balloons = [];
+  const balloonColors = [0xd9333f, 0xffd23f, 0x4da6ff];
+  const basketMat = new THREE.MeshLambertMaterial({ color: 0x7a5230 });
+  for (let i = 0; i < 3; i++) {
+    const g = new THREE.Group();
+    const envelope = new THREE.Mesh(
+      new THREE.SphereGeometry(7, 10, 8),
+      new THREE.MeshLambertMaterial({ color: balloonColors[i] })
+    );
+    envelope.scale.y = 1.18;
+    g.add(envelope);
+    const skirt = new THREE.Mesh(
+      new THREE.ConeGeometry(4.2, 4.5, 10, 1, true),
+      new THREE.MeshLambertMaterial({ color: 0xf0ead8, side: THREE.DoubleSide })
+    );
+    skirt.position.y = -8.4;
+    g.add(skirt);
+    const basket = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.7, 2.4), basketMat);
+    basket.position.y = -11.6;
+    g.add(basket);
+    ctx.scene.add(g);
+    balloons.push({
+      g,
+      cx: -bound * 0.45 + i * bound * 0.22,
+      cz: -bound * 0.3 + i * bound * 0.24,
+      alt: 150 + i * 24,
+      w: 0.000028 + i * 0.000009,
+      phase: i * 2.1,
+    });
+  }
+
   // --- Fumées de cheminée aux transitions jour/nuit -----------------------
   const smokeTex = (() => {
     const c = document.createElement('canvas');
@@ -159,6 +193,16 @@ export function createSkylife(ctx) {
       l.trailMesh.position.set(sx + dirX * half, l.alt - 0.6, sz + dirZ * half);
       l.trailMesh.rotation.set(-Math.PI / 2, 0, Math.PI / 2 - l.mesh.rotation.y);
       l.trailMesh.material.opacity = 0.14 * Math.min(1, lt * 8);
+    }
+
+    // Montgolfières : dérive circulaire lente + respiration verticale
+    for (const bl of balloons) {
+      const a = now * bl.w + bl.phase;
+      bl.g.position.set(
+        bl.cx + Math.cos(a) * 55,
+        bl.alt + Math.sin(now / 4200 + bl.phase) * 4,
+        bl.cz + Math.sin(a) * 55
+      );
     }
 
     // Fumées : visibles surtout aux transitions (aube/crépuscule)

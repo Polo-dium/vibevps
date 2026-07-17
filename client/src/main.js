@@ -28,6 +28,12 @@ import { createWeather } from './world/weather.js';
 import { buildVelovStations } from './world/velov.js';
 import { createPetanque } from './world/petanque.js';
 import { buildBouchon } from './world/bouchon.js';
+import { createParkour } from './world/parkour.js';
+import { createInvasion } from './world/invasion.js';
+import { createFishing } from './world/fishing.js';
+import { createPigeons } from './world/pigeons.js';
+import { createReflections } from './world/reflections.js';
+import { applySeason, currentSeason } from './world/seasons.js';
 import { createSkylife } from './world/skylife.js';
 import { createFete } from './world/fete.js';
 import { buildSky } from './world/sky.js';
@@ -966,6 +972,69 @@ async function boot() {
     },
   });
   buildBouchon(ctx, { notify: ui.toast, speak: (t, o) => audio.speak(t, o) });
+
+  // Pigeons des places, reflets dorés sur l'eau la nuit, et la SAISON
+  // réelle appliquée d'un passage sur tous les verts de la ville.
+  createPigeons(ctx);
+  createReflections(ctx);
+  {
+    const saison = applySeason(ctx);
+    if (saison !== 'ete') {
+      const mots = { automne: '🍂 L’automne roussit Lyon', hiver: '❄️ L’hiver givre Lyon (il neige au lieu de pleuvoir)', printemps: '🌸 Le printemps verdit Lyon' };
+      ui.toast(`${mots[saison]} — la ville suit les vraies saisons.`);
+    }
+  }
+
+  // Score générique : les mini-jeux locaux poussent leur meilleur résultat
+  // sur une borne (MAX(score) = record).
+  const submitScore = async (gameId, score) => {
+    try {
+      const res = await apiFetch('/scores', {
+        method: 'POST', body: JSON.stringify({ gameId, score: Math.max(1, Math.round(score)) }),
+      });
+      if (res.xp != null) ui.setXp(res.xp);
+      applyDaily(res.daily);
+      progress.refresh();
+    } catch { /* hors ligne : le plaisir reste local */ }
+  };
+
+  // Parkour des toits : jambes seulement, chrono comme les autres courses
+  createParkour(ctx, {
+    setBanner: ui.setBanner,
+    notify: ui.toast,
+    audio,
+    blocked: () => Boolean(controls.flying || controls.vehicle),
+    onFinish: ({ ms, timeText, record }) => {
+      ui.toast(`🏃 ARRIVÉE ! ${timeText}${record ? ' — record personnel de la session !' : ''}`);
+      ui.spawnConfetti(30);
+      audio.reward();
+      submitScore('parkour', 36000 - Math.round(ms / 100));
+    },
+  });
+
+  // Invasion des gones zombies, une nuit sur trois
+  createInvasion(ctx, {
+    notify: ui.toast,
+    setBanner: ui.setBanner,
+    audio,
+    getDamage: () => weapon.damage,
+    onAttack: () => {
+      net.send({ t: 'ouch', dmg: 8, by: 'un gone zombie' });
+      ui.damageFlash();
+      navigator.vibrate?.(35);
+    },
+    onEnd: (kills) => submitScore('invasion', kills),
+  });
+
+  // Concours de pêche au bord de la Saône
+  createFishing(ctx, {
+    notify: ui.toast,
+    audio,
+    onCatch: (fish) => {
+      if (fish.cm > 100) ui.spawnConfetti(24);
+      submitScore('peche', fish.cm);
+    },
+  });
 
   // La Grande Roue (et tout futur manège) déplace le joueur via ce hook
   ctx.rideTick = (x, y, z) => controls.teleport(x, y, z);

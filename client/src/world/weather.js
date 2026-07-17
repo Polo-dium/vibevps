@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { currentSeason } from './seasons.js';
 
 // Pluie lyonnaise partagée 🌧 : les averses sont calées sur Date.now(),
 // comme le cycle jour/nuit et le silure — même météo chez tous les joueurs,
@@ -27,6 +28,9 @@ const BOX = 38; // demi-largeur de la boîte de pluie
 const H = 26; // hauteur balayée
 
 export function createWeather(ctx, { audio, camera } = {}) {
+  // En HIVER, l'averse partagée devient NEIGE : flocons blancs qui tombent
+  // lentement, sans bruit de pluie. Même horloge, même fenêtres.
+  const snow = currentSeason() === 'hiver';
   const positions = new Float32Array(DROPS * 2 * 3);
   const drops = [];
   for (let i = 0; i < DROPS; i++) {
@@ -34,13 +38,14 @@ export function createWeather(ctx, { audio, camera } = {}) {
       x: (Math.random() * 2 - 1) * BOX,
       y: Math.random() * H,
       z: (Math.random() * 2 - 1) * BOX,
-      v: 34 + Math.random() * 14,
+      v: snow ? 6 + Math.random() * 4 : 34 + Math.random() * 14,
+      sway: Math.random() * Math.PI * 2,
     });
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   const mat = new THREE.LineBasicMaterial({
-    color: 0xaec4d4, transparent: true, opacity: 0,
+    color: snow ? 0xeef4fb : 0xaec4d4, transparent: true, opacity: 0,
     blending: THREE.AdditiveBlending, depthWrite: false,
   });
   const rain = new THREE.LineSegments(geo, mat);
@@ -89,9 +94,50 @@ export function createWeather(ctx, { audio, camera } = {}) {
   // on la module (le fog est posé par main.js selon la taille de la carte).
   let baseFog = null;
 
+  // FEUILLES D'AUTOMNE : un petit nuage de points roux qui tombe en
+  // tourbillonnant autour de la caméra, toute la saison.
+  let leaves = null;
+  if (currentSeason() === 'automne') {
+    const N = 90;
+    const lp = new Float32Array(N * 3);
+    const lv = [];
+    for (let i = 0; i < N; i++) {
+      lv.push({
+        x: (Math.random() * 2 - 1) * 24, y: Math.random() * 16,
+        z: (Math.random() * 2 - 1) * 24, sway: Math.random() * Math.PI * 2,
+      });
+    }
+    const lgeo = new THREE.BufferGeometry();
+    lgeo.setAttribute('position', new THREE.BufferAttribute(lp, 3));
+    leaves = {
+      lv, lp, lgeo,
+      mesh: new THREE.Points(lgeo, new THREE.PointsMaterial({
+        color: 0xc26a2a, size: 0.22, transparent: true, opacity: 0.85, depthWrite: false,
+      })),
+    };
+    leaves.mesh.frustumCulled = false;
+    leaves.mesh.userData.noShadow = true;
+    ctx.scene.add(leaves.mesh);
+  }
+
   ctx.updatables.push((dt) => {
     const amount = rainAmount();
-    audio?.rain?.(amount);
+    audio?.rain?.(snow ? 0 : amount); // la neige tombe en silence
+
+    if (leaves) {
+      const cam = camera.position;
+      leaves.mesh.position.set(cam.x, cam.y - 6, cam.z);
+      for (let i = 0; i < leaves.lv.length; i++) {
+        const l = leaves.lv[i];
+        l.sway += dt * 1.6;
+        l.y -= dt * (1.1 + Math.sin(l.sway * 0.7) * 0.3);
+        if (l.y < 0) { l.y += 16; l.x = (Math.random() * 2 - 1) * 24; l.z = (Math.random() * 2 - 1) * 24; }
+        leaves.lp[i * 3] = l.x + Math.sin(l.sway) * 0.8;
+        leaves.lp[i * 3 + 1] = l.y;
+        leaves.lp[i * 3 + 2] = l.z + Math.cos(l.sway * 0.8) * 0.6;
+      }
+      leaves.lgeo.attributes.position.needsUpdate = true;
+    }
     if (ctx.scene.fog?.isFogExp2) {
       if (baseFog == null) baseFog = ctx.scene.fog.density;
       ctx.scene.fog.density = baseFog * (1 + amount * 1.4);
@@ -120,9 +166,11 @@ export function createWeather(ctx, { audio, camera } = {}) {
         d.x = (Math.random() * 2 - 1) * BOX;
         d.z = (Math.random() * 2 - 1) * BOX;
       }
+      if (snow) d.sway += dt * 1.3;
+      const sx = snow ? d.x + Math.sin(d.sway) * 0.5 : d.x;
       const o = i * 6;
-      positions[o] = d.x; positions[o + 1] = d.y; positions[o + 2] = d.z;
-      positions[o + 3] = d.x; positions[o + 4] = d.y + 0.7; positions[o + 5] = d.z;
+      positions[o] = sx; positions[o + 1] = d.y; positions[o + 2] = d.z;
+      positions[o + 3] = sx; positions[o + 4] = d.y + (snow ? 0.14 : 0.7); positions[o + 5] = d.z;
     }
     geo.attributes.position.needsUpdate = true;
   });

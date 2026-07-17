@@ -2,6 +2,32 @@ import * as THREE from 'three';
 import { audio } from '../audio.js';
 import { SAONE, RHONE } from './layout.js';
 import { buildHuman } from './human.js';
+import { rainAmount } from './weather.js';
+
+// Parapluie de gone : un manche + une calotte colorée, sorti dès que
+// l'averse partagée (weather.js) se lève — la ville réagit à la météo.
+const UMBRELLA_COLORS = [0xd9333f, 0x2e6fd8, 0xffd23f, 0x3f7a4d, 0x8a4d9e, 0x2c2f36];
+function makeUmbrella(i) {
+  const g = new THREE.Group();
+  const stick = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.012, 0.012, 0.95, 5),
+    new THREE.MeshLambertMaterial({ color: 0x4a4438 })
+  );
+  stick.position.y = 0.45;
+  g.add(stick);
+  const canopy = new THREE.Mesh(
+    new THREE.ConeGeometry(0.62, 0.3, 8, 1, true),
+    new THREE.MeshLambertMaterial({
+      color: UMBRELLA_COLORS[i % UMBRELLA_COLORS.length], side: THREE.DoubleSide,
+    })
+  );
+  canopy.position.y = 0.86;
+  g.add(canopy);
+  g.position.set(0.3, 1.35, 0.05); // tenu à bout de bras, au-dessus de la tête
+  g.rotation.z = -0.12;
+  g.visible = false;
+  return g;
+}
 
 const NPC_COUNT = 18;
 const NPC_HP = 50; // deux balles
@@ -95,6 +121,8 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit, onNpcAttack }) {
     const bubble = makeBubble();
     bubble.visible = false;
     group.add(bubble);
+    const umbrella = makeUmbrella(i);
+    group.add(umbrella);
 
     const [x, z] = freeSpot();
     group.position.set(x, 0, z);
@@ -102,7 +130,7 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit, onNpcAttack }) {
     ctx.scene.add(group);
 
     const npc = {
-      group, human, bubble,
+      group, human, bubble, umbrella,
       baseColor: new THREE.Color(color),
       dir: Math.random() * Math.PI * 2,
       speed: 1.0 + Math.random() * 0.8,
@@ -182,6 +210,11 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit, onNpcAttack }) {
   function update(dt) {
     const playerPos = getPlayerPos();
     const now = performance.now();
+    // Il pleut ? Tout le monde sort le parapluie (sauf les morts).
+    const brolly = rainAmount() > 0.2;
+    for (const npc of npcs) {
+      npc.umbrella.visible = brolly && npc.mode === 'walk';
+    }
 
     // Fin de la chasse : la Garde redevient de paisibles gones
     if (enrageUntil > 0 && now >= enrageUntil) {
