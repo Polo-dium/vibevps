@@ -192,13 +192,16 @@ async function boot() {
   // la touche O puisse les rallumer plus tard sans réglage à moitié fait.
   sun.castShadow = SHADOWS;
   sun.shadow.mapSize.set(quality.preset.shadowMapSize, quality.preset.shadowMapSize);
-  const SHADOW_D = 95;
+  // Cadre d'ombre RESSERRÉ autour du joueur (la caméra d'ombre le suit,
+  // voir la boucle) : à surface de shadow map égale, des ombres nettement
+  // plus fines ET moins de géométrie à rendre dans la passe d'ombre.
+  const SHADOW_D = 58;
   sun.shadow.camera.left = -SHADOW_D;
   sun.shadow.camera.right = SHADOW_D;
   sun.shadow.camera.top = SHADOW_D;
   sun.shadow.camera.bottom = -SHADOW_D;
   sun.shadow.camera.near = 10;
-  sun.shadow.camera.far = 420;
+  sun.shadow.camera.far = 320;
   sun.shadow.bias = -0.0006;
 
   // Applique un changement de palier en direct : résolution interne, ombres
@@ -206,7 +209,13 @@ async function boot() {
   // shadowsEnabled (contrairement à SHADOWS, figée au démarrage) suit l'état
   // courant : c'est elle que lit la boucle jour/nuit plus bas.
   let shadowsEnabled = SHADOWS;
+  // Résolution dynamique : facteur appliqué PAR-DESSUS le palier qualité
+  let renderScale = 1;
+  function applyRenderScale() {
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.preset.pixelRatio) * renderScale);
+  }
   quality.onChange((preset) => {
+    renderScale = 1; // changer de palier remet la définition à neuf
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatio));
     renderer.shadowMap.enabled = preset.shadows;
     shadowsEnabled = preset.shadows;
@@ -414,6 +423,10 @@ async function boot() {
     u.sunTint.value.set(0xffe0b0).lerp(DUSK_TINT, dusk * 0.8);
     u.sunDir.value.copy(env.sunDir);
     u.starAmount.value = THREE.MathUtils.clamp(env.night * 1.3 - 0.3, 0, 1);
+    // Cœur HDR du soleil + lune du dôme : mêmes directions que les astres 3D
+    // (la lune orbite exactement à l'opposé du soleil).
+    u.dayAmount.value = daylight;
+    u.moonDir.value.copy(env.sunDir).multiplyScalar(-1).normalize();
 
     // Brume + fond raccordés à l'horizon
     _envColor.copy(ENV_NIGHT.fog).lerp(ENV_DAY.fog, daylight).lerp(DUSK_TINT, dusk * 0.18);
@@ -579,6 +592,12 @@ async function boot() {
   // Hook de debug (derrière ?debug) : téléportation/inspection pour les tests
   if (new URLSearchParams(location.search).has('debug')) {
     window.__game = { controls, ctx, state, camera, ui, renderer, quality };
+    // État de la résolution dynamique, lisible par les tests automatisés
+    window.__game.perf = {
+      get renderScale() { return renderScale; },
+      get fpsValue() { return fpsValue; },
+      get dynCooldown() { return dynCooldown; },
+    };
   }
   // Distance du premier mur ou du sol le long d'un rayon. Mutualisée entre
   // l'arme à pied et les mitrailleuses de bord.
@@ -1684,6 +1703,7 @@ async function boot() {
   // --- Boucle principale ---
   const clock = new THREE.Clock();
   let fpsAccum = 0, fpsFrames = 0, fpsValue = 60;
+  let dynCooldown = 6; // laisse le démarrage se stabiliser avant d'ajuster
   let infoTimer = 0;
 
   function findNearestInteractable() {
@@ -1826,6 +1846,21 @@ async function boot() {
       fpsValue = Math.round(fpsFrames / fpsAccum);
       fpsAccum = 0;
       fpsFrames = 0;
+      // Résolution dynamique : si ça rame, on baisse la définition interne
+      // par petits crans (jusqu'à 0,6×) ; quand ça respire, on remonte
+      // doucement. Invisible sur une machine à l'aise, salvateur ailleurs.
+      dynCooldown -= 1;
+      if (dynCooldown <= 0 && !document.hidden) {
+        if (fpsValue < 45 && renderScale > 0.6) {
+          renderScale = Math.max(0.6, renderScale - 0.1);
+          applyRenderScale();
+          dynCooldown = 4;
+        } else if (fpsValue > 56 && renderScale < 1) {
+          renderScale = Math.min(1, renderScale + 0.05);
+          applyRenderScale();
+          dynCooldown = 6;
+        }
+      }
     }
     infoTimer -= dt;
     if (infoTimer <= 0) {

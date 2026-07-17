@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // Vélo'v 🚲 : les vélos rouges en libre-service, comme les vrais. Des
 // stations aux points connus de la ville, chaque vélo s'emprunte (E), se
@@ -9,32 +10,50 @@ import * as THREE from 'three';
 const VELOV_RED = 0xb8353f;
 const SILVER = 0xb9c0c8;
 
-export function buildVelovModel() {
-  const group = new THREE.Group();
-  const red = new THREE.MeshLambertMaterial({ color: VELOV_RED });
-  const silver = new THREE.MeshLambertMaterial({ color: SILVER });
-  const dark = new THREE.MeshLambertMaterial({ color: 0x23262d });
-  const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => {
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(x, y, z);
-    m.rotation.set(rx, ry, rz);
-    group.add(m);
-    return m;
+// Matériaux partagés par TOUS les vélos (moins de changements d'état GPU)
+const MAT_RED = new THREE.MeshLambertMaterial({ color: VELOV_RED });
+const MAT_SILVER = new THREE.MeshLambertMaterial({ color: SILVER });
+const MAT_DARK = new THREE.MeshLambertMaterial({ color: 0x23262d });
+// Géométries du vélo fusionnées par matériau : 3 draw calls par vélo au lieu
+// de 9 (× 15 vélos de station + les vélos des joueurs distants, ça compte).
+let velovGeos = null;
+
+function bakeVelovGeos() {
+  const parts = { red: [], silver: [], dark: [] };
+  const add = (geo, key, x, y, z, rx = 0, ry = 0, rz = 0) => {
+    geo.applyMatrix4(new THREE.Matrix4().compose(
+      new THREE.Vector3(x, y, z),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)),
+      new THREE.Vector3(1, 1, 1)
+    ));
+    parts[key].push(geo);
   };
   // Roues (nez du vélo vers -z, comme tout le monde)
-  const wheelGeo = new THREE.TorusGeometry(0.34, 0.045, 6, 14);
-  add(wheelGeo, dark, 0, 0.34, -0.62);
-  add(wheelGeo, dark, 0, 0.34, 0.62);
+  add(new THREE.TorusGeometry(0.34, 0.045, 6, 14), 'dark', 0, 0.34, -0.62);
+  add(new THREE.TorusGeometry(0.34, 0.045, 6, 14), 'dark', 0, 0.34, 0.62);
   // Cadre col de cygne (la signature Vélo'v) + tube de selle
-  add(new THREE.BoxGeometry(0.07, 0.09, 1.05), red, 0, 0.6, 0, 0.12);
-  add(new THREE.BoxGeometry(0.07, 0.5, 0.09), red, 0, 0.72, 0.5, -0.25);
-  add(new THREE.BoxGeometry(0.07, 0.55, 0.09), silver, 0, 0.72, -0.58, 0.18);
+  add(new THREE.BoxGeometry(0.07, 0.09, 1.05), 'red', 0, 0.6, 0, 0.12);
+  add(new THREE.BoxGeometry(0.07, 0.5, 0.09), 'red', 0, 0.72, 0.5, -0.25);
+  add(new THREE.BoxGeometry(0.07, 0.55, 0.09), 'silver', 0, 0.72, -0.58, 0.18);
   // Guidon + panier gris (l'autre signature)
-  add(new THREE.BoxGeometry(0.52, 0.05, 0.05), silver, 0, 1.06, -0.66);
-  add(new THREE.BoxGeometry(0.34, 0.16, 0.26), silver, 0, 0.92, -0.82);
+  add(new THREE.BoxGeometry(0.52, 0.05, 0.05), 'silver', 0, 1.06, -0.66);
+  add(new THREE.BoxGeometry(0.34, 0.16, 0.26), 'silver', 0, 0.92, -0.82);
   // Selle + garde-boue arrière
-  add(new THREE.BoxGeometry(0.24, 0.06, 0.3), dark, 0, 1.02, 0.48);
-  add(new THREE.BoxGeometry(0.1, 0.04, 0.5), red, 0, 0.72, 0.68, 0.25);
+  add(new THREE.BoxGeometry(0.24, 0.06, 0.3), 'dark', 0, 1.02, 0.48);
+  add(new THREE.BoxGeometry(0.1, 0.04, 0.5), 'red', 0, 0.72, 0.68, 0.25);
+  return {
+    red: mergeGeometries(parts.red),
+    silver: mergeGeometries(parts.silver),
+    dark: mergeGeometries(parts.dark),
+  };
+}
+
+export function buildVelovModel() {
+  velovGeos ??= bakeVelovGeos();
+  const group = new THREE.Group();
+  group.add(new THREE.Mesh(velovGeos.red, MAT_RED));
+  group.add(new THREE.Mesh(velovGeos.silver, MAT_SILVER));
+  group.add(new THREE.Mesh(velovGeos.dark, MAT_DARK));
   return group;
 }
 

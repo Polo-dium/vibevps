@@ -191,18 +191,25 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
 
   // --- Trafic roulant + gare au piéton ------------------------------------
   let runOverCd = 0;
+  let tick = 0;
   ctx.updatables.push((dt) => {
     runOverCd -= dt;
+    tick++;
+    const p = ctx.playerPos?.();
     for (const car of moving) {
       car.z += car.dir * car.speed * dt;
       if (car.z > car.av.zHi + 2) car.z = car.av.zLo - 2;
       if (car.z < car.av.zLo - 2) car.z = car.av.zHi + 2;
+      // Veille au loin : à +160 m, la voiture avance mais son placement
+      // (berge, cap, matrices) n'est recalculé qu'à ~6 Hz — invisible à
+      // cette distance, et le CPU respire sur les grandes cartes.
+      const far = p && Math.abs(p.x - car.x) + Math.abs(p.z - car.z) > 160;
+      if (far && (tick + car.i) % 10 !== 0) continue;
       placeCar(car);
       setCar(car.i, car.x, car.z, car.ry);
 
       // Écrasé par un chauffard : dégâts (validés côté serveur) + klaxon
-      const p = ctx.playerPos?.();
-      if (p && runOverCd <= 0 && !ctx.isDriving?.()) {
+      if (p && !far && runOverCd <= 0 && !ctx.isDriving?.()) {
         if (Math.abs(p.x - car.x) < 1.5 && Math.abs(p.z - car.z) < 2.5 && p.y < 1.6) {
           runOverCd = 1.6;
           audio.horn();

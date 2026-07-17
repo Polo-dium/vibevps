@@ -207,6 +207,7 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit, onNpcAttack }) {
     npc.bubble.visible = false;
   }
 
+  let frame = 0;
   function update(dt) {
     const playerPos = getPlayerPos();
     const now = performance.now();
@@ -226,7 +227,13 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit, onNpcAttack }) {
       }
     }
 
+    frame++;
     for (const npc of npcs) {
+      // Veille au loin : à +130 m un piéton qui marche ne se voit plus —
+      // on ne le fait vivre qu'une frame sur 20 (sauf s'il meurt/enrage).
+      if (npc.mode === 'walk' &&
+          npc.group.position.distanceTo(playerPos) > 130 &&
+          (frame + npc.group.id) % 20 !== 0) continue;
       if (npc.flashUntil && now > npc.flashUntil && npc.mode === 'walk') {
         npc.human.shirtMat.color.copy(npc.baseColor);
         npc.flashUntil = 0;

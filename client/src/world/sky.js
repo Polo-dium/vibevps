@@ -10,6 +10,8 @@ export function buildSky(scene, radius = 470) {
     sunDir: { value: new THREE.Vector3(-90, 130, 50).normalize() },
     sunTint: { value: new THREE.Color(0xffe0b0) },
     starAmount: { value: 0 },
+    dayAmount: { value: 1 },
+    moonDir: { value: new THREE.Vector3(0.5, 0.4, -0.3).normalize() },
   };
   const dome = new THREE.Mesh(
     new THREE.SphereGeometry(radius, 24, 12),
@@ -32,6 +34,8 @@ export function buildSky(scene, radius = 470) {
         uniform vec3 sunDir;
         uniform vec3 sunTint;
         uniform float starAmount;
+        uniform float dayAmount;
+        uniform vec3 moonDir;
         // Bruit de hachage bon marché pour les étoiles
         float hash(vec3 p) {
           p = fract(p * 0.3183099 + 0.1);
@@ -47,10 +51,25 @@ export function buildSky(scene, radius = 470) {
           // Voile chaud autour du soleil, surtout près de l'horizon
           float s = pow(max(dot(dir, sunDir), 0.0), 6.0);
           col = mix(col, sunTint, s * 0.5 * (1.0 - smoothstep(0.0, 0.5, h)) + s * 0.15);
+          // DISQUE du soleil : cœur brûlant + petite couronne, le jour
+          float sunDot = dot(dir, sunDir);
+          float disc = smoothstep(0.99955, 0.99985, sunDot);
+          float corona = pow(max(sunDot, 0.0), 900.0);
+          col += (vec3(1.0, 0.92, 0.72) * disc * 1.6 + sunTint * corona * 0.8) * dayAmount;
+          // LUNE : disque pâle avec un « grignotage » qui suggère la phase
+          float moonDot = dot(dir, moonDir);
+          float moon = smoothstep(0.99965, 0.99985, moonDot);
+          float bite = smoothstep(0.99965, 0.99985, dot(dir, normalize(moonDir + vec3(0.006, 0.004, 0.0))));
+          col += vec3(0.86, 0.9, 0.98) * max(0.0, moon - bite * 0.55) * (1.0 - dayAmount);
+          col += vec3(0.5, 0.55, 0.7) * pow(max(moonDot, 0.0), 700.0) * 0.3 * (1.0 - dayAmount);
           // Étoiles la nuit (seuil sur un bruit fixe : elles ne scintillent pas)
           if (starAmount > 0.01 && h > 0.05) {
             float st = step(0.9975, hash(floor(dir * 220.0)));
             col += vec3(st) * starAmount * smoothstep(0.05, 0.3, h);
+            // VOIE LACTÉE : une écharpe laiteuse inclinée, granuleuse
+            float band = exp(-pow(dot(dir, normalize(vec3(0.55, 0.25, 0.8))), 2.0) * 26.0);
+            float grain = 0.5 + 0.5 * hash(floor(dir * 38.0));
+            col += vec3(0.55, 0.6, 0.75) * band * grain * starAmount * 0.13 * smoothstep(0.05, 0.3, h);
           }
           gl_FragColor = vec4(col, 1.0);
         }`,
