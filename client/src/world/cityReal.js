@@ -1343,6 +1343,9 @@ function buildAlps(ctx, bound, rand) {
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.y = HGT / 2 - 6;
   mesh.userData.noShadow = true;
+  // Après les astres (renderOrder -8/-7) : la chaîne se fond PAR-DESSUS le
+  // soleil et la lune, qui se lèvent donc derrière les montagnes.
+  mesh.renderOrder = -5;
   ctx.scene.add(mesh);
 
   // Vraie photo des Alpes : panorama COMPOSÉ hors ligne en une seule
@@ -1351,7 +1354,7 @@ function buildAlps(ctx, bound, rand) {
   // se fondent dedans par chevauchement, extrémités qui s'aplatissent puis
   // disparaissent. Plaquage simple, aucune répétition à l'exécution.
   // Si le fichier manque, la version peinte reste en place.
-  new THREE.TextureLoader().load('/pano/alpes-v3.webp', (t) => {
+  new THREE.TextureLoader().load('/pano/alpes-v4.webp', (t) => {
     t.colorSpace = THREE.SRGBColorSpace;
     mat.map = t;
     mat.needsUpdate = true;

@@ -228,10 +228,14 @@ async function boot() {
   });
 
   // Soleil et lune visibles dans le ciel (même direction que la lumière)
+  // depthWrite false + renderOrder négatif : les astres se dessinent après le
+  // dôme mais AVANT le panorama des Alpes (renderOrder -5), qui se fond donc
+  // par-dessus — soleil et lune se lèvent DERRIÈRE les montagnes.
   const sunMesh = new THREE.Mesh(
     new THREE.SphereGeometry(24, 20, 20),
-    new THREE.MeshBasicMaterial({ color: 0xfff6d8, fog: false })
+    new THREE.MeshBasicMaterial({ color: 0xfff6d8, fog: false, depthWrite: false })
   );
+  sunMesh.renderOrder = -8;
   sunMesh.position.set(-360, 520, 200);
   scene.add(sunMesh);
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -240,13 +244,15 @@ async function boot() {
     depthWrite: false,
     fog: false,
   }));
+  halo.renderOrder = -7;
   halo.scale.set(220, 220, 1);
   halo.position.copy(sunMesh.position);
   scene.add(halo);
   const moonMesh = new THREE.Mesh(
     new THREE.SphereGeometry(16, 16, 16),
-    new THREE.MeshBasicMaterial({ color: 0xf2f5ff, fog: false })
+    new THREE.MeshBasicMaterial({ color: 0xf2f5ff, fog: false, depthWrite: false })
   );
+  moonMesh.renderOrder = -8;
   moonMesh.visible = false;
   scene.add(moonMesh);
   const moonHalo = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -254,6 +260,7 @@ async function boot() {
     transparent: true, opacity: 0.42,
     depthWrite: false, fog: false,
   }));
+  moonHalo.renderOrder = -7;
   moonHalo.visible = false;
   scene.add(moonHalo);
 
@@ -394,7 +401,7 @@ async function boot() {
   buildAirport(ctx);
 
   const sky = buildSky(scene, ctx.worldBound ? ctx.worldBound * 1.7 : 470);
-  ctx.updatables.push((dt) => sky.update(dt, env.daylight));
+  ctx.updatables.push((dt) => sky.update(dt, env.daylight, ctx.playerPos()));
 
   // Interpolation de toute l'ambiance (ciel, brume, lumières, soleil/lune)
   // selon la phase du cycle. Appelée à chaque frame : uniquement des lerps.
@@ -460,14 +467,19 @@ async function boot() {
     // L'éloignement ne doit pas réduire leur taille apparente : on compense
     // proportionnellement la taille des sphères et de leurs halos.
     const astroScale = astroRadius / 620;
-    sunMesh.position.copy(env.sunDir).multiplyScalar(astroRadius);
+    // Les astres sont accrochés au JOUEUR (pas à l'origine) : leur direction
+    // apparente est la même partout sur la carte, et coïncide exactement
+    // avec le disque du dôme de ciel (qui suit lui aussi le joueur) — sinon
+    // la parallaxe faisait voir DEUX soleils loin de Bellecour.
+    const eye = ctx.playerPos();
+    sunMesh.position.copy(eye).addScaledVector(env.sunDir, astroRadius);
     sunMesh.scale.setScalar(astroScale);
     sunMesh.visible = elev > -0.12;
     halo.position.copy(sunMesh.position);
     halo.scale.setScalar(220 * astroScale);
     halo.material.opacity = Math.max(0, Math.min(1, elev * 3 + 0.25));
     halo.visible = sunMesh.visible;
-    moonMesh.position.copy(env.sunDir).multiplyScalar(-astroRadius);
+    moonMesh.position.copy(eye).addScaledVector(env.sunDir, -astroRadius);
     moonMesh.scale.setScalar(astroScale * 1.5);
     moonMesh.visible = elev < 0.1;
     moonHalo.position.copy(moonMesh.position);

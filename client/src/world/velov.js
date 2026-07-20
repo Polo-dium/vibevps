@@ -28,9 +28,10 @@ function bakeVelovGeos() {
     ));
     parts[key].push(geo);
   };
-  // Roues (nez du vélo vers -z, comme tout le monde)
-  add(new THREE.TorusGeometry(0.34, 0.045, 6, 14), 'dark', 0, 0.34, -0.62);
-  add(new THREE.TorusGeometry(0.34, 0.045, 6, 14), 'dark', 0, 0.34, 0.62);
+  // Roues dans le plan de roulement (nez du vélo vers -z) : l'anneau du
+  // tore, né dans le plan XY, est pivoté pour tourner autour de l'axe x.
+  add(new THREE.TorusGeometry(0.34, 0.045, 6, 14), 'dark', 0, 0.34, -0.62, 0, Math.PI / 2, 0);
+  add(new THREE.TorusGeometry(0.34, 0.045, 6, 14), 'dark', 0, 0.34, 0.62, 0, Math.PI / 2, 0);
   // Cadre col de cygne (la signature Vélo'v) + tube de selle
   add(new THREE.BoxGeometry(0.07, 0.09, 1.05), 'red', 0, 0.6, 0, 0.12);
   add(new THREE.BoxGeometry(0.07, 0.5, 0.09), 'red', 0, 0.72, 0.5, -0.25);

@@ -190,7 +190,12 @@ export function createTouchControls({
         }
         continue;
       }
-      if (t.clientX < window.innerWidth * 0.45 && joyTouchId === null) {
+      // Le joystick ne naît que dans la partie BASSE de l'écran : un toucher
+      // qui démarre en haut (là où on oriente la caméra) devient un regard,
+      // jamais un joystick. Un joystick né en bas reste actif même si le
+      // doigt remonte ensuite (le test ne porte que sur le départ).
+      if (t.clientX < window.innerWidth * 0.45 &&
+          t.clientY > window.innerHeight * 0.42 && joyTouchId === null) {
         joyTouchId = t.identifier;
         joyOrigin = { x: t.clientX, y: t.clientY };
         joyBase.style.left = `${t.clientX - 65}px`;

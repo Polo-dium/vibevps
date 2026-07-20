@@ -110,8 +110,11 @@ export function buildSky(scene, radius = 470) {
     clouds.push(sprite);
   }
 
-  // daylight ∈ [0,1] : les nuages s'estompent et s'assombrissent la nuit
-  function update(dt, daylight = 1) {
+  // daylight ∈ [0,1] : les nuages s'estompent et s'assombrissent la nuit.
+  // pos : le dôme suit le joueur (horizontalement) pour que son disque
+  // solaire coïncide toujours avec le soleil 3D, sans parallaxe.
+  function update(dt, daylight = 1, pos = null) {
+    if (pos) dome.position.set(pos.x, 0, pos.z);
     for (const c of clouds) {
       c.position.x += c.userData.speed * dt;
       if (c.position.x > 420) c.position.x = -420;

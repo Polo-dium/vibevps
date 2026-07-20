@@ -8,8 +8,59 @@ const BODY_MAT = new THREE.MeshLambertMaterial({ color: 0x171e30 });
 const PANEL_MAT = new THREE.MeshLambertMaterial({ color: 0x2a3550 });
 const NEONS = [0x00ffd5, 0xff3df0, 0xffe14d, 0x4dff6a, 0xff7a4d, 0x4da6ff, 0xc44dff];
 
-export function buildArcade(ctx, { onPlayGame, onOpenCreator }) {
-  const { x: cx, z: cz, w, d, h, doorWidth, doorHeight } = ARCADE;
+export function buildArcade(realCtx, { onPlayGame, onOpenCreator }) {
+  const { x: acx, z: acz, w, d, h, doorWidth, doorHeight } = ARCADE;
+  // Pavillon construit dans un repère LOCAL (centre à l'origine, porte vers
+  // +z local), puis pivoté d'un seul bloc : sur le vrai Lyon, la porte
+  // regarde la statue du Roi (est de la place) et le bâtiment suit l'axe de
+  // Bellecour (belleRot). Sans OSM, orientation historique inchangée.
+  const yaw = realCtx.belleRot ? realCtx.belleRot.yaw + Math.PI / 2 : 0;
+  const yCos = Math.cos(yaw), ySin = Math.sin(yaw);
+  const toWorld = (x, z) => [acx + x * yCos + z * ySin, acz - x * ySin + z * yCos];
+  const shell = new THREE.Group();
+  shell.position.set(acx, 0, acz);
+  shell.rotation.y = yaw;
+  realCtx.scene.add(shell);
+  const ctx = {
+    ...realCtx,
+    scene: shell,
+    colliders: {
+      push(b) {
+        // Tronçonne en morceaux ≤ 3,5 m avant de ré-englober en AABB monde :
+        // l'approximation par excès des coins tournés ne bouche pas la porte.
+        const sx = b.maxX - b.minX, sz = b.maxZ - b.minZ;
+        const nx = Math.max(1, Math.ceil(sx / 3.5)), nz = Math.max(1, Math.ceil(sz / 3.5));
+        for (let i = 0; i < nx; i++) {
+          for (let j = 0; j < nz; j++) {
+            const p = {
+              minX: b.minX + (sx * i) / nx, maxX: b.minX + (sx * (i + 1)) / nx,
+              minZ: b.minZ + (sz * j) / nz, maxZ: b.minZ + (sz * (j + 1)) / nz,
+            };
+            const pts = [[p.minX, p.minZ], [p.maxX, p.minZ], [p.minX, p.maxZ], [p.maxX, p.maxZ]]
+              .map(([x, z]) => toWorld(x, z));
+            realCtx.colliders.push({
+              minX: Math.min(...pts.map((q) => q[0])), maxX: Math.max(...pts.map((q) => q[0])),
+              minZ: Math.min(...pts.map((q) => q[1])), maxZ: Math.max(...pts.map((q) => q[1])),
+              minY: b.minY, maxY: b.maxY,
+            });
+          }
+        }
+      },
+    },
+    interactables: {
+      push(it) {
+        const [x, z] = toWorld(it.x, it.z);
+        realCtx.interactables.push({ ...it, x, z });
+      },
+    },
+    pois: realCtx.pois && {
+      push(p) {
+        const [x, z] = toWorld(p.x, p.z);
+        realCtx.pois.push({ ...p, x, z });
+      },
+    },
+  };
+  const cx = 0, cz = 0;
   ctx.pois?.push({ id: 'arcade', nom: "Salle d'arcade", emoji: '🕹️', x: cx, z: cz });
   const t = 0.6;
   const south = cz + d / 2, north = cz - d / 2;

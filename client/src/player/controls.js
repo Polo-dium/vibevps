@@ -547,7 +547,9 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     const k = 1 - Math.exp(-ACCEL * dt);
     if (slide > 0) {
       slide -= dt;
-      const boost = MOVE_SPEED * (1.9 * Math.max(0, slide / SLIDE_TIME) + 0.4);
+      // Fin de glissade à 1,0× (jamais sous la vitesse de course) : on se
+      // relève sans creux de vitesse, la foulée reprend instantanément.
+      const boost = MOVE_SPEED * (0.9 * Math.max(0, slide / SLIDE_TIME) + 1.0);
       vel.x += (slideDir.x * boost - vel.x) * k;
       vel.z += (slideDir.z * boost - vel.z) * k;
       if (fwd <= 0.05) slide = 0; // on cesse de pousser → fin de glissade
@@ -584,8 +586,10 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     resolveAxis('x', vel.x * dt);
     resolveAxis('z', vel.z * dt);
 
-    // La caméra s'abaisse pendant la glissade (et remonte en douceur)
-    slideCrouch += (((slide > 0) ? 0.72 : 0) - slideCrouch) * (1 - Math.exp(-10 * dt));
+    // La caméra s'abaisse pendant la glissade — et se RELÈVE plus vite
+    // qu'elle ne descend, pour enchaîner la course sans flottement
+    slideCrouch += (((slide > 0) ? 0.72 : 0) - slideCrouch) *
+      (1 - Math.exp(-(slide > 0 ? 10 : 16) * dt));
     camera.position.set(pos.x, pos.y + EYE_HEIGHT - slideCrouch, pos.z);
     camera.rotation.order = 'YXZ';
     camera.rotation.set(pitch, yaw, 0);
