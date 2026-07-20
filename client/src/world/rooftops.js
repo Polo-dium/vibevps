@@ -124,12 +124,17 @@ export function buildRooftopBar(ctx, { x, z, y, w, d, rand }) {
   const garlandGeo = new THREE.BufferGeometry();
   garlandGeo.setAttribute('position', new THREE.Float32BufferAttribute(bulbPos, 3));
   const garlandMat = new THREE.PointsMaterial({
-    color: 0xffd98a, size: 0.5, sizeAttenuation: true,
+    color: 0xffd98a, size: 0.7, sizeAttenuation: true,
     transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false,
   });
   const garland = new THREE.Points(garlandGeo, garlandMat);
   garland.userData.noShadow = true;
   g.add(garland);
+  // Lueur chaude d'ambiance : le bar s'allume vraiment la nuit, pas
+  // seulement ses guirlandes (portée courte, coût négligeable — ≤8 terrasses)
+  const barGlow = new THREE.PointLight(0xffb060, 0, 15, 1.7);
+  barGlow.position.set(-w * 0.2, 1.8, -halfD + 1.2);
+  g.add(barGlow);
 
   // --- Gones qui se prélassent -------------------------------------------
   const people = [];
@@ -175,7 +180,8 @@ export function buildRooftopBar(ctx, { x, z, y, w, d, rand }) {
 
   const night = () => ctx.env?.night ?? 0;
   return function update(dt) {
-    garlandMat.opacity = 0.1 + Math.max(0, night() * 1.2 - 0.2) * 0.85;
+    garlandMat.opacity = Math.min(1, 0.12 + Math.max(0, night() * 1.3 - 0.15) * 1.0);
+    barGlow.intensity = night() * 9;
     for (const p of people) {
       p.phase += dt;
       if (!p.lounging) {

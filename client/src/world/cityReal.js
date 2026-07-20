@@ -15,6 +15,7 @@ import {
 } from './city.js';
 import { buildTraffic } from './traffic.js';
 import { buildRooftopBar } from './rooftops.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // Construit le vrai Lyon à partir des empreintes OpenStreetMap
 // (client/public/lyon-osm.json, généré par tools/fetch-osm.mjs).
@@ -2273,8 +2274,26 @@ function buildGreenery(ctx, data, rand, full = false) {
   const foliageMat = new THREE.MeshLambertMaterial({ color: 0x5b8a3f, flatShading: true });
   const foliage = new THREE.InstancedMesh(foliageGeo, foliageMat, valid.length);
 
+  // LOD lointain : au-delà de ~150 m du joueur, troncs+feuillage (12+12
+  // triangles chacun) cèdent la place à un impostor en croix (2 plans
+  // texturés, 4 triangles) — l'essentiel du poids d'un arbre lointain à
+  // l'écran est de toute façon dans son silhouette, pas son volume.
+  const LOD_DIST = 150, LOD_HYST = 20;
+  const billTex = makeTreeBillboardTexture();
+  const billGeo = mergeGeometries([
+    (() => { const p = new THREE.PlaneGeometry(3.2, 5.6); p.translate(0, 2.8, 0); return p; })(),
+    (() => { const p = new THREE.PlaneGeometry(3.2, 5.6); p.rotateY(Math.PI / 2); p.translate(0, 2.8, 0); return p; })(),
+  ]);
+  const billMat = new THREE.MeshBasicMaterial({
+    map: billTex, transparent: true, alphaTest: 0.4, vertexColors: true, side: THREE.DoubleSide,
+  });
+  const billboards = new THREE.InstancedMesh(billGeo, billMat, valid.length);
+  billboards.userData.noShadow = true;
+
   const m = new THREE.Matrix4();
+  const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
   const col = new THREE.Color();
+  const treeLod = [];
   valid.forEach(([x, z, s, ty = 0], i) => {
     m.makeScale(s, s, s);
     m.setPosition(x, ty + 1.2 * s, z);
@@ -2282,13 +2301,80 @@ function buildGreenery(ctx, data, rand, full = false) {
     m.makeScale(s * 1.6, s * 1.5, s * 1.6);
     m.setPosition(x, ty + 3.6 * s, z);
     foliage.setMatrixAt(i, m);
+    billboards.setMatrixAt(i, ZERO);
     col.setHSL(0.28 + rand() * 0.06, 0.45, 0.32 + rand() * 0.12);
     foliage.setColorAt(i, col);
+    billboards.setColorAt(i, col);
+    treeLod.push({ x, z, s, ty, far: false });
   });
   trunks.instanceMatrix.needsUpdate = true;
   foliage.instanceMatrix.needsUpdate = true;
   if (foliage.instanceColor) foliage.instanceColor.needsUpdate = true;
-  ctx.scene.add(trunks, foliage);
+  if (billboards.instanceColor) billboards.instanceColor.needsUpdate = true;
+  ctx.scene.add(trunks, foliage, billboards);
+
+  // Bascule périodique (pas chaque frame) selon la distance au joueur,
+  // avec hystérésis pour ne pas scintiller pile à la frontière des 150 m.
+  let lodTimer = 0;
+  ctx.updatables.push((dt) => {
+    lodTimer -= dt;
+    if (lodTimer > 0) return;
+    lodTimer = 0.4;
+    const p = ctx.playerPos?.();
+    if (!p) return;
+    let dirty = false;
+    treeLod.forEach((t, i) => {
+      const d2 = (t.x - p.x) ** 2 + (t.z - p.z) ** 2;
+      if (!t.far && d2 > (LOD_DIST + LOD_HYST) ** 2) {
+        t.far = true;
+        trunks.setMatrixAt(i, ZERO);
+        foliage.setMatrixAt(i, ZERO);
+        m.makeScale(t.s, t.s, t.s);
+        m.setPosition(t.x, t.ty, t.z);
+        billboards.setMatrixAt(i, m);
+        dirty = true;
+      } else if (t.far && d2 < (LOD_DIST - LOD_HYST) ** 2) {
+        t.far = false;
+        m.makeScale(t.s, t.s, t.s);
+        m.setPosition(t.x, t.ty + 1.2 * t.s, t.z);
+        trunks.setMatrixAt(i, m);
+        m.makeScale(t.s * 1.6, t.s * 1.5, t.s * 1.6);
+        m.setPosition(t.x, t.ty + 3.6 * t.s, t.z);
+        foliage.setMatrixAt(i, m);
+        billboards.setMatrixAt(i, ZERO);
+        dirty = true;
+      }
+    });
+    if (dirty) {
+      trunks.instanceMatrix.needsUpdate = true;
+      foliage.instanceMatrix.needsUpdate = true;
+      billboards.instanceMatrix.needsUpdate = true;
+    }
+  });
+}
+
+// Silhouette basse résolution d'un arbre (houppier + tronc), vue de côté :
+// alpha net, pensée pour un impostor lointain où le détail ne se voit pas.
+function makeTreeBillboardTexture() {
+  const S = 64;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  // Tronc en brun (le vert de la houppier ne teinte QUE le vert instancié :
+  // multiplié par un brun, il reste sombre et chaud plutôt que de virer vert)
+  g.fillStyle = '#6b4a2f';
+  g.fillRect(S * 0.46, S * 0.7, S * 0.08, S * 0.28);
+  const grad = g.createRadialGradient(S * 0.5, S * 0.36, S * 0.04, S * 0.5, S * 0.36, S * 0.34);
+  grad.addColorStop(0, '#ffffff');
+  grad.addColorStop(0.75, '#ffffff');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.beginPath();
+  g.ellipse(S * 0.5, S * 0.36, S * 0.34, S * 0.32, 0, 0, Math.PI * 2);
+  g.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 // Cellule de commerce répétable : vitrine profonde, porte, enseigne et store.

@@ -1,9 +1,11 @@
 import * as THREE from 'three';
+import { currentSeason } from './seasons.js';
 
 // La vie dans le ciel 🕊 : mouettes qui tournoient le long des fleuves,
 // avions de ligne très haut avec leur traînée de condensation, fumées de
-// cheminée aux heures dorées. Tout est déterministe (Date.now / positions
-// dérivées du monde) et léger : quelques dizaines de triangles animés.
+// cheminée aux heures dorées (et qui chauffent fort tout le jour en hiver).
+// Tout est déterministe (Date.now / positions dérivées du monde) et léger :
+// quelques dizaines de triangles animés.
 
 function makeRand(seed) {
   let s = seed >>> 0;
@@ -139,8 +141,12 @@ export function createSkylife(ctx) {
     g.fillRect(0, 0, 64, 64);
     return new THREE.CanvasTexture(c);
   })();
+  // En hiver, les cheminées chauffent : fumée dense et visible en plein
+  // jour (pas seulement à l'aube/au crépuscule comme le reste de l'année),
+  // et un peu plus de foyers allumés en ville.
+  const winter = currentSeason() === 'hiver';
   const smokes = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < (winter ? 9 : 5); i++) {
     const x = (rand() * 2 - 1) * bound * 0.35;
     const z = (rand() * 2 - 1) * bound * 0.35;
     const baseY = Math.max(0, ctx.terrainHeight?.(x, z) ?? 0) + 17 + rand() * 8;
@@ -205,14 +211,16 @@ export function createSkylife(ctx) {
       );
     }
 
-    // Fumées : visibles surtout aux transitions (aube/crépuscule)
-    const glow = ctx.env?.dusk ?? 0;
+    // Fumées : visibles aux transitions (aube/crépuscule) toute l'année,
+    // et en continu — plus denses — quand il fait froid (chauffage allumé)
+    const glow = Math.max(ctx.env?.dusk ?? 0, winter ? 0.8 : 0);
+    const puffMax = winter ? 0.75 : 0.5;
     for (const s of smokes) {
       for (const p of s.puffs) {
         p.t += dt * s.speed;
         if (p.t > 1) p.t -= 1;
         p.sp.position.set(Math.sin(p.t * 9) * 0.7, p.t * 9, 0);
-        p.sp.material.opacity = glow * 0.5 * (1 - p.t) * Math.min(1, p.t * 4);
+        p.sp.material.opacity = glow * puffMax * (1 - p.t) * Math.min(1, p.t * 4);
       }
     }
   });

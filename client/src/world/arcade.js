@@ -66,6 +66,29 @@ export function buildArcade(realCtx, { onPlayGame, onOpenCreator }) {
   const south = cz + d / 2, north = cz - d / 2;
   const west = cx - w / 2, east = cx + w / 2;
 
+  // Occlusion : les murs/toit/enseigne restent toujours visibles (silhouette
+  // de la ville), mais le contenu intérieur (bornes, sol, néons de plafond)
+  // ne se dessine que si on est près de la porte — inutile de payer son
+  // rendu quand on n'y voit rien depuis l'extérieur. Colliders/interactables
+  // restent branchés sur ctx (donc réels) que l'intérieur soit visible ou
+  // non : seul le rendu bascule, jamais la physique.
+  const interior = new THREE.Group();
+  shell.add(interior);
+  const ictx = { ...ctx, scene: interior };
+  const doorWorld = toWorld(0, south);
+  let interiorVisible = true;
+  let occlusionTimer = 0;
+  ctx.updatables.push((dt) => {
+    occlusionTimer -= dt;
+    if (occlusionTimer > 0) return;
+    occlusionTimer = 0.3;
+    const p = realCtx.playerPos?.();
+    if (!p) return;
+    const dist = Math.hypot(p.x - doorWorld[0], p.z - doorWorld[1]);
+    if (interiorVisible && dist > 55) { interiorVisible = false; interior.visible = false; }
+    else if (!interiorVisible && dist < 40) { interiorVisible = true; interior.visible = true; }
+  });
+
   const wallColor = 0x8a6f5a;
   // Murs (extérieur ET intérieur taguables)
   addBox(ctx, { x: cx, z: north + t / 2, w, h, d: t, color: wallColor, taggable: true });
@@ -86,7 +109,7 @@ export function buildArcade(realCtx, { onPlayGame, onOpenCreator }) {
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(cx, 0.03, cz);
-  ctx.scene.add(floor);
+  ictx.scene.add(floor);
 
   // Enseigne au-dessus de la porte
   const sign = new THREE.Mesh(
@@ -136,7 +159,7 @@ export function buildArcade(realCtx, { onPlayGame, onOpenCreator }) {
   ]) {
     const light = new THREE.PointLight(color, 30, 26, 1.8);
     light.position.set(lx, h - 2, lz);
-    ctx.scene.add(light);
+    ictx.scene.add(light);
   }
   // Bandes lumineuses au plafond
   for (const lz of [cz - 5, cz, cz + 5]) {
@@ -146,7 +169,7 @@ export function buildArcade(realCtx, { onPlayGame, onOpenCreator }) {
     );
     strip.rotation.x = Math.PI / 2;
     strip.position.set(cx, h - 0.6, lz);
-    ctx.scene.add(strip);
+    ictx.scene.add(strip);
   }
 
   // Emplacements de bornes : mur nord, murs latéraux, îlot central
@@ -164,7 +187,7 @@ export function buildArcade(realCtx, { onPlayGame, onOpenCreator }) {
   }
 
   // Borne « créateur » (IA) près de l'entrée
-  buildMachine(ctx, {
+  buildMachine(ictx, {
     x: east - 1.5, z: south - 3.2, ry: -Math.PI / 2,
     title: 'CRÉER',
     accent: 0xffe14d,
@@ -175,7 +198,7 @@ export function buildArcade(realCtx, { onPlayGame, onOpenCreator }) {
 
   // Jetpack posé dans la salle, près de l'entrée : on s'équipe et on décolle
   // direct par la porte (plus besoin d'aller jusqu'à la Confluence)
-  buildJetpackPad(ctx, cx, south - 4.5);
+  buildJetpackPad(ictx, cx, south - 4.5);
 
   const placed = new Map(); // gameId -> true
   let nextSlot = 0;
@@ -189,7 +212,7 @@ export function buildArcade(realCtx, { onPlayGame, onOpenCreator }) {
       if (nextSlot >= slots.length) return;
       const slot = slots[nextSlot++];
       placed.set(game.id, true);
-      buildMachine(ctx, {
+      buildMachine(ictx, {
         x: slot.x, z: slot.z, ry: slot.ry,
         title: game.title,
         accent: NEONS[(nextSlot - 1) % NEONS.length],
