@@ -155,10 +155,10 @@ async function boot() {
     sun: new THREE.Color(0xffe7bd),
   };
   const ENV_NIGHT = {
-    top: new THREE.Color(0x081020), mid: new THREE.Color(0x121d3a),
-    horizon: new THREE.Color(0x232c46), fog: new THREE.Color(0x1a2236),
-    hemiSky: new THREE.Color(0x4a5a85), hemiGround: new THREE.Color(0x2a2d3c),
-    sun: new THREE.Color(0xa8bce8),
+    top: new THREE.Color(0x0d1830), mid: new THREE.Color(0x1a2c50),
+    horizon: new THREE.Color(0x2e3a5c), fog: new THREE.Color(0x232e4a),
+    hemiSky: new THREE.Color(0x5c6fa0), hemiGround: new THREE.Color(0x363a4e),
+    sun: new THREE.Color(0xb8c8f0),
   };
   const DUSK_TINT = new THREE.Color(0xff8a4d);
   const DAY_SHARE = 0.8;
@@ -447,8 +447,8 @@ async function boot() {
     // contre-jour (aube/crépuscule) n'étaient plus adoucies par la brume et
     // viraient au noir. Un peu plus de lumière du ciel les garde lisibles ;
     // midi (daylight=1) reste inchangé.
-    hemi.intensity = HEMI_MAX * (0.6 + 0.4 * daylight);
-    sun.intensity = SUN_MAX * daylight + 0.3 * env.night; // clair de lune la nuit
+    hemi.intensity = HEMI_MAX * (0.8 + 0.2 * daylight);
+    sun.intensity = SUN_MAX * daylight + 0.5 * env.night; // clair de lune la nuit
     sun.color.copy(ENV_DAY.sun).lerp(DUSK_TINT, dusk * 0.7)
       .lerp(ENV_NIGHT.sun, env.night);
     if (shadowsEnabled) sun.castShadow = daylight > 0.04;
