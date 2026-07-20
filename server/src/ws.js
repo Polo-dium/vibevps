@@ -26,6 +26,12 @@ let wss = null;
 let quenelleClaimedRound = -1; // un seul gagnant par tour de Quenelle dorée
 let silureRound = -1, silureHp = 0, silureDead = false; // HP partagée du silure
 const tagDamage = new Map(); // tagId -> nombre d'impacts reçus
+// Avions de l'aérodrome, partagés entre tous : id -> { x, z, ry, heldBy }.
+// x/z/ry restent null tant que personne n'a jamais reposé l'avion (encore à
+// son emplacement de parking d'origine, connu de chaque client sans le
+// serveur) ; heldBy = id du joueur qui l'a pris, ou null s'il est au sol.
+const planes = new Map();
+const MAX_PLANE_ID_LEN = 24;
 
 export function setupWs(httpServer) {
   wss = new WebSocketServer({ server: httpServer, path: '/ws' });
@@ -83,7 +89,10 @@ export function setupWs(httpServer) {
         }
 
         players.set(id, entry);
-        ws.send(JSON.stringify({ t: 'hello', id, players: others, friend }));
+        const planeList = [...planes.entries()].map(([pid, s]) => ({
+          id: pid, x: s.x, z: s.z, ry: s.ry, heldBy: s.heldBy,
+        }));
+        ws.send(JSON.stringify({ t: 'hello', id, players: others, friend, planes: planeList }));
         broadcast({ t: 'pjoin', id, name: player.name, p: entry.p, ry: 0 }, id);
         if (friend) {
           const friendEntry = players.get(friend.id);
@@ -121,6 +130,9 @@ export function setupWs(httpServer) {
         me.vrz = Number.isFinite(vrz) ? vrz : 0;
         me.vjet = me.veh === 2 && msg.vjet ? 1 : 0;
         if (me.vjet) me.lastJetAt = Date.now();
+        // Arme tenue en main (optionnel, borné) : les autres la voient sur
+        // l'avatar. 0 = rien en main. Voir WEAPON_IDS côté client.
+        me.wpn = Math.min(8, Math.max(0, Math.floor(Number(msg.wpn) || 0)));
         me.dirty = true;
         return;
       }
@@ -412,6 +424,30 @@ export function setupWs(httpServer) {
         return;
       }
 
+      // Avions partagés de l'aérodrome : décoratif et à faible enjeu, donc
+      // arbitrage simple (dernier arrivé gagne, pas de vérif de portée
+      // serveur) — l'important est que tout le monde voie la même chose.
+      if (msg.t === 'planeTake') {
+        const planeId = String(msg.id ?? '').slice(0, MAX_PLANE_ID_LEN);
+        if (!planeId) return;
+        let entry = planes.get(planeId);
+        if (!entry) { entry = { x: null, z: null, ry: null, heldBy: null }; planes.set(planeId, entry); }
+        entry.heldBy = id;
+        broadcast({ t: 'planeTake', id: planeId }, id);
+        return;
+      }
+      if (msg.t === 'planePark') {
+        const planeId = String(msg.id ?? '').slice(0, MAX_PLANE_ID_LEN);
+        if (!planeId) return;
+        const x = Number(msg.x), z = Number(msg.z), ry = Number(msg.ry);
+        if (![x, z, ry].every((v) => Number.isFinite(v) && Math.abs(v) < 2000)) return;
+        let entry = planes.get(planeId);
+        if (!entry) { entry = { x: null, z: null, ry: null, heldBy: null }; planes.set(planeId, entry); }
+        entry.x = x; entry.z = z; entry.ry = ry; entry.heldBy = null;
+        broadcast({ t: 'planePark', id: planeId, x, z, ry }, id);
+        return;
+      }
+
       // Chat de proximité : message visible par les joueurs proches uniquement
       if (msg.t === 'chat') {
         const now = Date.now();
@@ -435,6 +471,15 @@ export function setupWs(httpServer) {
 
     ws.on('close', () => {
       if (id && players.delete(id)) {
+        // Un avion resté entre les mains d'un joueur qui se déconnecte
+        // redevient libre — sans position connue (il était en vol), les
+        // autres clients le font réapparaître à son parking d'origine.
+        for (const [planeId, entry] of planes) {
+          if (entry.heldBy !== id) continue;
+          entry.heldBy = null;
+          entry.x = entry.z = entry.ry = null;
+          broadcast({ t: 'planePark', id: planeId, x: null, z: null, ry: null });
+        }
         broadcast({ t: 'pleave', id });
       }
     });
@@ -454,6 +499,7 @@ export function setupWs(httpServer) {
         Math.round((entry.vpx ?? 0) * 1000) / 1000,
         Math.round((entry.vrz ?? 0) * 1000) / 1000,
         entry.vjet ?? 0,
+        entry.wpn ?? 0, // arme en main (les vieux clients l'ignorent)
       ]);
     }
     if (states.length > 0) broadcast({ t: 'states', s: states });

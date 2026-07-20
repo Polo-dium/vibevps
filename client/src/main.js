@@ -14,7 +14,7 @@ import { buildBannerPlane, buildAirport } from './world/aviation.js';
 import { createMusicSource, TRACKS, gainForDistance } from './music.js';
 import { createPoiMap } from './ui/map.js';
 import { createControls, IS_TOUCH } from './player/controls.js';
-import { createWeapon } from './player/weapon.js';
+import { createWeapon, WEAPON_IDS } from './player/weapon.js';
 import { createArms } from './player/arms.js';
 import { createRemotePlayers } from './player/remotes.js';
 import { createVoice } from './player/voice.js';
@@ -700,6 +700,11 @@ async function boot() {
     audio.gunshot();
     navigator.vibrate?.(8);
   };
+  // Avions partagés : quand je prends/repose un avion de l'aérodrome, les
+  // autres joueurs doivent le voir disparaître/réapparaître au bon endroit
+  // et pouvoir le prendre à leur tour (voir world/aviation.js).
+  ctx.onPlaneTake = (id) => net.send({ t: 'planeTake', id });
+  ctx.onPlanePark = (id, x, z, ry) => net.send({ t: 'planePark', id, x, z, ry });
   // Explosion spécifique des bombes : onde de choc au sol, colonne chaude
   // puis large chapeau de fumée. Les géométries sont partagées et seules les
   // matières (qui doivent pâlir indépendamment) sont propres à chaque nuage.
@@ -1426,7 +1431,17 @@ async function boot() {
     } else if (inviteFriend) {
       ui.toast(`${inviteFriend} n'est pas encore en ville — tu le rejoindras dès qu'il arrive.`);
     }
+    // État courant des avions de l'aérodrome (pris/reposés par d'autres
+    // joueurs avant mon arrivée) : on l'applique tel quel.
+    for (const p of msg.planes ?? []) {
+      const reg = ctx.planes?.[p.id];
+      if (!reg) continue;
+      if (p.heldBy) reg.applyRemoteTake();
+      else if (p.x != null) reg.applyRemotePark(p.x, p.z, p.ry);
+    }
   });
+  net.on('planeTake', (msg) => ctx.planes?.[msg.id]?.applyRemoteTake());
+  net.on('planePark', (msg) => ctx.planes?.[msg.id]?.applyRemotePark(msg.x, msg.z, msg.ry));
   net.on('friendArrived', (msg) => {
     ui.toast(`🎉 ${msg.name} vient d'arriver grâce à ton invitation !`);
     ui.spawnConfetti(20);
@@ -1586,7 +1601,16 @@ async function boot() {
   });
 
   // --- Réseau ---
-  net.connect(() => controls.netState(), inviteFriend ? { ami: inviteFriend } : {});
+  // Les autres joueurs doivent voir l'arme qu'on tient : petit entier
+  // (voir WEAPON_IDS dans weapon.js), 0 = rien en main.
+  net.connect(() => {
+    const s = controls.netState();
+    if (state.weaponEquipped) {
+      const idx = WEAPON_IDS.indexOf(weapon.id);
+      if (idx >= 0) s.wpn = idx + 1;
+    }
+    return s;
+  }, inviteFriend ? { ami: inviteFriend } : {});
   net.on('game', (msg) => {
     state.games.push(msg.game);
     state.leaderboards[msg.game.id] = [];

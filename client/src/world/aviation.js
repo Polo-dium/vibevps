@@ -413,14 +413,16 @@ export function buildAirport(ctx) {
     manche.rotation.y = Math.sin(Date.now() / 2600) * 0.5; // le vent tourne
   });
 
-  // Les coucous pilotables, garés face à la piste
+  // Les coucous pilotables, garés face à la piste. Chacun a un identifiant
+  // stable (id) : c'est ce qui permet aux autres joueurs de voir où il a
+  // été reposé et de le prendre à leur tour (voir onPlaneTake/onPlanePark).
   const colors = [0xd23b3b, 0x2e6fd8, 0x3da05a];
   colors.forEach((c, i) => {
-    makeFlyablePlane(ctx, ax - 17, az - 22 + i * 22, -Math.PI / 2, c);
+    makeFlyablePlane(ctx, ax - 17, az - 22 + i * 22, -Math.PI / 2, c, { id: `plane-${i}` });
   });
   // Le Mirage est garé plus loin sur le tarmac pour rester accessible sans
   // bloquer les trois avions à hélice.
-  makeFlyablePlane(ctx, ax - 18, az + 70, -Math.PI / 2, 0xb7c4cf, { jet: true });
+  makeFlyablePlane(ctx, ax - 18, az + 70, -Math.PI / 2, 0xb7c4cf, { id: 'mirage', jet: true });
   // Petit terrain d'aéromodélisme sur le bord du tarmac.
   makeRemoteControlPlane(ctx, ax - 29, az - 45, -Math.PI / 2);
 }
@@ -585,7 +587,7 @@ function makeRemoteControlPlane(ctx, px, pz, ry) {
 // Avion pilotable : même recette que les voitures (ctx.startDrive/stopDrive,
 // caméra de poursuite), mais la branche `plane` de controls.js donne les gaz
 // et l'altitude. Le modèle suit le joueur pendant le vol.
-function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false } = {}) {
+function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false, id } = {}) {
   const group = jet ? buildMirageModel(color) : buildPlaneModel(color);
   const gy = ctx.terrainHeight?.(px, pz) ?? 0;
   group.position.set(px, gy, pz);
@@ -635,6 +637,41 @@ function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false } = {}) {
     gate.z = gz;
     box = planeBox(gx, gz, group.position.y);
     ctx.colliders.push(box);
+    // Les autres joueurs doivent voir l'avion à son nouvel endroit et
+    // pouvoir le prendre à leur tour.
+    if (id) ctx.onPlanePark?.(id, gx, gz, car.heading);
+  }
+
+  // --- Écho réseau : un AUTRE joueur a pris/reposé cet avion --------------
+  // (rien à faire si c'est MOI qui le pilote — mon propre état fait foi).
+  let remoteHeld = false;
+  function applyRemoteTake() {
+    if (driving) return;
+    remoteHeld = true;
+    group.visible = false;
+    ctx.colliders.remove?.(box);
+    gate.r = 0; // injoignable tant qu'il est entre d'autres mains
+  }
+  function applyRemotePark(x, z, heading) {
+    if (driving) return;
+    remoteHeld = false;
+    group.visible = true;
+    gate.r = 4.2;
+    const gx = x ?? px, gz = z ?? pz, gry = heading ?? ry;
+    const ground = ctx.terrainHeight?.(gx, gz) ?? 0;
+    group.position.set(gx, ground, gz);
+    group.rotation.set(0, gry, 0);
+    car.heading = gry;
+    gate.x = gx;
+    gate.z = gz;
+    gate.label = jet ? 'E — Piloter le Mirage 2000' : "E — Piloter l'avion";
+    ctx.colliders.remove?.(box);
+    box = planeBox(gx, gz, ground);
+    ctx.colliders.push(box);
+  }
+  if (id) {
+    ctx.planes ??= {};
+    ctx.planes[id] = { applyRemoteTake, applyRemotePark };
   }
 
   const gate = {
@@ -660,6 +697,9 @@ function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false } = {}) {
         gate.label = 'E — Sauter de l’avion';
         car.speed = 0;
         ctx.startDrive?.(car, group);
+        // Les autres joueurs doivent le voir disparaître (je l'emmène) et ne
+        // plus pouvoir le prendre tant que je l'ai.
+        if (id) ctx.onPlaneTake?.(id);
         ctx.notify?.(jet
           ? '✈️ Mirage 2000 : 790 km/h · double TIR · BOMBE (rayon létal 50 m) · H/CAM : vue cockpit ou poursuite. Tire le manche vers toi pour monter !'
           : '🛩️ Gauche : gaz/lacet · droite : tangage/roulis · double TIR · H/CAM : vue cockpit ou poursuite. Tire le manche vers toi après 60 km/h !');
@@ -763,6 +803,7 @@ function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false } = {}) {
         gate.label = jet ? 'E — Piloter le Mirage 2000' : "E — Piloter l'avion";
         box = planeBox(px, pz, gy);
         ctx.colliders.push(box);
+        if (id) ctx.onPlanePark?.(id, px, pz, ry);
       }
       return;
     }

@@ -94,5 +94,9 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
     hitMeshes: [torso, head, legL.children[0], legR.children[0]],
     shirtMat,
     animate,
+    // Pivot de l'épaule droite : point d'accroche pour une arme tenue en
+    // main (voir player/remotes.js), suit naturellement le balancement
+    // de marche puisque animate() tourne ce même pivot.
+    armR,
   };
 }

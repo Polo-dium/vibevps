@@ -55,6 +55,12 @@ export const WEAPONS = {
   },
 };
 
+// Mapping id ↔ petit entier pour la synchro réseau (voir netState() dans
+// main.js et remotes.js) : indice+1, 0 réservé à « pas d'arme en main ».
+// Ordre figé — ne jamais réordonner (casserait la compat avec les clients
+// déjà connectés), n'ajouter qu'à la fin.
+export const WEAPON_IDS = ['ak', 'marteau', 'pompe', 'minigun', 'bazooka', 'akimbo', 'baton', 'sniper'];
+
 export function createWeapon(camera, scene, shootables, {
   onAmmoChange, onShot, onRocketExplosion, getGroundY, onWeaponChange, worldHit,
   onScope,
@@ -649,6 +655,7 @@ export function createWeapon(camera, scene, shootables, {
       return scopeZoom;
     },
     get aiming() { return aiming; },
+    get id() { return curId; },
     fx: { spawnTracer, spawnImpact, spawnExplosion },
     get ammo() { return ammo; },
     get spec() { return spec; },

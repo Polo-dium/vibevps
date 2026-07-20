@@ -4,6 +4,7 @@ import { buildHuman } from '../world/human.js';
 import { buildMirageModel, buildPlaneModel } from '../world/aviation.js';
 import { buildVelovModel } from '../world/velov.js';
 import { createMusicSource, gainForDistance } from '../music.js';
+import { buildWeaponModel, WEAPON_IDS } from './weapon.js';
 import * as net from '../net.js';
 
 const INTERP_DELAY = 0.12; // secondes de retard de rendu pour interpoler
@@ -76,6 +77,16 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     r.flashUntil = performance.now() / 1000 + 0.25;
   }
 
+  // Éclair de bouche bref quand un joueur distant tire — le serveur ne
+  // broadcast jamais le 'shot' à son propre auteur (voir ws.js), donc ceci
+  // ne se déclenche que pour de VRAIS tireurs distants.
+  function muzzleFlash(id) {
+    const r = remotes.get(id);
+    if (!r?.muzzle) return;
+    r.muzzleUntil = performance.now() / 1000 + 0.06;
+  }
+  net.on('shot', (msg) => muzzleFlash(msg.id));
+
   net.on('hello', (msg) => {
     for (const pl of msg.players) spawn(pl.id, pl.name, pl.p, pl.ry);
   });
@@ -86,13 +97,13 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
   net.on('chat', (msg) => showChat(msg.id, msg.text));
   net.on('states', (msg) => {
     const now = performance.now() / 1000;
-    for (const [id, x, y, z, ry, , veh, vry, mus, vpx, vrz, vjet] of msg.s) {
+    for (const [id, x, y, z, ry, , veh, vry, mus, vpx, vrz, vjet, wpn] of msg.s) {
       const r = remotes.get(id);
       if (!r) continue;
       r.buffer.push({
         t: now, p: [x, y, z], ry,
         veh: veh ?? 0, vry: vry ?? 0, mus: mus ?? 0,
-        vpx: vpx ?? 0, vrz: vrz ?? 0, vjet: vjet ?? 0,
+        vpx: vpx ?? 0, vrz: vrz ?? 0, vjet: vjet ?? 0, wpn: wpn ?? 0,
       });
       if (r.buffer.length > 30) r.buffer.shift();
     }
@@ -166,6 +177,33 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
           r.bike.position.copy(g.position);
           r.bike.rotation.y = (b.vry ?? a.vry ?? 0);
         }
+      }
+
+      // Arme tenue en main : on voit un autre joueur la sortir, la ranger,
+      // et l'éclair de bouche quand il tire (voir muzzleFlash/net.on('shot')).
+      // Rien en véhicule/avion — les mains sont sur les commandes.
+      const wpnCode = veh ? 0 : (b.wpn ?? a.wpn ?? 0);
+      if (wpnCode !== (r.weaponCode ?? 0)) {
+        if (r.weapon) { r.human.armR.remove(r.weapon); r.weapon = null; r.muzzle = null; }
+        const wid = WEAPON_IDS[wpnCode - 1];
+        if (wid) {
+          r.weapon = buildWeaponModel(wid);
+          r.weapon.position.set(0.02, -0.5, -0.06);
+          r.weapon.rotation.set(-1.15, 0, 0);
+          r.muzzle = new THREE.Sprite(new THREE.SpriteMaterial({
+            color: 0xfff2b0, transparent: true, opacity: 0, depthWrite: false,
+            blending: THREE.AdditiveBlending,
+          }));
+          r.muzzle.scale.set(0.35, 0.35, 1);
+          r.muzzle.position.set(0, 0, -0.5);
+          r.muzzle.userData.noShadow = true;
+          r.weapon.add(r.muzzle);
+          r.human.armR.add(r.weapon);
+        }
+        r.weaponCode = wpnCode;
+      }
+      if (r.muzzle) {
+        r.muzzle.material.opacity = (r.muzzleUntil && nowSec < r.muzzleUntil) ? 1 : 0;
       }
       let dvry = (b.vry ?? 0) - (a.vry ?? 0);
       while (dvry > Math.PI) dvry -= Math.PI * 2;
