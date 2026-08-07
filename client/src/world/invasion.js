@@ -80,6 +80,9 @@ export function createInvasion(ctx, { notify, setBanner, onAttack, onEnd, getDam
       }
     }
     if (!active) return;
+    // Les gones zombies sortent des traboules de LYON : pas question qu'ils
+    // apparaissent autour du joueur pendant sa visite en haute fidélité.
+    if (ctx.inHiFi) return;
 
     spawnCooldown -= dt;
     if (zombies.length < MAX_ZOMBIES && spawnCooldown <= 0) {

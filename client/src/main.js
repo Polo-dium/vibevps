@@ -36,6 +36,7 @@ import { createReflections } from './world/reflections.js';
 import { applySeason } from './world/seasons.js';
 import { createDistanceCuller } from './world/culling.js';
 import { createKoth } from './world/koth.js';
+import { createHiFi } from './world/hifi.js';
 import { buildGuignol } from './world/guignol.js';
 import { createNeons } from './world/neons.js';
 import { createSkylife } from './world/skylife.js';
@@ -1103,11 +1104,20 @@ async function boot() {
     onEnd: (kills) => submitScore('invasion', kills),
   });
 
+  // Lieux en haute fidélité : la zone du Roi de la colline sert de porte
+  // d'entrée. `ctx.teleport` est le seul crochet dont hifi.js a besoin.
+  ctx.teleport = (x, y, z, ry) => controls.teleport(x, y, z, ry);
+  const hifi = createHiFi(ctx, { notify: ui.toast });
+  if (window.__game) window.__game.hifi = hifi; // hook de debug (?debug)
+
   // Roi de la colline : la zone dorée tirée au sort toutes les 10 min
   createKoth(ctx, {
     setBanner: ui.setBanner,
     notify: ui.toast,
     onScore: (s) => submitScore('koth', s),
+    onEnterHiFi: (poi) => hifi.enter(poi.id, poi.nom),
+    onLeaveHiFi: () => hifi.exit(),
+    isInHiFi: () => Boolean(hifi.active),
   });
 
   // Guignol : spectacle toutes les 4 min + le bâton à gagner
