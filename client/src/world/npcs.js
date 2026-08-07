@@ -203,7 +203,7 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit, onNpcAttack }) {
     npc.fly = null;
     npc.mode = 'walk';
     npc.speed = 1.0 + Math.random() * 0.8;
-    npc.human.shirtMat.color.copy(npc.baseColor);
+    npc.human.clearTint();
     npc.bubble.visible = false;
   }
 
@@ -222,7 +222,7 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit, onNpcAttack }) {
       enrageUntil = 0;
       for (const npc of npcs) {
         if (npc.mode !== 'walk') continue;
-        npc.human.shirtMat.color.copy(npc.baseColor);
+        npc.human.clearTint();
         npc.speed = 1.0 + Math.random() * 0.8;
       }
     }
@@ -235,7 +235,7 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit, onNpcAttack }) {
           npc.group.position.distanceTo(playerPos) > 130 &&
           (frame + npc.group.id) % 20 !== 0) continue;
       if (npc.flashUntil && now > npc.flashUntil && npc.mode === 'walk') {
-        npc.human.shirtMat.color.copy(npc.baseColor);
+        npc.human.clearTint();
         npc.flashUntil = 0;
       }
 

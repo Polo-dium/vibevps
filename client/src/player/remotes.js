@@ -119,7 +119,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
 
     for (const r of remotes.values()) {
       if (r.flashUntil && nowSec > r.flashUntil) {
-        r.human.shirtMat.color.copy(r.baseColor);
+        r.human.clearTint();
         r.flashUntil = 0;
       }
       if (r.bubbleUntil && nowSec > r.bubbleUntil) {

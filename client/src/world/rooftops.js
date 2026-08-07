@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildHuman } from './human.js';
+import { flattenColored } from './utils.js';
 
 // Rooftop bars : sur quelques grands toits, une terrasse festive — comptoir,
 // tabourets, transats, parasols, plantes, guirlandes lumineuses (la nuit) et
@@ -21,6 +22,13 @@ export function buildRooftopBar(ctx, { x, z, y, w, d, rand }) {
   g.position.set(x, y, z);
   ctx.scene.add(g);
 
+  // PERF : tout le décor FIXE de la terrasse (platelage, acrotère, comptoir,
+  // bouteilles, tabourets, parasols, transats, plantes) est bâti dans ce
+  // groupe tampon puis cuit en UN seul mesh à couleurs de sommets — une
+  // terrasse passe ainsi de ~90 draw calls à 1. Seuls les éléments vivants
+  // (gones, guirlande, lueur du bar, bulle) restent des objets à part.
+  const statics = new THREE.Group();
+
   const woodMat = new THREE.MeshLambertMaterial({ color: 0x6b4a2f });
   const deckMat = new THREE.MeshLambertMaterial({ color: 0x8a7355 });
   const metalMat = new THREE.MeshLambertMaterial({ color: 0x30343c });
@@ -28,7 +36,7 @@ export function buildRooftopBar(ctx, { x, z, y, w, d, rand }) {
   // Platelage bois qui couvre le toit
   const deck = new THREE.Mesh(new THREE.BoxGeometry(w - 0.4, 0.12, d - 0.4), deckMat);
   deck.position.y = 0.06;
-  g.add(deck);
+  statics.add(deck);
 
   // Acrotère : muret sur le pourtour (visuel + collision anti-chute)
   const PH = 1.05;
@@ -40,7 +48,7 @@ export function buildRooftopBar(ctx, { x, z, y, w, d, rand }) {
   ]) {
     const bar = new THREE.Mesh(new THREE.BoxGeometry(ww, PH, dd), railMat);
     bar.position.set(sx, PH / 2, sz);
-    g.add(bar);
+    statics.add(bar);
     ctx.colliders.push({
       minX: x + sx - ww / 2, maxX: x + sx + ww / 2,
       minY: y, maxY: y + PH,
@@ -51,10 +59,10 @@ export function buildRooftopBar(ctx, { x, z, y, w, d, rand }) {
   // Comptoir de bar avec bouteilles colorées, adossé à un bord
   const bar = new THREE.Mesh(new THREE.BoxGeometry(w * 0.4, 1.05, 0.7), woodMat);
   bar.position.set(-w * 0.2, 0.6, -halfD + 1.2);
-  g.add(bar);
+  statics.add(bar);
   const top = new THREE.Mesh(new THREE.BoxGeometry(w * 0.4 + 0.2, 0.1, 0.9), deckMat);
   top.position.set(-w * 0.2, 1.15, -halfD + 1.2);
-  g.add(top);
+  statics.add(top);
   const bottleCols = [0x4dff6a, 0xff5252, 0xffd23f, 0x4da6ff, 0xff7a4d];
   for (let i = 0; i < 6; i++) {
     const b = new THREE.Mesh(
@@ -62,7 +70,7 @@ export function buildRooftopBar(ctx, { x, z, y, w, d, rand }) {
       new THREE.MeshLambertMaterial({ color: bottleCols[i % bottleCols.length] })
     );
     b.position.set(-w * 0.2 - w * 0.15 + i * (w * 0.06), 1.34, -halfD + 1.2);
-    g.add(b);
+    statics.add(b);
   }
 
   // Tabourets devant le bar
@@ -71,7 +79,7 @@ export function buildRooftopBar(ctx, { x, z, y, w, d, rand }) {
     stool.position.set(-w * 0.32 + i * (w * 0.13), 0.62, -halfD + 2.1);
     const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.6, 6), metalMat);
     leg.position.set(stool.position.x, 0.3, stool.position.z);
-    g.add(stool, leg);
+    statics.add(stool, leg);
   }
 
   // Parasols + transats répartis sur la terrasse
@@ -89,7 +97,7 @@ export function buildRooftopBar(ctx, { x, z, y, w, d, rand }) {
       new THREE.MeshLambertMaterial({ color: parasolCols[i % parasolCols.length] })
     );
     canopy.position.set(px, 2.4, pz);
-    g.add(pole, canopy);
+    statics.add(pole, canopy);
     // Transat (bain de soleil incliné)
     const chair = new THREE.Group();
     const seat = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.08, 1.4), woodMat);
@@ -101,7 +109,7 @@ export function buildRooftopBar(ctx, { x, z, y, w, d, rand }) {
     chair.add(back);
     chair.position.set(px + 1.2, 0, pz);
     chair.rotation.y = rand() * 0.6 - 0.3;
-    g.add(chair);
+    statics.add(chair);
     loungeSpots.push({ x: px + 1.2, z: pz, lounging: true, ry: chair.rotation.y });
     // Petite plante en pot
     if (rand() < 0.6) {
@@ -109,9 +117,13 @@ export function buildRooftopBar(ctx, { x, z, y, w, d, rand }) {
       pot.position.set(px - 1.4, 0.18, pz);
       const bush = new THREE.Mesh(new THREE.IcosahedronGeometry(0.4, 0), new THREE.MeshLambertMaterial({ color: 0x4a7038, flatShading: true }));
       bush.position.set(px - 1.4, 0.6, pz);
-      g.add(pot, bush);
+      statics.add(pot, bush);
     }
   }
+
+  // Tout le décor fixe part dans un seul mesh (voir flattenColored)
+  const baked = flattenColored(statics);
+  if (baked) g.add(baked);
 
   // Guirlande lumineuse le long de l'acrotère (points additifs, la nuit)
   const bulbPos = [];

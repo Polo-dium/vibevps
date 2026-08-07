@@ -1,4 +1,51 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+// APLATISSEMENT PAR COULEURS DE SOMMETS
+//
+// Un objet fait de N petites pièces de couleurs différentes coûte N draw
+// calls. En cuisant la couleur de chaque pièce dans ses sommets, tout tient
+// dans UN seul mesh, donc UN draw call — c'est le levier principal sur les
+// objets répétés du décor (humains, voitures, terrasses).
+//
+// Ne prend que les pièces « simples » (matériau uni, sans texture ni
+// émissif) : le reste est laissé tel quel par l'appelant, car une texture
+// ou une lueur ne se cuit pas dans une couleur de sommet.
+// `source` : un tableau de meshes, ou un objet (groupe) dont on prend tout
+// le sous-arbre. Les transformations sont figées par rapport à la racine.
+export function flattenColored(source, { material } = {}) {
+  const geos = [];
+  const c = new THREE.Color();
+  const meshes = [];
+  for (const root of (Array.isArray(source) ? source : [source])) {
+    root.updateMatrixWorld(true);
+    root.traverse((o) => { if (o.isMesh && !o.isInstancedMesh) meshes.push(o); });
+  }
+  for (const m of meshes) {
+    const mat = Array.isArray(m.material) ? m.material[0] : m.material;
+    if (!m.geometry || !mat?.color || mat.map || mat.emissiveMap) continue;
+    // Non-indexé pour que toutes les géométries aient la même structure
+    // (mergeGeometries refuse un mélange indexé / non indexé).
+    const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+    g.applyMatrix4(m.matrixWorld);
+    // On ne garde que position + normal : les UV n'ont plus de sens une fois
+    // des pièces disparates réunies, et leur absence uniformise la fusion.
+    for (const name of Object.keys(g.attributes)) {
+      if (name !== 'position' && name !== 'normal') g.deleteAttribute(name);
+    }
+    if (!g.attributes.normal) g.computeVertexNormals();
+    c.copy(mat.color);
+    const n = g.attributes.position.count;
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geos.push(g);
+  }
+  if (!geos.length) return null;
+  const merged = geos.length === 1 ? geos[0] : mergeGeometries(geos);
+  if (!merged) return null;
+  return new THREE.Mesh(merged, material ?? new THREE.MeshLambertMaterial({ vertexColors: true }));
+}
 
 // Crée un mesh boîte + son collider AABB, et l'enregistre dans le contexte monde.
 // origin = centre au sol (y = bas de la boîte).
