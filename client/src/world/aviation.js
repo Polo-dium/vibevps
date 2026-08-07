@@ -648,6 +648,9 @@ function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false, id } = {}) {
   function applyRemoteTake() {
     if (driving) return;
     remoteHeld = true;
+    // forceHidden : le masquage par distance ne doit pas le réafficher quand
+    // on s'approche — il est en vol chez quelqu'un d'autre (voir culling.js).
+    group.userData.forceHidden = true;
     group.visible = false;
     ctx.colliders.remove?.(box);
     gate.r = 0; // injoignable tant qu'il est entre d'autres mains
@@ -655,6 +658,7 @@ function makeFlyablePlane(ctx, px, pz, ry, color, { jet = false, id } = {}) {
   function applyRemotePark(x, z, heading) {
     if (driving) return;
     remoteHeld = false;
+    group.userData.forceHidden = false;
     group.visible = true;
     gate.r = 4.2;
     const gx = x ?? px, gz = z ?? pz, gry = heading ?? ry;

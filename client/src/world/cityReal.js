@@ -1982,7 +1982,14 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     if (nc) ctx.scene.add(chimneys);
   }
 
-  for (const t of tiles.values()) {
+  // Chaque tuile retient son centre : c'est ce qui permet de ne dessiner que
+  // les quartiers à portée de vue (voir plus bas). Sans ça, le Grand Lyon
+  // entier part au GPU à chaque frame, où qu'on soit.
+  const tileCulling = [];
+  for (const [key, t] of tiles) {
+    const [kx, kz] = key.split(',').map(Number);
+    const cx = (kx + 0.5) * TILE, cz = (kz + 0.5) * TILE;
+    const meshes = [];
     if (t.wp.length > 0) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(t.wp, 3));
@@ -1991,17 +1998,52 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       geo.computeVertexNormals();
       const mesh = new THREE.Mesh(geo, wallMat);
       mesh.userData.taggable = true;
+      mesh.userData.cityTile = true;
       ctx.taggables.push(mesh);
       ctx.scene.add(mesh);
+      meshes.push(mesh);
     }
     if (t.rp.length > 0) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(t.rp, 3));
       geo.setAttribute('color', new THREE.Float32BufferAttribute(t.rc, 3));
       geo.computeVertexNormals();
-      ctx.scene.add(new THREE.Mesh(geo, roofMat));
+      const mesh = new THREE.Mesh(geo, roofMat);
+      mesh.userData.cityTile = true;
+      ctx.scene.add(mesh);
+      meshes.push(mesh);
     }
+    if (meshes.length) tileCulling.push({ cx, cz, meshes, shown: true });
   }
+
+  // Masquage par distance : une tuile hors de portée n'est plus dessinée.
+  // Marge d'hystérésis pour qu'une tuile pile à la frontière ne clignote pas
+  // quand on fait un pas en avant/arrière. Contrôle 4×/s : le coût du test
+  // (quelques centaines de distances au carré) est négligeable devant les
+  // centaines de draw calls économisés.
+  // NB : les tuiles masquées restent taguables et gardent leurs colliders —
+  // seul le RENDU est coupé, jamais la physique ni le gameplay.
+  const HYST = TILE;
+  let cullTimer = 0;
+  ctx.updatables.push((dt) => {
+    cullTimer -= dt;
+    if (cullTimer > 0) return;
+    cullTimer = 0.25;
+    const p = ctx.playerPos?.();
+    if (!p) return;
+    const view = ctx.viewDistance ?? 2400;
+    const hide = (view + HYST) ** 2, show = view ** 2;
+    for (const t of tileCulling) {
+      const d2 = (t.cx - p.x) ** 2 + (t.cz - p.z) ** 2;
+      if (t.shown && d2 > hide) {
+        t.shown = false;
+        for (const m of t.meshes) m.visible = false;
+      } else if (!t.shown && d2 < show) {
+        t.shown = true;
+        for (const m of t.meshes) m.visible = true;
+      }
+    }
+  });
 
   if (shopPos.length) {
     const geo = new THREE.BufferGeometry();

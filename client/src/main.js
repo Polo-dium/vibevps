@@ -34,6 +34,7 @@ import { createFishing } from './world/fishing.js';
 import { createPigeons } from './world/pigeons.js';
 import { createReflections } from './world/reflections.js';
 import { applySeason } from './world/seasons.js';
+import { createDistanceCuller } from './world/culling.js';
 import { createKoth } from './world/koth.js';
 import { buildGuignol } from './world/guignol.js';
 import { createNeons } from './world/neons.js';
@@ -47,7 +48,7 @@ import { createGameShell } from './games/shell.js';
 import { createUi } from './ui/hud.js';
 import { createProgress } from './progress.js';
 import { createCapture } from './capture.js';
-import { createQuality } from './quality.js';
+import { createQuality, fogDensityFor } from './quality.js';
 import { createLoadingScreen, nextPaint } from './ui/loading.js';
 import { createTutorial } from './ui/tutorial.js';
 
@@ -214,8 +215,30 @@ async function boot() {
   function applyRenderScale() {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.preset.pixelRatio) * renderScale);
   }
+  // Portée de vue du palier + brume assortie. Sur la ville complète, c'est
+  // ce réglage qui décide combien de quartiers partent au GPU : la brume est
+  // calée pour que la coupure tombe là où tout est déjà gris (voir
+  // fogDensityFor). N'a d'effet que sur la ville OSM (le monde procédural,
+  // bien plus petit, garde sa brume linéaire d'origine).
+  // Facteur adaptatif appliqué PAR-DESSUS la portée du palier, piloté par le
+  // fps (voir la boucle principale) : une machine qui peine voit moins loin
+  // au lieu de ramer, et retrouve sa distance dès qu'elle respire.
+  let viewScale = 1;
+  function applyViewDistance(preset) {
+    if (!ctx.worldBound) return; // monde procédural : rien à borner
+    const view = Math.min(preset.viewDistance * viewScale, ctx.worldBound * 2);
+    ctx.viewDistance = view;
+    // Densité de RÉFÉRENCE du palier : la pluie la multiplie sans l'écraser
+    // (voir world/weather.js), d'où le passage par ctx.
+    const density = fogDensityFor(view);
+    ctx.fogBaseDensity = density;
+    if (scene.fog instanceof THREE.FogExp2) scene.fog.density = density;
+    else scene.fog = new THREE.FogExp2(scene.fog?.color ?? skyColor, density);
+  }
+
   quality.onChange((preset) => {
     renderScale = 1; // changer de palier remet la définition à neuf
+    viewScale = 1;   // …et la portée de vue
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatio));
     renderer.shadowMap.enabled = preset.shadows;
     shadowsEnabled = preset.shadows;
@@ -225,6 +248,7 @@ async function boot() {
       sun.shadow.map?.dispose();
       sun.shadow.map = null;
     }
+    applyViewDistance(preset);
   });
 
   // Soleil et lune visibles dans le ciel (même direction que la lumière)
@@ -381,13 +405,16 @@ async function boot() {
 
   if (osmData?.buildings?.length > 50) {
     buildRealCity(ctx, osmData);
+    // camera.far reste large : le dôme de ciel, les Alpes et les collines
+    // sont des décors lointains qu'il ne faut jamais tronquer. Ce qui borne
+    // le coût, c'est la portée de vue (ci-dessous), pas le plan lointain.
     camera.far = Math.max(1400, ctx.worldBound * 3);
     camera.updateProjectionMatrix();
-    // Brume calée sur la TAILLE de la carte : sur le Grand Lyon (bound ~1556)
-    // une densité fixe noyait toute la ville (et les fleuves) dans le gris.
-    // On vise ~50 % de brume à une distance ≈ bound → on voit les deux rives,
-    // les fleuves et les collines, tout en bornant le rendu lointain.
-    scene.fog = new THREE.FogExp2(skyColor, Math.min(0.0011, 0.9 / (ctx.worldBound || 500)));
+    // Portée de vue + brume assortie, pilotées par le palier de qualité :
+    // sur petite config on voit moins loin (et la brume le justifie), ce qui
+    // divise le nombre de tuiles de ville dessinées. Sur « élevé », la portée
+    // est assez grande pour que le rendu reste celui d'avant.
+    applyViewDistance(quality.preset);
     ui.toast(osmData.hills
       ? 'Le GRAND Lyon chargé, de la Confluence à la Croix-Rousse — données © OpenStreetMap'
       : 'Vrai centre de Lyon chargé — données © OpenStreetMap');
@@ -1027,6 +1054,13 @@ async function boot() {
       ui.toast(`${mots[saison]} — la ville suit les vraies saisons.`);
     }
   }
+
+  // Le monde est bâti : on recense le petit décor pour ne dessiner que
+  // celui à portée de vue. C'est de LOIN le premier poste de draw calls
+  // (~700 sur ~950 mesurés au centre-ville) — voir world/culling.js.
+  const culler = createDistanceCuller(scene, () => controls.position);
+  ctx.updatables.push((dt) => culler.update(dt, ctx.viewDistance));
+  if (window.__game) window.__game.culler = culler; // hook de debug (?debug)
 
   // Score générique : les mini-jeux locaux poussent leur meilleur résultat
   // sur une borne (MAX(score) = record).
@@ -1887,14 +1921,32 @@ async function boot() {
       // doucement. Invisible sur une machine à l'aise, salvateur ailleurs.
       dynCooldown -= 1;
       if (dynCooldown <= 0 && !document.hidden) {
-        if (fpsValue < 45 && renderScale > 0.6) {
-          renderScale = Math.max(0.6, renderScale - 0.1);
-          applyRenderScale();
-          dynCooldown = 4;
-        } else if (fpsValue > 56 && renderScale < 1) {
-          renderScale = Math.min(1, renderScale + 0.05);
-          applyRenderScale();
-          dynCooldown = 6;
+        if (fpsValue < 45) {
+          // On rogne d'abord la PORTÉE DE VUE : c'est elle qui commande le
+          // nombre de draw calls (~700 des ~950 mesurés au centre-ville
+          // viennent du petit décor lointain). La définition d'image ne baisse
+          // qu'ensuite, quand il n'y a plus de portée à gagner — une image
+          // nette dans une ville plus brumeuse vaut mieux que l'inverse.
+          if (viewScale > 0.45) {
+            viewScale = Math.max(0.45, viewScale - 0.12);
+            applyViewDistance(quality.preset);
+            dynCooldown = 4;
+          } else if (renderScale > 0.6) {
+            renderScale = Math.max(0.6, renderScale - 0.1);
+            applyRenderScale();
+            dynCooldown = 4;
+          }
+        } else if (fpsValue > 56) {
+          // On rend d'abord la netteté, puis la distance de vue
+          if (renderScale < 1) {
+            renderScale = Math.min(1, renderScale + 0.05);
+            applyRenderScale();
+            dynCooldown = 6;
+          } else if (viewScale < 1) {
+            viewScale = Math.min(1, viewScale + 0.06);
+            applyViewDistance(quality.preset);
+            dynCooldown = 6;
+          }
         }
       }
     }

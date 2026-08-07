@@ -138,9 +138,13 @@ export function createWeather(ctx, { audio, camera } = {}) {
       }
       leaves.lgeo.attributes.position.needsUpdate = true;
     }
+    // La pluie épaissit la brume PAR-DESSUS la densité du palier de qualité.
+    // Cette densité de base change quand le joueur change de palier (portée
+    // de vue) : on la relit à chaque fois au lieu de la figer une fois pour
+    // toutes, sinon la pluie verrouille la brume d'un ancien palier.
     if (ctx.scene.fog?.isFogExp2) {
-      if (baseFog == null) baseFog = ctx.scene.fog.density;
-      ctx.scene.fog.density = baseFog * (1 + amount * 1.4);
+      const base = ctx.fogBaseDensity ?? (baseFog ??= ctx.scene.fog.density);
+      ctx.scene.fog.density = base * (1 + amount * 1.4);
     }
     for (const c of clouds) {
       c.sp.material.opacity = amount * 0.6;

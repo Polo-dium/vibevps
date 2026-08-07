@@ -11,11 +11,25 @@ const LABELS = { bas: 'Bas', moyen: 'Moyen', eleve: 'Élevé' };
 // mapSize petit sur bas/moyen : la carte d'ombre est le plus gros poste de
 // coût sur les GPU intégrés (Intel UHD et consorts) — bien plus que le
 // nombre de triangles de la ville, qui reste identique partout.
+//
+// viewDistance (mètres) : rayon au-delà duquel les tuiles de ville ne sont
+// plus dessinées. C'est LE réglage qui décide du nombre de draw calls sur
+// le Grand Lyon — sans lui, toute la ville (~2,3 × 2,8 km) est soumise au
+// GPU depuis n'importe où. La brume est calée dessus (voir fogDensity) pour
+// que la coupure tombe là où tout est déjà noyé de gris : on ne voit pas
+// les bâtiments disparaître, on voit juste plus loin ou moins loin.
 const PRESETS = {
-  bas: { pixelRatio: 1, shadows: false, shadowMapSize: 1024 },
-  moyen: { pixelRatio: 1.25, shadows: true, shadowMapSize: 1024 },
-  eleve: { pixelRatio: 2, shadows: true, shadowMapSize: 2048 },
+  bas: { pixelRatio: 1, shadows: false, shadowMapSize: 1024, viewDistance: 420 },
+  moyen: { pixelRatio: 1.25, shadows: true, shadowMapSize: 1024, viewDistance: 850 },
+  eleve: { pixelRatio: 2, shadows: true, shadowMapSize: 2048, viewDistance: 2400 },
 };
+
+// Densité de brume qui rend une tuile ~90 % grise à la distance de coupure :
+// exp(-(d·x)²) ≈ 0,12 pour d·x = 1,45. On vise un peu avant la coupure pour
+// que le dernier rang de bâtiments soit déjà fondu quand il disparaît.
+export function fogDensityFor(viewDistance) {
+  return 1.6 / Math.max(120, viewDistance);
+}
 
 const STORAGE_KEY = 'lyon_quality';
 
