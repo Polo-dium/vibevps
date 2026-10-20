@@ -2209,7 +2209,38 @@ function paintFacade(mesh, rand, buildingH) {
 
 export function buildMurPeint(ctx) {
   // Grande fresque murale à taguer, hommage à la Fresque des Lyonnais :
-  // fenêtres en trompe-l'œil et personnages célèbres peints sur le mur
+  // fenêtres en trompe-l'œil et personnages célèbres peints sur le mur.
+  // Vrai Lyon : peinte À PLAT sur la façade OSM retenue (cityReal.js).
+  const fw = ctx.fresqueWall;
+  if (fw) {
+    const ex = (fw.x2 - fw.x1) / fw.len, ez = (fw.z2 - fw.z1) / fw.len;
+    const ox = -ez, oz = ex; // normale extérieure (murs en sens horaire)
+    const w = Math.min(fw.len - 0.6, 34);
+    const h = Math.min(fw.h - 1, 16);
+    const mx = (fw.x1 + fw.x2) / 2, mz = (fw.z1 + fw.z2) / 2;
+    const ry = Math.atan2(ox, oz);
+    const fresque = new THREE.Mesh(
+      new THREE.BoxGeometry(w, h, 0.25),
+      new THREE.MeshLambertMaterial({ map: makeFresqueTexture() })
+    );
+    fresque.position.set(mx + ox * 0.14, fw.yBase + 0.3 + h / 2, mz + oz * 0.14);
+    fresque.rotation.y = ry;
+    fresque.userData.taggable = true;
+    ctx.taggables.push(fresque);
+    ctx.scene.add(fresque);
+    // Enseigne à la largeur du mur (proportions gardées) : plus large, ses
+    // bords disparaissaient derrière les toits voisins
+    const sw = Math.min(14, w);
+    const sign = new THREE.Mesh(
+      new THREE.PlaneGeometry(sw, 2.4 * (sw / 14)),
+      new THREE.MeshBasicMaterial({ map: makeTextTexture('MUR DES LYONNAIS', { color: '#ffb347' }), transparent: true })
+    );
+    sign.position.set(mx + ox * 0.3, fw.yBase + 0.3 + h - 1.4 * (sw / 14), mz + oz * 0.3);
+    sign.rotation.y = ry;
+    ctx.scene.add(sign);
+    ctx.pois?.push({ id: 'fresque', nom: 'Fresque des Lyonnais', emoji: '🎨', x: mx + ox * 6, z: mz + oz * 6 });
+    return;
+  }
   const { x, z, w, h } = MUR_PEINT;
   const wall = addBox(ctx, {
     x, z, w, h, d: 2.5, taggable: true,

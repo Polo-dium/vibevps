@@ -94,6 +94,13 @@ export function makeTextTexture(text, { color = '#00ffd5', bg = '#06070f', width
   g.fillStyle = bg;
   g.fillRect(0, 0, width, height);
   g.font = font;
+  // Texte trop long pour le panneau : on réduit la police au lieu de le
+  // laisser déborder (« MUR DES LYONNAIS » s'affichait « R DES LYONNA »)
+  let px = Number(/(\d+)px/.exec(font)?.[1] ?? 0);
+  while (px > 14 && g.measureText(text).width > width * 0.92) {
+    px -= 4;
+    g.font = font.replace(/\d+px/, `${px}px`);
+  }
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.shadowColor = color;

@@ -893,6 +893,18 @@ export function buildRealCity(ctx, data) {
     // et de la prairie qui occupe l'est de la place. Position tournée avec
     // la place (portes/bornes/zones réservées suivent).
     [ARCADE.x, ARCADE.z] = ctx.belleRot.apply(-48, 3);
+    // Fresque des Lyonnais : peinte sur la VRAIE façade (angle quai
+    // Saint-Vincent / rue de la Martinière, 45,7672 N 4,8274 E), choisie
+    // parmi les murs OSM à la construction des bâtiments — plus de mur
+    // isolé sur une place rasée aux coordonnées de la ville procédurale.
+    {
+      const sc = data.scale ?? 0.5;
+      ctx.fresqueTarget = {
+        x: (4.82738 - 4.8320) * 111320 * Math.cos((45.7578 * Math.PI) / 180) * sc,
+        z: (45.7578 - 45.76716) * 111132 * sc,
+      };
+      MUR_PEINT.onFacade = true;
+    }
     // Stand de tir SUR la place, au nord-est entre la statue et la pelouse
     // (x local 2→28 ; pelouse et parterres à partir de 34, rangées d'arbres
     // nord à −40) : ses coordonnées de ville procédurale le posaient en
@@ -1719,8 +1731,11 @@ function reservedRects() {
     placeRect,
     { minX: ARCADE.x - ARCADE.w / 2 - 9, maxX: ARCADE.x + ARCADE.w / 2 + 9, minZ: ARCADE.z - ARCADE.d / 2 - 11, maxZ: ARCADE.z + ARCADE.d / 2 + 11 },
     { minX: RANGE.x - RANGE.width / 2 - 7, maxX: RANGE.x + RANGE.width / 2 + 7, minZ: RANGE.backZ - 7, maxZ: RANGE.counterZ + 10 },
-    { minX: MUR_PEINT.x - MUR_PEINT.w / 2 - 5, maxX: MUR_PEINT.x + MUR_PEINT.w / 2 + 5, minZ: MUR_PEINT.z - 8, maxZ: MUR_PEINT.z + 8 },
   ];
+  // Mur peint autonome (ville sans façade cible) : on lui dégage la place
+  if (!MUR_PEINT.onFacade) {
+    rects.push({ minX: MUR_PEINT.x - MUR_PEINT.w / 2 - 5, maxX: MUR_PEINT.x + MUR_PEINT.w / 2 + 5, minZ: MUR_PEINT.z - 8, maxZ: MUR_PEINT.z + 8 });
+  }
   if (HILL_RECT) rects.push(HILL_RECT);
   rects.push(...WATER_RECTS, ...EXTRA_RECTS);
   return rects;
@@ -1912,6 +1927,16 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       );
       tile.wuv.push(0, 0, u, 0, u, v, 0, 0, u, v, 0, v);
       for (let k = 0; k < 6; k++) tile.wc.push(wallColor.r, wallColor.g, wallColor.b);
+
+      // Façade candidate pour la Fresque des Lyonnais (voir buildMurPeint)
+      const FT = ctx.fresqueTarget;
+      if (FT && ring === pts && len >= 8 && h > 7) {
+        const dist = Math.hypot((x1 + x2) / 2 - FT.x, (z1 + z2) / 2 - FT.z);
+        const score = len - dist * 0.35;
+        if (dist < 30 && (!ctx.fresqueWall || score > ctx.fresqueWall.score)) {
+          ctx.fresqueWall = { x1, z1, x2, z2, len, yBase, h, score };
+        }
+      }
 
       // Rez-de-chaussée actif sur une partie déterministe des façades : baie,
       // porte, enseigne et store. Le polygonOffset du matériau évite tout
@@ -2183,6 +2208,7 @@ function buildOsmRoads(ctx, data, full = false) {
   const pos = [];        // chaussée
   const walk = [];       // trottoirs (rubans élargis clairs, sous la chaussée)
   const zebra = [];      // passages piétons (quads rayés)
+  const zebraUv = [];
   const lines = [];      // marquage central pointillé des grands axes
   const walkUv = [];
   const streetDetails = []; // [x,z,y] : plaques au centre de la chaussée
@@ -2223,6 +2249,20 @@ function buildOsmRoads(ctx, data, full = false) {
     const lx = bcx + dx * c - dz * sn, lz = bcz + dx * sn + dz * c;
     return lx > B.minX + 3 && lx < B.maxX - 3 && lz > B.minZ + 3 && lz < B.maxZ - 3;
   };
+  // Carrefours réels : nœuds OSM partagés par au moins deux rues. Les
+  // passages piétons s'y posent (à l'entrée de chaque branche) au lieu
+  // d'être semés tous les 35 m en pleine chaussée.
+  const nodeKey = (x, z) => `${Math.round(x * 2)},${Math.round(z * 2)}`;
+  const nodeRoads = new Map();
+  data.roads.forEach((road, ri) => {
+    for (let i = 0; i + 1 < road.p.length; i += 2) {
+      const k = nodeKey(road.p[i], road.p[i + 1]);
+      const set = nodeRoads.get(k) ?? new Set();
+      set.add(ri);
+      nodeRoads.set(k, set);
+    }
+  });
+  const isCrossing = (x, z) => (nodeRoads.get(nodeKey(x, z))?.size ?? 0) >= 2;
   for (const road of data.roads) {
     const half = road.w / 2;
     if (road.w < 6) {
@@ -2230,7 +2270,6 @@ function buildOsmRoads(ctx, data, full = false) {
       for (let i = 0; i + 1 < road.p.length; i += 2) { n++; if (inPlace(road.p[i], road.p[i + 1])) inside++; }
       if (n && inside / n > 0.5) continue;
     }
-    let crossingAcc = 0;
     let uvAcc = 0;
     let dashAcc = 0;
     let detailAcc = 0;
@@ -2241,12 +2280,22 @@ function buildOsmRoads(ctx, data, full = false) {
       ribbon(walk, x1, z1, x2, z2, half + 1.6, -0.02, uvAcc, walkUv);
       const len = ribbon(pos, x1, z1, x2, z2, half, 0, uvAcc, roadUv);
       uvAcc += len;
-      // Passage piéton tous les ~35 m sur les grands axes
-      crossingAcc += len;
-      if (road.w >= 6 && crossingAcc > 35) {
-        crossingAcc = 0;
-        const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
-        ribbon(zebra, mx, mz, mx + (x2 - x1) / (len || 1) * 2.6, mz + (z2 - z1) / (len || 1) * 2.6, half, 0.02);
+      // Passage piéton à l'entrée de la rue, juste après un carrefour
+      // (et juste avant le suivant), sur les rues assez larges
+      if (road.w >= 5.5 && len > 9) {
+        const ux = (x2 - x1) / len, uz = (z2 - z1) / len;
+        const off = half + 1.5; // dégage le carrefour lui-même
+        // u en travers de la chaussée (une bande blanche tous les 1,1 m)
+        const W = road.w / 1.1;
+        const zebraUvs = () => zebraUv.push(0, 0, W, 1, 0, 1, 0, 0, W, 0, W, 1);
+        if (isCrossing(x1, z1)) {
+          ribbon(zebra, x1 + ux * off, z1 + uz * off, x1 + ux * (off + 2.6), z1 + uz * (off + 2.6), half, 0.02);
+          zebraUvs();
+        }
+        if (isCrossing(x2, z2)) {
+          ribbon(zebra, x2 - ux * (off + 2.6), z2 - uz * (off + 2.6), x2 - ux * off, z2 - uz * off, half, 0.02);
+          zebraUvs();
+        }
       }
       // Ligne médiane pointillée : un tiret de 2,6 m tous les ~8 m
       if (road.w >= 6.5 && len > 0.1) {
@@ -2284,9 +2333,19 @@ function buildOsmRoads(ctx, data, full = false) {
     polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
   }), roadUv);
   if (zebra.length) {
+    // Bandes blanches peintes sur l'asphalte (canvas 2 px : blanc / bitume)
+    const zc = document.createElement('canvas');
+    zc.width = 16; zc.height = 2;
+    const zg = zc.getContext('2d');
+    zg.fillStyle = '#3b3f48'; zg.fillRect(0, 0, 16, 2);
+    zg.fillStyle = '#e6e6dc'; zg.fillRect(0, 0, 9, 2);
+    const zt = new THREE.CanvasTexture(zc);
+    zt.colorSpace = THREE.SRGBColorSpace;
+    zt.wrapS = zt.wrapT = THREE.RepeatWrapping;
+    zt.magFilter = THREE.NearestFilter;
     addMesh(zebra, new THREE.MeshLambertMaterial({
-      color: 0xd7dccb, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
-    }));
+      map: zt, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    }), zebraUv);
   }
   if (lines.length) {
     addMesh(lines, new THREE.MeshBasicMaterial({

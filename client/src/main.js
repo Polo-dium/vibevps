@@ -67,8 +67,24 @@ async function boot() {
     },
     (error) => ({ error })
   );
+  // Carte du serveur d'abord. Si elle date d'avant le format actuel
+  // (OSM_FORMAT : bâtiments à cours intérieures…), on prend la version à
+  // jour publiée par la GitHub Action sur la branche osm-data — le jeu
+  // n'attend plus que le VPS ait régénéré la sienne. Repli sur la carte
+  // locale si GitHub ne répond pas dans les temps.
+  const OSM_FORMAT = 2;
+  const OSM_GITHUB = 'https://raw.githubusercontent.com/Polo-dium/vibevps/osm-data/lyon-osm.json';
   const osmPromise = fetch('/lyon-osm.json')
     .then((res) => res.ok ? res.json() : null)
+    .then(async (data) => {
+      if (data && (data.version ?? 1) >= OSM_FORMAT) return data;
+      try {
+        const res = await fetch(OSM_GITHUB, { signal: AbortSignal.timeout(15000) });
+        const fresh = res.ok ? await res.json() : null;
+        if (fresh?.buildings?.length > 1000) return fresh;
+      } catch { /* GitHub injoignable : carte locale */ }
+      return data;
+    })
     .then((data) => {
       loading.set(data ? 'La carte du Grand Lyon est arrivée…' : 'Plan B : Lyon procédural…', 62);
       return data;

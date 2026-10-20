@@ -497,6 +497,10 @@ for (const el of data.elements) {
 
 const out = {
   attribution: '© les contributeurs OpenStreetMap (ODbL)',
+  // Format des données : le client recharge la version publiée sur GitHub
+  // si le serveur lui sert un fichier plus ancien (voir main.js).
+  // 2 = bâtiments en relation avec cours intérieures (holes).
+  version: 2,
   scale: SCALE,
   bound: Math.ceil(bound + 10),
   water: cleanWater(),
