@@ -14,7 +14,7 @@ import { buildBannerPlane, buildAirport } from './world/aviation.js';
 import { createMusicSource, TRACKS, gainForDistance } from './music.js';
 import { createPoiMap } from './ui/map.js';
 import { createControls, IS_TOUCH } from './player/controls.js';
-import { createWeapon, WEAPON_IDS } from './player/weapon.js';
+import { createWeapon, WEAPON_IDS, buildWeaponModel } from './player/weapon.js';
 import { createArms } from './player/arms.js';
 import { createRemotePlayers } from './player/remotes.js';
 import { createVoice } from './player/voice.js';
@@ -1976,14 +1976,18 @@ async function boot() {
           } else if (renderScale > 0.6) {
             renderScale = Math.max(0.6, renderScale - 0.1);
             applyRenderScale();
-            dynCooldown = 4;
+            // Changer la définition réalloue canvas + tampons du composeur
+            // (un à-coup visible sur tablette) : jamais plus d'une fois
+            // toutes les ~10 s.
+            dynCooldown = 20;
           }
         } else if (fpsValue > 56) {
           // On rend d'abord la netteté, puis la distance de vue
           if (renderScale < 1) {
-            renderScale = Math.min(1, renderScale + 0.05);
+            // Remontée par crans plus larges et plus rares (même raison)
+            renderScale = Math.min(1, renderScale + 0.1);
             applyRenderScale();
-            dynCooldown = 6;
+            dynCooldown = 30;
           } else if (viewScale < 1) {
             viewScale = Math.min(1, viewScale + 0.06);
             applyViewDistance(quality.preset);
@@ -2000,6 +2004,22 @@ async function boot() {
 
     tutorial.update(controls.position, ARCADE);
     post.render();
+  }
+  // Préchauffage : un rendu hors boucle avec TOUS les modèles d'armes
+  // devant la caméra compile d'avance leurs shaders PBR (et ceux du décor,
+  // via le vrai chemin de rendu — composeur compris). Sans ça, la première
+  // arme ramassée ou le premier joueur armé croisé gelait l'image.
+  {
+    const warm = new THREE.Group();
+    for (const id of WEAPON_IDS) {
+      const m = buildWeaponModel(id);
+      m.traverse((o) => { o.frustumCulled = false; });
+      warm.add(m);
+    }
+    warm.position.copy(camera.position);
+    scene.add(warm);
+    try { post.render(); } catch { /* le premier vrai rendu s'en chargera */ }
+    scene.remove(warm);
   }
   loop();
   loading.done();

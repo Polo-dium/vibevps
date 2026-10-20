@@ -8,6 +8,7 @@ import { api } from './api.js';
 import { setupWs } from './ws.js';
 import { aiAvailable } from './ai.js';
 import { getOgImage } from './ogImage.js';
+import { startOsmAutoUpdate } from './osmUpdate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3000);
@@ -34,6 +35,7 @@ app.get('/og-image.png', (req, res) => {
 
 const distDir = path.join(__dirname, '..', '..', 'client', 'dist');
 const publicOsm = path.join(__dirname, '..', '..', 'client', 'public', 'lyon-osm.json');
+startOsmAutoUpdate(publicOsm); // dernière carte publiée par la GitHub Action
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => (

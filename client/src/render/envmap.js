@@ -49,14 +49,22 @@ export function createEnvMap(renderer, scene) {
 
   let rt = null;
   let lastKey = '';
+  let lastAt = 0;
   const u = skyMat.uniforms;
   return {
     // top/horizon : couleurs courantes du dôme ; daylight ∈ [0,1]
     update(top, horizon, sunDir, daylight) {
-      // Quantifié : on ne regénère que si l'ambiance a vraiment changé
-      const key = `${Math.round(daylight * 20)}|${Math.round(sunDir.x * 10)}|${Math.round(sunDir.y * 10)}`;
+      // Régénérer coûte une allocation GPU + 6 rendus + flou : seulement
+      // par paliers nets de luminosité (≈16 fois par cycle, aux aubes et
+      // crépuscules — jamais en plein jour ni en pleine nuit) et au plus
+      // toutes les 3 s. La direction du soleil seule ne compte pas : elle
+      // bouge en continu et provoquait des micro-gels réguliers.
+      const key = `${Math.round(daylight * 8)}`;
       if (key === lastKey) return;
+      const now = performance.now();
+      if (lastKey !== '' && now - lastAt < 3000) return;
       lastKey = key;
+      lastAt = now;
       // Ciel désaturé (moyenne zénith/horizon) : l'éclairage d'ambiance des
       // matériaux PBR ne doit pas tout teinter de bleu.
       u.top.value.copy(top).lerp(horizon, 0.55);

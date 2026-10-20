@@ -116,5 +116,11 @@ Le fichier `client/public/lyon-osm.json` est généré localement (il n'est pas
 versionné) et embarqué dans chaque build. Sans ce fichier, le jeu garde la
 ville procédurale. Données © les contributeurs OpenStreetMap (ODbL).
 
+**Mise à jour automatique** : la GitHub Action `.github/workflows/osm-data.yml`
+régénère ce fichier (à chaque modification de `tools/fetch-osm.mjs`) et le
+publie sur la branche `osm-data`. Le serveur le récupère au démarrage puis
+toutes les 6 h (`server/src/osmUpdate.js`) — plus besoin de relancer
+`fetch-osm` à la main. `OSM_AUTO_UPDATE=0` dans `.env` pour désactiver.
+
 ⚠️ Après le passage à la vraie ville, les anciens tags posés sur la ville
 procédurale flotteront dans le vide : purge-les via le panneau admin (P).

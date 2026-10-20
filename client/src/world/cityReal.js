@@ -43,6 +43,7 @@ let HILL_RECT = null;
 let WATER_RECTS = [];
 let EXTRA_RECTS = [];
 let BELLE_RECT = null; // Bellecour à l'échelle en mode ville complète
+let BELLE_YAW = null; // rotation de la place (belleRot.yaw), si connue
 
 // Un point est-il dans (ou au bord de) l'eau, à la profondeur z ? Test par
 // distance au tracé central → fonctionne même quand les fleuves se courbent
@@ -879,6 +880,7 @@ export function buildRealCity(ctx, data) {
     const bcz0 = (BELLECOUR_REAL.minZ + BELLECOUR_REAL.maxZ) / 2;
     const bYaw = Math.atan(mAvg);
     const bCos = Math.cos(bYaw), bSin = Math.sin(bYaw);
+    BELLE_YAW = bYaw;
     ctx.belleRot = {
       yaw: bYaw,
       apply(x, z) {
@@ -891,6 +893,19 @@ export function buildRealCity(ctx, data) {
     // et de la prairie qui occupe l'est de la place. Position tournée avec
     // la place (portes/bornes/zones réservées suivent).
     [ARCADE.x, ARCADE.z] = ctx.belleRot.apply(-48, 3);
+    // Stand de tir SUR la place, au nord-est entre la statue et la pelouse
+    // (x local 2→28 ; pelouse et parterres à partir de 34, rangées d'arbres
+    // nord à −40) : ses coordonnées de ville procédurale le posaient en
+    // pleine rue au sud, et sa zone réservée rasait des îlots entiers dont
+    // il ne restait que les rues.
+    {
+      const [rx, rz] = ctx.belleRot.apply(15, -22);
+      RANGE.x = rx;
+      RANGE.targetsZ = rz - 8;
+      RANGE.backZ = RANGE.targetsZ - 6;
+      RANGE.counterZ = RANGE.targetsZ + 22;
+      RANGE.z = RANGE.counterZ - 6;
+    }
     // Basilique RECULÉE de 18 m vers le cœur de la colline (elle débordait
     // dans le vide au bord de la pente) ; esplanade dégagée autour, et parc
     // du Rosaire qui descend vers Saint-Jean (sans bâtiments, planté d'arbres).
@@ -1551,9 +1566,10 @@ function osmTraboules(ctx, hillDef) {
       loreBA: '🚪 Descente express : te voilà au pied de la colline.',
     },
     {
-      a: { x: 52, z: 100, ry: Math.PI },
-      // Flanc droit de la salle d'arcade (côté est), pas devant la porte
-      b: { x: 13, z: -70, ry: Math.PI / 2 },
+      // Derrière le comptoir du stand de tir ↔ flanc est de la salle
+      // d'arcade (pas devant la porte) — suivent leurs vraies positions
+      a: { x: RANGE.x + RANGE.width / 2 + 3, z: RANGE.counterZ + 4, ry: Math.PI },
+      b: { x: ARCADE.x + 12, z: ARCADE.z, ry: Math.PI / 2 },
       loreAB: '🚪 Raccourci de gone : du stand de tir à la salle d’arcade.',
       loreBA: '🚪 Sortie secrète de l’arcade, côté stand de tir.',
     },
@@ -1687,8 +1703,20 @@ function reservedRects() {
   // Place à l'échelle : marge élargie — la place est TOURNÉE de l'angle de
   // la Presqu'île, ses coins débordent du rect axial d'environ sin(yaw)·D/2
   const pB = BELLE_RECT ? 24 : 2;
+  const placeRect = { minX: B.minX - pB, maxX: B.maxX + pB, minZ: B.minZ - pB, maxZ: B.maxZ + pB };
+  if (BELLE_RECT && BELLE_YAW != null) {
+    // Place tournée : test EXACT dans son repère (marge 4 m) au lieu de la
+    // boîte axiale élargie de 24 m, qui rasait des îlots entiers autour.
+    const bcx = (B.minX + B.maxX) / 2, bcz = (B.minZ + B.maxZ) / 2;
+    const c = Math.cos(BELLE_YAW), sn = Math.sin(BELLE_YAW);
+    placeRect.contains = (x, z) => {
+      const dx = x - bcx, dz = z - bcz;
+      const lx = bcx + dx * c - dz * sn, lz = bcz + dx * sn + dz * c;
+      return lx > B.minX - 4 && lx < B.maxX + 4 && lz > B.minZ - 4 && lz < B.maxZ + 4;
+    };
+  }
   const rects = [
-    { minX: B.minX - pB, maxX: B.maxX + pB, minZ: B.minZ - pB, maxZ: B.maxZ + pB },
+    placeRect,
     { minX: ARCADE.x - ARCADE.w / 2 - 9, maxX: ARCADE.x + ARCADE.w / 2 + 9, minZ: ARCADE.z - ARCADE.d / 2 - 11, maxZ: ARCADE.z + ARCADE.d / 2 + 11 },
     { minX: RANGE.x - RANGE.width / 2 - 7, maxX: RANGE.x + RANGE.width / 2 + 7, minZ: RANGE.backZ - 7, maxZ: RANGE.counterZ + 10 },
     { minX: MUR_PEINT.x - MUR_PEINT.w / 2 - 5, maxX: MUR_PEINT.x + MUR_PEINT.w / 2 + 5, minZ: MUR_PEINT.z - 8, maxZ: MUR_PEINT.z + 8 },
@@ -1696,6 +1724,29 @@ function reservedRects() {
   if (HILL_RECT) rects.push(HILL_RECT);
   rects.push(...WATER_RECTS, ...EXTRA_RECTS);
   return rects;
+}
+
+// Toit-terrasse percé de cours (bâtiments en relation OSM). Renvoie aussi
+// les triangles (x,z) pour les plateformes de collision.
+function flatRoofWithHoles(tile, outer, holes, y, color) {
+  const tris = [];
+  try {
+    const all = [...outer, ...holes.flat()];
+    const idx = THREE.ShapeUtils.triangulateShape(
+      outer.map(([x, z]) => new THREE.Vector2(x, z)),
+      holes.map((ring) => ring.map(([x, z]) => new THREE.Vector2(x, z)))
+    );
+    for (const [a, bb, c] of idx) {
+      let pa = all[a], pb = all[bb], pc = all[c];
+      // Normale vers le haut (composante y de (pb - pa) × (pc - pa))
+      const ny = (pb[1] - pa[1]) * (pc[0] - pa[0]) - (pb[0] - pa[0]) * (pc[1] - pa[1]);
+      if (ny < 0) { const t = pb; pb = pc; pc = t; }
+      tile.rp.push(pa[0], y, pa[1], pb[0], y, pb[1], pc[0], y, pc[1]);
+      for (let k = 0; k < 3; k++) tile.rc.push(color.r, color.g, color.b);
+      tris.push([pa[0], pa[1], pb[0], pb[1], pc[0], pc[1]]);
+    }
+  } catch { /* empreinte dégénérée : murs seuls */ }
+  return { yTop: y, inset: null, tris };
 }
 
 function buildOsmBuildings(ctx, data, rand, full = false) {
@@ -1769,7 +1820,9 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       cx += x; cz += z;
     }
     cx /= pts.length; cz /= pts.length;
-    if (reserved.some((r) => maxX > r.minX && minX < r.maxX && maxZ > r.minZ && minZ < r.maxZ)) {
+    if (reserved.some((r) => (r.contains
+      ? r.contains(cx, cz) || pts.some(([x, z]) => r.contains(x, z))
+      : maxX > r.minX && minX < r.maxX && maxZ > r.minZ && minZ < r.maxZ))) {
       continue;
     }
     // Pas de bâtiment sur l'eau ni sur l'avenue de quai (distance au tracé, par z)
@@ -1780,8 +1833,11 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       const nearW = (x, z) => ctx.waterMask.isWater(x, z) ||
         ctx.waterMask.isWater(x + 8, z) || ctx.waterMask.isWater(x - 8, z) ||
         ctx.waterMask.isWater(x, z + 8) || ctx.waterMask.isWater(x, z - 8);
-      if (nearW(cx, cz) || nearW(minX, minZ) || nearW(maxX, maxZ) ||
-          nearW(minX, maxZ) || nearW(maxX, minZ)) continue;
+      // Test sur les VRAIS sommets (et le centre), pas les coins de la
+      // boîte englobante : celle d'un grand bâtiment en biais (Hôtel-Dieu)
+      // débordait sur le fleuve et l'immeuble entier disparaissait, ne
+      // laissant que les allées de ses cours.
+      if (nearW(cx, cz) || pts.some(([x, z]) => nearW(x, z))) continue;
     }
 
     // Sens horaire (vu de dessus) pour des normales de murs vers l'extérieur
@@ -1792,6 +1848,20 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       area += x1 * z2 - x2 * z1;
     }
     if (area > 0) pts.reverse();
+    // Cours intérieures (bâtiments en relation OSM) : anneaux tournés dans
+    // l'autre sens, pour que leurs murs regardent la cour
+    const holes = (b.holes ?? []).map((arr) => {
+      const ring = [];
+      for (let i = 0; i + 1 < arr.length; i += 2) ring.push([arr[i], arr[i + 1]]);
+      let a2 = 0;
+      for (let i = 0; i < ring.length; i++) {
+        const [x1, z1] = ring[i], [x2, z2] = ring[(i + 1) % ring.length];
+        a2 += x1 * z2 - x2 * z1;
+      }
+      if (a2 < 0) ring.reverse();
+      return ring;
+    }).filter((ring) => ring.length >= 3);
+    const rings = [pts, ...holes];
 
     const tile = tileOf(cx, cz);
     // Front bâti de Bellecour : les immeubles qui bordent la place adoptent
@@ -1826,10 +1896,10 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     const y0 = yBase - (full ? 2 : 0);
     const y1 = yBase + h;
 
-    // Murs
-    for (let i = 0; i < pts.length; i++) {
-      const [x1, z1] = pts[i];
-      const [x2, z2] = pts[(i + 1) % pts.length];
+    // Murs (contour + cours)
+    for (const ring of rings) for (let i = 0; i < ring.length; i++) {
+      const [x1, z1] = ring[i];
+      const [x2, z2] = ring[(i + 1) % ring.length];
       const len = Math.hypot(x2 - x1, z2 - z1);
       if (len < 0.05) continue;
       // Nombres ENTIERS de fenêtres : plus jamais de dernier étage coupé
@@ -1846,7 +1916,7 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       // Rez-de-chaussée actif sur une partie déterministe des façades : baie,
       // porte, enseigne et store. Le polygonOffset du matériau évite tout
       // scintillement avec le mur existant.
-      if (full && h > 7 && len > 4 && hash2(bi * 37 + i * 11) % 100 < 48) {
+      if (ring === pts && full && h > 7 && len > 4 && hash2(bi * 37 + i * 11) % 100 < 48) {
         const ys0 = yBase + 0.08;
         const ys1 = Math.min(yBase + 3.15, y1 - 0.15);
         const units = Math.max(1, Math.round(len / 4.5));
@@ -1868,18 +1938,20 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       (!vieuxLyon && [4, 5].includes(hash2(bi * 7 + 3) % ROOF_TINTS.length));
     const roofKind = (h > 34 || h < 5 || footA < 30 || (!nearBelle && hash2(bi * 13 + 5) % 100 < 26))
       ? 'plat' : zincTint ? 'zinc' : 'tuile';
-    const roof = addRoof(tile, pts.map(([x, z]) => [x, z]), y1, {
-      kind: roofKind, roofColor, stoneColor: acroCol,
-      cornice: withCornice && h > 7 && footA > 40,
-    });
+    const roof = holes.length
+      ? flatRoofWithHoles(tile, pts, holes, y1, roofColor)
+      : addRoof(tile, pts.map(([x, z]) => [x, z]), y1, {
+        kind: roofKind, roofColor, stoneColor: acroCol,
+        cornice: withCornice && h > 7 && footA > 40,
+      });
 
     // Acrotère (rebord de toit en pierre) sur les toits-terrasses : rendu
     // dans le mesh de toit (couleur unie). Réaliste + repère de bord.
     if (!roof.inset && footA > 50 && h > 7) {
       const ah = 0.75;
-      for (let i = 0; i < pts.length; i++) {
-        const [x1, z1] = pts[i];
-        const [x2, z2] = pts[(i + 1) % pts.length];
+      for (const ring of rings) for (let i = 0; i < ring.length; i++) {
+        const [x1, z1] = ring[i];
+        const [x2, z2] = ring[(i + 1) % ring.length];
         if (Math.hypot(x2 - x1, z2 - z1) < 0.05) continue;
         tile.rp.push(
           x1, y1, z1, x2, y1, z2, x2, y1 + ah, z2,
@@ -1892,9 +1964,9 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     // Collision : boîtes fines LE LONG DE CHAQUE MUR (découpé en tronçons de
     // 4 m) au lieu de la boîte englobante du bâtiment — les rues diagonales
     // entre les immeubles ne sont plus barrées par des murs invisibles.
-    for (let i = 0; i < pts.length; i++) {
-      const [x1, z1] = pts[i];
-      const [x2, z2] = pts[(i + 1) % pts.length];
+    for (const ring of rings) for (let i = 0; i < ring.length; i++) {
+      const [x1, z1] = ring[i];
+      const [x2, z2] = ring[(i + 1) % ring.length];
       const len = Math.hypot(x2 - x1, z2 - z1);
       if (len < 0.05) continue;
       const chunks = Math.max(1, Math.ceil(len / 4));
@@ -1913,10 +1985,22 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
 
     // Plateforme de toit : on peut marcher / atterrir dessus (jetpack).
     // Fine (0,7 m) juste sous le toit — les murs gèrent les côtés.
-    ctx.colliders.push({
-      minX, maxX, minZ, maxZ,
-      minY: y1 - 0.7, maxY: y1,
-    });
+    // Avec des cours : une plateforme par triangle du toit, pour ne pas
+    // couvrir la cour d'un sol invisible.
+    if (holes.length) {
+      for (const [ax, az, bx, bz, qx, qz] of roof.tris) {
+        ctx.colliders.push({
+          minX: Math.min(ax, bx, qx), maxX: Math.max(ax, bx, qx),
+          minZ: Math.min(az, bz, qz), maxZ: Math.max(az, bz, qz),
+          minY: y1 - 0.7, maxY: y1,
+        });
+      }
+    } else {
+      ctx.colliders.push({
+        minX, maxX, minZ, maxZ,
+        minY: y1 - 0.7, maxY: y1,
+      });
+    }
     // Toit en pente : on se pose aussi sur le terrasson
     if (roof.inset) {
       let ix0 = Infinity, ix1 = -Infinity, iz0 = Infinity, iz1 = -Infinity;
@@ -1940,7 +2024,7 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
 
     // Candidat rooftop bar : grand toit plat, accessible et assez rectangulaire
     const realA = Math.abs(area) / 2;
-    if (!roof.inset && foot > 210 && h >= 12 && h <= 46 && realA / foot > 0.72) {
+    if (!roof.inset && !holes.length && foot > 210 && h >= 12 && h <= 46 && realA / foot > 0.72) {
       rooftopCandidates.push({ cx, cz, y1, w: maxX - minX, d: maxZ - minZ });
     }
     kept += 1;
@@ -2126,8 +2210,26 @@ function buildOsmRoads(ctx, data, full = false) {
     }
     return len;
   };
+  // Place Bellecour : on ne trace pas ses allées piétonnes en asphalte (la
+  // place a son propre sol), seulement les vraies rues qui la bordent.
+  const B = ctx.bellecourRect;
+  const R = ctx.belleRot;
+  const inPlace = (x, z) => {
+    if (!B || !R) return false;
+    // repère local de la place (rotation inverse de belleRot.apply)
+    const bcx = (B.minX + B.maxX) / 2, bcz = (B.minZ + B.maxZ) / 2;
+    const c = Math.cos(R.yaw), sn = Math.sin(R.yaw);
+    const dx = x - bcx, dz = z - bcz;
+    const lx = bcx + dx * c - dz * sn, lz = bcz + dx * sn + dz * c;
+    return lx > B.minX + 3 && lx < B.maxX - 3 && lz > B.minZ + 3 && lz < B.maxZ - 3;
+  };
   for (const road of data.roads) {
     const half = road.w / 2;
+    if (road.w < 6) {
+      let inside = 0, n = 0;
+      for (let i = 0; i + 1 < road.p.length; i += 2) { n++; if (inPlace(road.p[i], road.p[i + 1])) inside++; }
+      if (n && inside / n > 0.5) continue;
+    }
     let crossingAcc = 0;
     let uvAcc = 0;
     let dashAcc = 0;
@@ -2253,7 +2355,7 @@ function buildGreenery(ctx, data, rand, full = false) {
   const spots = [];
   const reserved = reservedRects();
   const inReserved = (x, z) => reserved.some(
-    (r) => x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ
+    (r) => (r.contains ? r.contains(x, z) : x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ)
   );
   const inWater = (x, z) => (ctx.waterMask ? ctx.waterMask.isWater(x, z) : nearRiver(data.water, x, z, 4));
 

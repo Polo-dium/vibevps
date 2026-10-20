@@ -32,6 +32,7 @@ const QUERY = `
 [out:json][timeout:300];
 (
   way["building"](${BBOX});
+  relation["building"](${BBOX});
   way["highway"~"^(primary|secondary|tertiary|residential|pedestrian|living_street|unclassified|service)$"](${BBOX});
   way["waterway"="river"](${BBOX});
   way["natural"="water"](${BBOX});
@@ -363,6 +364,47 @@ const buildings = [];
 const roads = [];
 let bound = 200;
 
+// Recolle bout à bout des ways membres d'une relation en anneaux fermés
+// (listes d'identifiants de nœuds). Même principe que pour l'eau.
+function assembleRings(segsIn) {
+  const segs = segsIn.map((w) => w.slice());
+  const rings = [];
+  while (segs.length) {
+    let ring = segs.shift();
+    let changed = true, guard = 0;
+    while (changed && ring[0] !== ring[ring.length - 1] && guard++ < 5000) {
+      changed = false;
+      for (let i = 0; i < segs.length; i++) {
+        const w = segs[i], a = ring[ring.length - 1], b = ring[0];
+        if (w[0] === a) { ring = ring.concat(w.slice(1)); segs.splice(i, 1); changed = true; break; }
+        if (w[w.length - 1] === a) { ring = ring.concat(w.slice().reverse().slice(1)); segs.splice(i, 1); changed = true; break; }
+        if (w[w.length - 1] === b) { ring = w.slice(0, -1).concat(ring); segs.splice(i, 1); changed = true; break; }
+        if (w[0] === b) { ring = w.slice().reverse().slice(0, -1).concat(ring); segs.splice(i, 1); changed = true; break; }
+      }
+    }
+    if (ring.length >= 4 && ring[0] === ring[ring.length - 1]) rings.push(ring);
+  }
+  return rings;
+}
+function ringToPts(nids) {
+  const pts = [];
+  for (const nid of nids) {
+    const n = nodes.get(nid);
+    if (n) { const [x, z] = toXZ(n[0], n[1]); pts.push([r1(x), r1(z)]); }
+  }
+  if (pts.length > 3 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) pts.pop();
+  return pts;
+}
+function pointInPoly([x, z], poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, zi] = poly[i], [xj, zj] = poly[j];
+    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+
 // Tour Part-Dieu (« Le Crayon ») : repérée par son nom OSM plutôt que par sa
 // hauteur (plusieurs tours dépassent 100 m dans le quartier — la tour
 // Incity, notamment, est plus haute que le Crayon). Elle reste dans
@@ -416,6 +458,41 @@ for (const el of data.elements) {
   } else if (el.tags?.highway) {
     roads.push({ w: roadWidth(el.tags), p: pts.flat() });
   }
+}
+
+// BÂTIMENTS EN RELATION (multipolygones) : les grands ensembles à cours
+// intérieures — Hôtel-Dieu, îlots haussmanniens de la Presqu'île — ne sont
+// pas des ways simples. Sans eux, il ne restait que les allées de leurs
+// cours au milieu d'îlots vides. Chaque anneau extérieur devient un
+// bâtiment, avec ses cours en `holes` (le client les creuse). Ajoutés
+// APRÈS les ways : la séquence déterministe des bâtiments existants
+// (couleurs, toits tirés au hasard graine fixe) reste identique.
+{
+  const wayById = new Map();
+  for (const el of data.elements) if (el.type === 'way' && el.nodes) wayById.set(el.id, el);
+  let nRel = 0;
+  for (const el of data.elements) {
+    if (el.type !== 'relation' || !el.tags?.building || !el.members) continue;
+    const ofRole = (role) => el.members
+      .filter((m) => m.type === 'way' && m.role === role && wayById.has(m.ref))
+      .map((m) => wayById.get(m.ref));
+    const outerWays = ofRole('outer');
+    // Contour fait d'une seule way déjà taguée bâtiment : déjà exportée
+    if (outerWays.length === 1 && outerWays[0].tags?.building) continue;
+    const outers = assembleRings(outerWays.map((w) => w.nodes)).map(ringToPts).filter((p) => p.length >= 3);
+    const inners = assembleRings(ofRole('inner').map((w) => w.nodes)).map(ringToPts).filter((p) => p.length >= 3);
+    for (const outer of outers) {
+      const area = Math.abs(polyArea(outer));
+      if (area < 8) continue;
+      const holes = inners.filter((h) => pointInPoly(h[0], outer) && Math.abs(polyArea(h)) > 4);
+      const b = { h: r1(buildingHeight(el.tags, el.id)), p: outer.flat() };
+      if (holes.length) b.holes = holes.map((h) => h.flat());
+      buildings.push(b);
+      for (const [x, z] of outer) bound = Math.max(bound, Math.abs(x), Math.abs(z));
+      nRel++;
+    }
+  }
+  console.log(`  ${nRel} bâtiment(s) issus de relations (cours intérieures comprises).`);
 }
 
 const out = {
