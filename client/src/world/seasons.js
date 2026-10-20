@@ -19,7 +19,8 @@ function recolor(color, season) {
   // Feuillage/herbe : teinte franchement verte et un minimum saturée.
   if (_hsl.h < 0.17 || _hsl.h > 0.45 || _hsl.s < 0.15) return false;
   if (season === 'automne') {
-    color.setHSL(0.06 + (_hsl.h - 0.17) * 0.12, Math.min(1, _hsl.s * 1.05), _hsl.l);
+    // roux → or selon la teinte d'origine, plus lumineux qu'un vert d'été
+    color.setHSL(0.055 + (_hsl.h - 0.17) * 0.25, Math.min(1, _hsl.s * 1.35 + 0.1), Math.min(0.6, _hsl.l * 1.3));
   } else if (season === 'hiver') {
     color.setHSL(_hsl.h, _hsl.s * 0.22, Math.min(0.82, _hsl.l * 1.45));
   } else { // printemps
@@ -36,7 +37,7 @@ export function applySeason(ctx) {
   ctx.scene.traverse((o) => {
     const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
     for (const m of mats) {
-      if (!m?.color || done.has(m)) continue;
+      if (!m?.color || done.has(m) || m.userData?.noSeason) continue;
       done.add(m);
       recolor(m.color, season);
     }

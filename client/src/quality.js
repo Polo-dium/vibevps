@@ -19,9 +19,10 @@ const LABELS = { bas: 'Bas', moyen: 'Moyen', eleve: 'Élevé' };
 // que la coupure tombe là où tout est déjà noyé de gris : on ne voit pas
 // les bâtiments disparaître, on voit juste plus loin ou moins loin.
 const PRESETS = {
-  bas: { pixelRatio: 1, shadows: false, shadowMapSize: 1024, viewDistance: 420 },
-  moyen: { pixelRatio: 1.25, shadows: true, shadowMapSize: 1024, viewDistance: 850 },
-  eleve: { pixelRatio: 2, shadows: true, shadowMapSize: 2048, viewDistance: 2400 },
+// postfx : rendu « ciné » (bloom HDR, étalonnage, MSAA — voir render/post.js)
+  bas: { pixelRatio: 1, shadows: false, shadowMapSize: 1024, viewDistance: 420, postfx: false },
+  moyen: { pixelRatio: 1.25, shadows: true, shadowMapSize: 1024, viewDistance: 850, postfx: false },
+  eleve: { pixelRatio: 2, shadows: true, shadowMapSize: 2048, viewDistance: 2400, postfx: true },
 };
 
 // Densité de brume qui rend une tuile ~90 % grise à la distance de coupure :

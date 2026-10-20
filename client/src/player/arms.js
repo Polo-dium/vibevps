@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PBR } from '../render/materials.js';
 
 // Avant-bras low-poly en vue subjective : purement cosmétique. Les deux bras
 // sont de VRAIS miroirs l'un de l'autre (une seule pose canonique « droite »,
@@ -47,23 +48,44 @@ const HAND_LOCAL_Z = -0.35;
 
 function buildArm(side) {
   const group = new THREE.Group();
-  const skinMat = new THREE.MeshLambertMaterial({ color: SKIN });
-  const sleeveMat = new THREE.MeshLambertMaterial({ color: SLEEVE });
-  // Manche (proche de la caméra, donc de l'épaule)
-  const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.22), sleeveMat);
-  sleeve.position.z = 0.03;
-  group.add(sleeve);
-  // Avant-bras nu (manche retroussée), puis main légèrement plus large + pouce.
-  // Comble tout l'écart entre la manche et la main (voir HAND_LOCAL_Z).
-  const forearmLen = (sleeve.position.z - 0.11) - (HAND_LOCAL_Z + 0.06);
-  const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.088, 0.088, forearmLen), skinMat);
-  forearm.position.z = (sleeve.position.z - 0.11 + HAND_LOCAL_Z + 0.06) / 2;
-  group.add(forearm);
-  const hand = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.075, 0.12), skinMat);
-  hand.position.z = HAND_LOCAL_Z;
-  group.add(hand);
-  const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.075), skinMat);
-  thumb.position.set(0, 0.045, HAND_LOCAL_Z + 0.03);
+  const sleeveMat = PBR.fabric(SLEEVE);
+  const cuffMat = PBR.fabric(0x2a3444);
+  const gloveMat = PBR.glove(0x2b2d31);
+  const padMat = PBR.polymer(0x17181b);
+  const skinMat = PBR.skin(SKIN);
+  // Cylindre couché le long du bras (axe z), r0 côté épaule, r1 côté main
+  const limb = (r0, r1, z0, z1, mat, seg = 14) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r0, r1, Math.abs(z1 - z0), seg), mat);
+    m.rotation.x = Math.PI / 2;
+    m.position.z = (z0 + z1) / 2;
+    group.add(m);
+    return m;
+  };
+  // Manche de veste jusqu'au poignet (même emprise qu'avant : de l'épaule
+  // au poing, voir HAND_LOCAL_Z), revers au poignet, liseré de peau.
+  const zShoulder = 0.14, zWrist = HAND_LOCAL_Z + 0.07;
+  limb(0.058, 0.047, zShoulder, zWrist + 0.02, sleeveMat);
+  limb(0.05, 0.05, zWrist + 0.035, zWrist + 0.005, cuffMat);
+  limb(0.037, 0.035, zWrist + 0.01, zWrist - 0.012, skinMat, 10);
+  // Gant : paume arrondie, coque de phalanges, quatre doigts repliés, pouce
+  const palm = new THREE.Mesh(new THREE.CapsuleGeometry(0.036, 0.04, 4, 10), gloveMat);
+  palm.rotation.x = Math.PI / 2;
+  palm.scale.set(1.3, 1, 0.92);
+  palm.position.z = HAND_LOCAL_Z;
+  group.add(palm);
+  const pad = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.016, 0.03), padMat);
+  pad.position.set(0, 0.033, HAND_LOCAL_Z - 0.028);
+  group.add(pad);
+  const fingerGeo = new THREE.CapsuleGeometry(0.0115, 0.032, 3, 8);
+  for (let i = 0; i < 4; i++) {
+    const f = new THREE.Mesh(fingerGeo, gloveMat);
+    f.position.set(-0.033 + i * 0.022, -0.022, HAND_LOCAL_Z - 0.052);
+    f.rotation.x = 0.9; // repliés autour de la poignée
+    group.add(f);
+  }
+  const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.045, 3, 8), gloveMat);
+  thumb.position.set(side * -0.035, 0.03, HAND_LOCAL_Z - 0.01);
+  thumb.rotation.set(Math.PI / 2 - 0.2, 0, side * 0.5);
   group.add(thumb);
 
   // Équipement propre au jetpack : une petite manette serrée dans la main

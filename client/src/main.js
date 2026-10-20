@@ -50,6 +50,9 @@ import { createUi } from './ui/hud.js';
 import { createProgress } from './progress.js';
 import { createCapture } from './capture.js';
 import { createQuality, fogDensityFor } from './quality.js';
+import { createPost } from './render/post.js';
+import { createEnvMap } from './render/envmap.js';
+import { enhanceScene } from './render/enhance.js';
 import { createLoadingScreen, nextPaint } from './ui/loading.js';
 import { createTutorial } from './ui/tutorial.js';
 
@@ -179,6 +182,12 @@ async function boot() {
   );
   scene.add(camera); // nécessaire pour l'arme en vue subjective
 
+  // Rendu ciné (palier Élevé) + reflets d'environnement (tous paliers :
+  // seuls les matériaux PBR les lisent — armes, carrosseries, vitres)
+  const post = createPost(renderer, scene, camera);
+  post.setEnabled(quality.preset.postfx);
+  const envMap = createEnvMap(renderer, scene);
+
   // Lumières : soleil directionnel + rebond hémisphérique, tous deux pilotés
   // par le cycle jour/nuit (plus de contraste quand il y a des ombres)
   const hemi = new THREE.HemisphereLight(0xaac8f0, 0x6e604c, SHADOWS ? 0.75 : 1.05);
@@ -205,6 +214,7 @@ async function boot() {
   sun.shadow.camera.near = 10;
   sun.shadow.camera.far = 320;
   sun.shadow.bias = -0.0006;
+  sun.shadow.normalBias = 0.03; // pas d'acné d'ombre sur les surfaces courbes (persos)
 
   // Applique un changement de palier en direct : résolution interne, ombres
   // on/off, et régénération de la shadow map si sa résolution a changé.
@@ -215,6 +225,8 @@ async function boot() {
   let renderScale = 1;
   function applyRenderScale() {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.preset.pixelRatio) * renderScale);
+    const { w, h } = viewSize();
+    post.setSize(w, h);
   }
   // Portée de vue du palier + brume assortie. Sur la ville complète, c'est
   // ce réglage qui décide combien de quartiers partent au GPU : la brume est
@@ -241,6 +253,8 @@ async function boot() {
     renderScale = 1; // changer de palier remet la définition à neuf
     viewScale = 1;   // …et la portée de vue
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatio));
+    post.setEnabled(preset.postfx);
+    post.setSize(viewSize().w, viewSize().h);
     renderer.shadowMap.enabled = preset.shadows;
     shadowsEnabled = preset.shadows;
     sun.castShadow = preset.shadows;
@@ -492,6 +506,8 @@ async function boot() {
     if (elev >= 0.02) _lightDir.copy(env.sunDir);
     else _lightDir.copy(env.sunDir).multiplyScalar(-1);
     env.lightDir = _lightDir;
+    envMap.update(u.topColor.value, u.horizonColor.value, _lightDir, daylight);
+    post.setNight(env.night);
 
     // Astres visibles : orbite centrée sur Lyon et assez large pour que les
     // levers/couchers aient lieu AU-DELÀ des limites jouables. Avant, les
@@ -1065,6 +1081,10 @@ async function boot() {
       ui.toast(`${mots[saison]} — la ville suit les vraies saisons.`);
     }
   }
+
+  // Relief + rugosité dérivés des textures du décor (pavés, crépi, vitres
+  // qui reflètent le ciel) — voir render/enhance.js. Pas sur le palier Bas.
+  if (quality.level !== 'bas') enhanceScene(scene);
 
   // Le monde est bâti : on recense le petit décor pour ne dessiner que
   // celui à portée de vue. C'est de LOIN le premier poste de draw calls
@@ -1785,6 +1805,7 @@ async function boot() {
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
+    post.setSize(w, h);
   }
   window.addEventListener('resize', onResize);
   window.addEventListener('orientationchange', () => setTimeout(onResize, 250));
@@ -1977,7 +1998,7 @@ async function boot() {
     }
 
     tutorial.update(controls.position, ARCADE);
-    renderer.render(scene, camera);
+    post.render();
   }
   loop();
   loading.done();

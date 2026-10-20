@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { flattenColored } from './utils.js';
+import { treeCrownGeometry } from './trees.js';
 
 // LES LIEUX EN HAUTE FIDÉLITÉ 🏛️
 //
@@ -131,16 +132,16 @@ function buildBellecourHd(ctx, group) {
   }
 
   // Double rangée d'arbres au nord et au sud, comme sur la vraie place
+  const crownMat = new THREE.MeshLambertMaterial({ color: 0x528440, vertexColors: true });
   for (const sz of [-halfD + 9, -halfD + 17, halfD - 9, halfD - 17]) {
     for (let x = -halfW + 12; x <= halfW - 12; x += 9) {
       const jitter = ((x * 7919 + sz * 104729) % 100) / 100 - 0.5;
       const tx = x + jitter * 1.6;
       put(cyl(0.26, 0.36, 3.2, 8, 0x5d4632), tx, 1.6, sz);
-      // Houppier en deux étages : bien plus dense que l'arbre de la ville
-      const f1 = new THREE.Mesh(new THREE.IcosahedronGeometry(2.5, 1), new THREE.MeshLambertMaterial({ color: 0x4e7d38, flatShading: true }));
-      put(f1, tx, 4.6, sz);
-      const f2 = new THREE.Mesh(new THREE.IcosahedronGeometry(1.8, 1), new THREE.MeshLambertMaterial({ color: 0x5b8f42, flatShading: true }));
-      put(f2, tx, 6.3, sz + 0.4);
+      // Houppier en grappe (géométrie partagée, ombrage cuit — trees.js)
+      const f1 = new THREE.Mesh(treeCrownGeometry(), crownMat);
+      f1.scale.setScalar(1.5);
+      put(f1, tx, 5.2, sz, jitter * 6);
     }
   }
 

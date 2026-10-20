@@ -34,7 +34,13 @@ npm start          # serveur de prod (sert client/dist)
   - `src/world/` — ville procédurale (`city.js`), vrai Lyon OSM optionnel
     (`cityReal.js`, activé si `client/public/lyon-osm.json` existe, généré par
     `tools/fetch-osm.mjs`), ciel (`sky.js`), PNJ (`npcs.js`).
-  - `src/player/` — contrôles FPS + tactile, arme, joueurs distants, voix.
+  - `src/render/` — rendu « ciné » au palier Élevé (`post.js` : bloom HDR,
+    étalonnage, MSAA), reflets d'environnement procéduraux (`envmap.js`),
+    matériaux PBR et profils extrudés (`materials.js`), passe matière sur le
+    décor (`enhance.js` : normal/rugosité dérivées des textures + texture de
+    détail en coordonnées monde, paliers Moyen/Élevé).
+  - `src/player/` — contrôles FPS + tactile, arme (modèles détaillés dans
+    `weaponModels.js`), joueurs distants, voix.
   - `src/games/` — bornes d'arcade : mini-jeux HTML autonomes en iframe
     sandbox (`builtin/`), pont clavier par postMessage (`shell.js`).
   - `src/tags/` — bombe de peinture, décals réseau, éditeur de tags.

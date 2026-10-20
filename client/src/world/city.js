@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { plantTrees } from './trees.js';
 import { addBox, addInvisibleWall, makeTextTexture } from './utils.js';
 import { buildTraffic } from './traffic.js';
 import { buildHuman } from './human.js';
@@ -685,19 +686,14 @@ export function buildConfluence(ctx, {
   ctx.scene.add(tip);
 
   // Parc de la Confluence : quelques arbres le long de la pointe
-  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x6b5138 });
-  const leafMat = new THREE.MeshLambertMaterial({ color: 0x4a7038, flatShading: true });
+  const parkSpots = [];
   for (let i = 0; i < 7; i++) {
     const t = (i + 1) / 9;
     const zz = zStart + (zTip - zStart) * t;
     const halfW = ((x1 - x0) / 2) * (1 - t);
-    const xx = cx + (i % 2 ? 1 : -1) * halfW * 0.55;
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.24, 2.2, 6), trunkMat);
-    trunk.position.set(xx, 1.1, zz);
-    const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(1.4, 0), leafMat);
-    crown.position.set(xx, 3, zz);
-    ctx.scene.add(trunk, crown);
+    parkSpots.push([cx + (i % 2 ? 1 : -1) * halfW * 0.55, zz, 0.85]);
   }
+  plantTrees(ctx, parkSpots, { leaf: 0x4a7038, seed: 3 });
 
   // Berges en pierre le long des deux flancs diagonaux de la pointe
   const wallMat = new THREE.MeshLambertMaterial({ color: 0x8a8274 });
@@ -2623,8 +2619,6 @@ function buildDecor(ctx, rand) {
   // Arbres : alignements réguliers autour de Bellecour (comme les vraies
   // allées de platanes) et le long des quais. Le spawn (x≈0, côté sud)
   // reste dégagé pour laisser voir la place et la statue en arrivant.
-  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x6b5138 });
-  const leavesMat = new THREE.MeshLambertMaterial({ color: 0x4a7038 });
   const treeSpots = [];
   for (let x = BELLECOUR.minX + 2; x <= BELLECOUR.maxX - 2; x += 7) {
     treeSpots.push([x, BELLECOUR.minZ - 3]);
@@ -2635,24 +2629,15 @@ function buildDecor(ctx, rand) {
     treeSpots.push([SAONE.maxX + 4, z]);
     treeSpots.push([RHONE.minX - 4, z]);
   }
-  // Feuillages : amas de sphères, plus organique qu'un cône
-  const leavesMat2 = new THREE.MeshLambertMaterial({ color: 0x567c3c });
-  const leavesMat3 = new THREE.MeshLambertMaterial({ color: 0x63884a });
+  // Houppiers partagés et instanciés (voir world/trees.js)
+  const spots = [];
   let ti = 0;
   for (const [x, z] of treeSpots) {
     if (Math.abs(z) < 7) continue; // pas sur l'axe des ponts
     ti += 1;
-    const s = 0.85 + ((ti * 37) % 10) / 26; // variation déterministe simple
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.28, 2.6 * s, 6), trunkMat);
-    trunk.position.set(x, 1.3 * s, z);
-    const blob1 = new THREE.Mesh(new THREE.SphereGeometry(1.4 * s, 8, 6), leavesMat);
-    blob1.position.set(x, 3.3 * s, z);
-    const blob2 = new THREE.Mesh(new THREE.SphereGeometry(1.0 * s, 7, 5), [leavesMat2, leavesMat3][ti % 2]);
-    blob2.position.set(x + 0.7 * s, 3.9 * s, z + 0.3 * s);
-    const blob3 = new THREE.Mesh(new THREE.SphereGeometry(0.85 * s, 7, 5), leavesMat2);
-    blob3.position.set(x - 0.6 * s, 4.1 * s, z - 0.3 * s);
-    ctx.scene.add(trunk, blob1, blob2, blob3);
+    spots.push([x, z, 0.85 + ((ti * 37) % 10) / 26]); // variation déterministe simple
   }
+  plantTrees(ctx, spots, { leaf: 0x4f7d3a, seed: 11 });
 
   // Lampadaires : Bellecour, quais et grands axes (voir buildLamps)
   const lampSpots = [];
@@ -2746,9 +2731,9 @@ export function buildLamps(ctx, spots) {
   ctx.scene.add(pools);
 
   ctx.updatables.push(() => {
-    haloMat.opacity = Math.max(0, (ctx.env?.night ?? 0) * 1.2 - 0.2) * 0.85;
+    haloMat.opacity = Math.max(0, (ctx.env?.night ?? 0) * 1.2 - 0.2) * 0.6;
     halos.visible = haloMat.opacity > 0.01;
-    poolMat.opacity = haloMat.opacity * 0.75; // flaques franches : on voit où on marche
+    poolMat.opacity = haloMat.opacity * 0.9; // flaques franches : on voit où on marche
     pools.visible = halos.visible;
   });
 

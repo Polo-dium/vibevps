@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { treeCrownGeometry, treeTrunkGeometry } from './trees.js';
 import { addInvisibleWall, addBox } from './utils.js';
 import { state } from '../state.js';
 import {
@@ -2309,11 +2310,11 @@ function buildGreenery(ctx, data, rand, full = false) {
   if (valid.length === 0) return;
 
   const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5d4632 });
-  const trunkGeo = new THREE.CylinderGeometry(0.22, 0.32, 2.4, 6);
+  const trunkGeo = treeTrunkGeometry(); // tronc + charpentières (world/trees.js)
   const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, valid.length);
 
-  const foliageGeo = new THREE.IcosahedronGeometry(1.6, 0); // facetté = feuillage
-  const foliageMat = new THREE.MeshLambertMaterial({ color: 0x5b8a3f, flatShading: true });
+  const foliageGeo = treeCrownGeometry(); // houppier en grappe, ombrage cuit
+  const foliageMat = new THREE.MeshLambertMaterial({ color: 0x5b8a3f, flatShading: true, vertexColors: true });
   const foliage = new THREE.InstancedMesh(foliageGeo, foliageMat, valid.length);
 
   // LOD lointain : au-delà de ~150 m du joueur, troncs+feuillage (12+12
@@ -2340,7 +2341,7 @@ function buildGreenery(ctx, data, rand, full = false) {
     m.makeScale(s, s, s);
     m.setPosition(x, ty + 1.2 * s, z);
     trunks.setMatrixAt(i, m);
-    m.makeScale(s * 1.6, s * 1.5, s * 1.6);
+    m.makeScale(s, s * 0.95, s);
     m.setPosition(x, ty + 3.6 * s, z);
     foliage.setMatrixAt(i, m);
     billboards.setMatrixAt(i, ZERO);
@@ -2380,7 +2381,7 @@ function buildGreenery(ctx, data, rand, full = false) {
         m.makeScale(t.s, t.s, t.s);
         m.setPosition(t.x, t.ty + 1.2 * t.s, t.z);
         trunks.setMatrixAt(i, m);
-        m.makeScale(t.s * 1.6, t.s * 1.5, t.s * 1.6);
+        m.makeScale(t.s, t.s * 0.95, t.s);
         m.setPosition(t.x, t.ty + 3.6 * t.s, t.z);
         foliage.setMatrixAt(i, m);
         billboards.setMatrixAt(i, ZERO);

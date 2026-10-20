@@ -30,6 +30,9 @@ export function flattenColored(source, { material } = {}) {
     g.applyMatrix4(m.matrixWorld);
     // On ne garde que position + normal : les UV n'ont plus de sens une fois
     // des pièces disparates réunies, et leur absence uniformise la fusion.
+    // Couleurs de sommets déjà présentes (ombrage cuit, ex. houppiers) :
+    // multipliées par la couleur du matériau au lieu d'être écrasées.
+    const own = mat.vertexColors ? g.attributes.color : null;
     for (const name of Object.keys(g.attributes)) {
       if (name !== 'position' && name !== 'normal') g.deleteAttribute(name);
     }
@@ -37,7 +40,10 @@ export function flattenColored(source, { material } = {}) {
     c.copy(mat.color);
     const n = g.attributes.position.count;
     const col = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
+    for (let i = 0; i < n; i++) {
+      const k = own ? own.getX(i) : 1;
+      col[i * 3] = c.r * k; col[i * 3 + 1] = c.g * (own ? own.getY(i) : 1); col[i * 3 + 2] = c.b * (own ? own.getZ(i) : 1);
+    }
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geos.push(g);
   }
