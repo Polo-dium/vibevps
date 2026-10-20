@@ -169,7 +169,8 @@ export function addRoof(tile, pts, y1, { kind, roofColor, stoneColor, cornice })
     // par l'ordre fourni)
     let B = b, D = d;
     if (wantY) {
-      const ny = (D[2] - a[2]) * (B[0] - a[0]) - (D[0] - a[0]) * (B[2] - a[2]);
+      // composante y de (B - a) × (D - a)
+      const ny = (B[2] - a[2]) * (D[0] - a[0]) - (B[0] - a[0]) * (D[2] - a[2]);
       if (Math.sign(ny) !== wantY) { B = d; D = b; }
     }
     arr.push(...a, ...B, ...D);

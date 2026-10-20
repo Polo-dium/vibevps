@@ -2381,7 +2381,7 @@ function buildGreenery(ctx, data, rand, full = false) {
     col.setHSL(0.28 + rand() * 0.06, 0.45, 0.32 + rand() * 0.12);
     foliage.setColorAt(i, col);
     // un ton sous le houppier 3D : celui-ci a une occlusion cuite
-    billboards.setColorAt(i, col.clone().multiplyScalar(0.72));
+    billboards.setColorAt(i, col.clone().multiplyScalar(0.5)); // matériau non éclairé : plus sombre
     treeLod.push({ x, z, s, ty, far: false });
   });
   trunks.instanceMatrix.needsUpdate = true;
