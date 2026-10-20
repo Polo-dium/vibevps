@@ -165,10 +165,11 @@ export function createUi() {
   // Hitmarker : croix furtive au centre quand un tir touche
   const hitmarkerEl = hud.querySelector('#hitmarker');
   let hitmarkerTimer = null;
-  function hitmarker() {
+  function hitmarker(headshot = false) {
     hitmarkerEl.classList.remove('hidden');
+    hitmarkerEl.classList.toggle('headshot', headshot);
     clearTimeout(hitmarkerTimer);
-    hitmarkerTimer = setTimeout(() => hitmarkerEl.classList.add('hidden'), 110);
+    hitmarkerTimer = setTimeout(() => hitmarkerEl.classList.add('hidden'), headshot ? 220 : 110);
   }
 
   // Lunette du fusil de précision : vignette noire + croisée + zoom affiché

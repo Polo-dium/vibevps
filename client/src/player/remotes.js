@@ -6,6 +6,7 @@ import { buildVelovModel } from '../world/velov.js';
 import { createMusicSource, gainForDistance } from '../music.js';
 import { buildWeaponModel, WEAPON_IDS } from './weapon.js';
 import * as net from '../net.js';
+import { state } from '../state.js';
 
 const INTERP_DELAY = 0.12; // secondes de retard de rendu pour interpoler
 
@@ -26,10 +27,19 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     human.group.rotation.y = ry;
     scene.add(human.group);
 
+    // headshot = impact au-dessus du cou (tête : 1,50 → 1,82 m)
     for (const mesh of human.hitMeshes) {
-      mesh.userData.onHit = (hit) => onHitRemote?.(id, hit);
+      mesh.userData.onHit = (hit) => onHitRemote?.(
+        id, hit, Boolean(hit?.point) && hit.point.y - human.group.position.y > 1.5
+      );
       shootables?.push(mesh);
     }
+    // Aide à la visée (voir weapon.js) : centre du torse, sauf en véhicule
+    human.hitMeshes[0].userData.aimPoint = (out) => {
+      const r = remotes.get(id);
+      if (!r || r.inVehicle || !human.group.visible) return null;
+      return out.copy(human.group.position).setY(human.group.position.y + 1.15);
+    };
 
     const bubble = makeChatBubble();
     bubble.visible = false;
@@ -117,7 +127,14 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     lastFrame = nowSec;
     const renderTime = nowSec - INTERP_DELAY;
 
+    // La nuit, les autres joueurs luisent de leur couleur (émissif, pas de
+    // vraie lumière) : repérables dans les rues sombres, comme en néon.
+    const glow = 0.5 * (state.night ?? 0);
     for (const r of remotes.values()) {
+      if (r.glow !== glow) {
+        r.glow = glow;
+        r.human.shirtMat.emissive.copy(r.baseColor).multiplyScalar(glow);
+      }
       if (r.flashUntil && nowSec > r.flashUntil) {
         r.human.clearTint();
         r.flashUntil = 0;
@@ -154,6 +171,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
       const vehCode = b.veh ?? a.veh ?? 0;
       const jetCode = b.vjet ?? a.vjet ?? 0;
       const veh = vehCode > 0;
+      r.inVehicle = veh && vehCode !== 3; // à vélo, on reste une cible
       if (vehCode === 1 && !r.car) {
         r.car = makeGhostCabrio(r.baseColor);
         scene.add(r.car);
@@ -277,7 +295,17 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     return best;
   }
 
-  return { update, count, showChat, getPos, nearest };
+  // Positions de tous les joueurs distants (carte M)
+  function list() {
+    const out = [];
+    for (const r of remotes.values()) {
+      const p = r.human.group.position;
+      out.push({ x: p.x, z: p.z, name: r.name, color: `#${r.baseColor.getHexString()}` });
+    }
+    return out;
+  }
+
+  return { update, count, showChat, getPos, nearest, list };
 }
 
 // Avion fantôme des pilotes distants (veh: 2), teinté à leur couleur

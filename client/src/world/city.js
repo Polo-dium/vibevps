@@ -2735,7 +2735,7 @@ export function buildLamps(ctx, spots) {
     blending: THREE.AdditiveBlending, depthWrite: false,
   });
   const pools = new THREE.InstancedMesh(
-    new THREE.PlaneGeometry(9, 9).rotateX(-Math.PI / 2), poolMat, n
+    new THREE.PlaneGeometry(12, 12).rotateX(-Math.PI / 2), poolMat, n
   );
   spots.forEach(([x, z, gy = 0], i) => {
     m.makeTranslation(x, gy + 0.07, z);
@@ -2748,7 +2748,7 @@ export function buildLamps(ctx, spots) {
   ctx.updatables.push(() => {
     haloMat.opacity = Math.max(0, (ctx.env?.night ?? 0) * 1.2 - 0.2) * 0.85;
     halos.visible = haloMat.opacity > 0.01;
-    poolMat.opacity = haloMat.opacity * 0.5;
+    poolMat.opacity = haloMat.opacity * 0.75; // flaques franches : on voit où on marche
     pools.visible = halos.visible;
   });
 

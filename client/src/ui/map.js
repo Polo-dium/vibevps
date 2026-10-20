@@ -10,7 +10,7 @@ import { audio } from '../audio.js';
 const LS_KEY = 'vibevps_pois';
 const DISCOVER_R = 26; // distance de découverte (mètres)
 
-export function createPoiMap(ctx, { getPlayer, onToast }) {
+export function createPoiMap(ctx, { getPlayer, getOthers, onToast }) {
   let found = new Set();
   try {
     found = new Set(JSON.parse(localStorage.getItem(LS_KEY) || '[]'));
@@ -69,6 +69,7 @@ export function createPoiMap(ctx, { getPlayer, onToast }) {
     }
   }, { passive: false });
 
+  let buildings = null; // emprises au sol, calculées au premier affichage
   let open = false;
   function toggle(force) {
     const show = force ?? !open;
@@ -119,6 +120,23 @@ export function createPoiMap(ctx, { getPlayer, onToast }) {
       g.beginPath(); g.moveTo(0, (size / 8) * i); g.lineTo(size, (size / 8) * i); g.stroke();
     }
 
+    // Bâti : emprise des colliders assez hauts pour être des immeubles
+    // (filtrés une fois — le décor est figé). Dessine les rues en creux.
+    if (!buildings) {
+      buildings = [];
+      for (const b of ctx.colliders ?? []) {
+        if (b.maxY - b.minY < 2.5) continue; // bancs, bornes, quais
+        if ((b.maxX - b.minX) * (b.maxZ - b.minZ) < 2) continue; // poteaux, troncs
+        buildings.push(b);
+      }
+    }
+    g.fillStyle = 'rgba(150, 170, 195, 0.22)';
+    for (const b of buildings) {
+      if (b.maxX < cx0 - half || b.minX > cx0 + half || b.maxZ < cz0 - half || b.minZ > cz0 + half) continue;
+      const x0 = sx(b.minX), z0 = sz(b.minZ);
+      g.fillRect(x0, z0, Math.max(1, sx(b.maxX) - x0), Math.max(1, sz(b.maxZ) - z0));
+    }
+
     // Fleuves (mêmes courbes que le monde 3D)
     g.fillStyle = '#1a86c4';
     for (const band of [...(ctx.waterBands ?? []), ...(ctx.waterExtensions ?? [])]) {
@@ -167,6 +185,22 @@ export function createPoiMap(ctx, { getPlayer, onToast }) {
       g.fillText(poi.nom, px, pz + (flip ? 22 : -16));
     }
     countEl.textContent = `· ${n} / ${(ctx.pois ?? []).length} lieux découverts`;
+
+    // Les autres joueurs : pastille à leur couleur + pseudo
+    g.font = '600 10px system-ui, sans-serif';
+    for (const o of getOthers?.() ?? []) {
+      const px = sx(o.x), pz = sz(o.z);
+      if (px < -10 || pz < -10 || px > size + 10 || pz > size + 10) continue;
+      g.fillStyle = o.color;
+      g.strokeStyle = '#0a1016';
+      g.lineWidth = 2;
+      g.beginPath();
+      g.arc(px, pz, 5, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+      g.fillStyle = '#ffffff';
+      g.fillText(o.name, px, pz - 9);
+    }
 
     // Le joueur : flèche orientée selon le regard
     const p = getPlayer();

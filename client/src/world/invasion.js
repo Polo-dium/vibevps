@@ -51,6 +51,10 @@ export function createInvasion(ctx, { notify, setBanner, onAttack, onEnd, getDam
       };
       ctx.shootables.push(mesh);
     }
+    // Aide à la visée (voir player/weapon.js)
+    human.hitMeshes[0].userData.aimPoint = (out) => (zombie.dead
+      ? null
+      : out.copy(g.position).setY(g.position.y + 1.15));
     zombies.push(zombie);
   }
 

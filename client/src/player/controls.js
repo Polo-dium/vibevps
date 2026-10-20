@@ -118,8 +118,10 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       }
       return;
     }
-    yaw -= dx * 0.0023;
-    pitch -= dy * 0.0023;
+    // aimFriction < 1 quand le réticule frôle une cible (voir weapon.js)
+    const k = 0.0023 * (state.aimFriction ?? 1);
+    yaw -= dx * k;
+    pitch -= dy * k;
     pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
   }
 

@@ -135,9 +135,11 @@ export const audio = {
     noise(0.06, { type: 'highpass', freq: 1500, gain: 0.12, at: 1.3 });
   },
 
-  hitmarker() {
+  hitmarker(headshot = false) {
     if (!ctx) return;
     tone(1300, 0.04, { type: 'sine', gain: 0.1 });
+    // « ding » aigu en plus pour un tir à la tête
+    if (headshot) tone(2100, 0.07, { type: 'triangle', gain: 0.09, at: 0.03 });
   },
 
   // Coup de tonnerre : craquement sec puis long grondement grave

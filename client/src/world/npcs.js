@@ -149,6 +149,10 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit, onNpcAttack }) {
       mesh.userData.onHit = () => hitNpc(npc);
       ctx.shootables.push(mesh);
     }
+    // Aide à la visée (voir player/weapon.js) : centre du torse, vivant
+    human.hitMeshes[0].userData.aimPoint = (out) => (npc.mode === 'walk' && group.visible
+      ? out.copy(group.position).setY(group.position.y + 1.15)
+      : null);
     npcs.push(npc);
   }
 

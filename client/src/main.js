@@ -158,8 +158,8 @@ async function boot() {
   };
   const ENV_NIGHT = {
     top: new THREE.Color(0x0d1830), mid: new THREE.Color(0x1a2c50),
-    horizon: new THREE.Color(0x2e3a5c), fog: new THREE.Color(0x232e4a),
-    hemiSky: new THREE.Color(0x5c6fa0), hemiGround: new THREE.Color(0x363a4e),
+    horizon: new THREE.Color(0x34426a), fog: new THREE.Color(0x2c3a5c),
+    hemiSky: new THREE.Color(0x7586bd), hemiGround: new THREE.Color(0x454a62),
     sun: new THREE.Color(0xb8c8f0),
   };
   const DUSK_TINT = new THREE.Color(0xff8a4d);
@@ -443,6 +443,10 @@ async function boot() {
     env.daylight = daylight;
     env.night = 1 - daylight;
     env.dusk = dusk;
+    state.night = env.night; // lu par les avatars distants (lueur nocturne)
+    // Œil qui s'habitue au noir : exposition relevée la nuit (lisibilité
+    // des rues et des silhouettes, le ciel reste sombre grâce à l'ACES).
+    renderer.toneMappingExposure = 1.12 + 0.38 * env.night;
     // x positif = EST dans la projection OSM de Lyon. À l'aube (ang = 0),
     // le soleil apparaît donc côté Rhône/Alpes ; au crépuscule x devient
     // négatif, côté Saône/Fourvière. La lune, placée à l'opposé plus bas,
@@ -475,8 +479,10 @@ async function boot() {
     // contre-jour (aube/crépuscule) n'étaient plus adoucies par la brume et
     // viraient au noir. Un peu plus de lumière du ciel les garde lisibles ;
     // midi (daylight=1) reste inchangé.
-    hemi.intensity = HEMI_MAX * (0.8 + 0.2 * daylight);
-    sun.intensity = SUN_MAX * daylight + 0.5 * env.night; // clair de lune la nuit
+    // La nuit, un rebond de ciel nettement plus fort : les façades et les
+    // joueurs se détachent au lieu de se fondre dans un aplat bleu nuit.
+    hemi.intensity = HEMI_MAX * (0.8 + 0.2 * daylight) + 0.35 * env.night;
+    sun.intensity = SUN_MAX * daylight + 0.65 * env.night; // clair de lune la nuit
     sun.color.copy(ENV_DAY.sun).lerp(DUSK_TINT, dusk * 0.7)
       .lerp(ENV_NIGHT.sun, env.night);
     if (shadowsEnabled) sun.castShadow = daylight > 0.04;
@@ -678,15 +684,18 @@ async function boot() {
   }
   const remotes = createRemotePlayers(scene, ctx.shootables, {
     getListenerPos: () => controls.position, // enceintes des autres joueurs
-    onHitRemote: (id, hit) => {
-      audio.hitmarker();
-      ui.hitmarker();
-      navigator.vibrate?.(18);
+    onHitRemote: (id, hit, headshot) => {
+      audio.hitmarker(headshot);
+      ui.hitmarker(headshot);
+      navigator.vibrate?.(headshot ? 30 : 18);
       // Les mitrailleuses de bord ne dépendent jamais de l'arme rangée du
       // personnage. Le Mirage frappe un peu plus fort que le coucou.
-      const dmg = hit?.jetpack ? 9
+      let dmg = hit?.jetpack ? 9
         : hit?.aircraft ? (hit.jet ? 32 : 25)
           : weapon.damage;
+      // Tir à la tête : ×1,5, borné au plafond serveur des armes légères
+      // (55) — le fusil de précision (100) n'en a pas besoin.
+      if (headshot && dmg < 55) dmg = Math.min(55, Math.round(dmg * 1.5));
       net.send({ t: 'hit', target: id, dmg });
     },
   });
@@ -932,6 +941,7 @@ async function boot() {
   // Carte des points d'intérêt (M) : se remplit en explorant
   const poiMap = createPoiMap(ctx, {
     getPlayer: () => ({ x: controls.position.x, z: controls.position.z, yaw: controls.yaw }),
+    getOthers: () => remotes.list(),
     onToast: ui.toast,
   });
 

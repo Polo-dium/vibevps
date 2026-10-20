@@ -12,22 +12,24 @@ const MAX_ROCKETS = 10;
 // L'arsenal, du marteau au bazooka. Les armes (sauf l'AK de départ) se
 // ramassent sur la map (voir world/loot.js). `dmg` est une INDICATION envoyée
 // au serveur, qui borne et rythme les dégâts : un tricheur n'y gagne rien.
+// Barème « nerveux » : 5 balles d'AK au corps (4 à la tête, ×1,5 — voir
+// onHitRemote dans main.js), 2 coups de pompe ou de marteau.
 export const WEAPONS = {
   ak: {
     nom: 'AK-47', emoji: '🔫',
-    fire: 0.1, mag: 30, reload: 1.6, range: 120, dmg: 10,
+    fire: 0.1, mag: 30, reload: 1.6, range: 120, dmg: 20,
   },
   marteau: {
     nom: 'Marteau', emoji: '🔨',
-    fire: 0.55, mag: 0, reload: 0, range: 3.6, dmg: 30, melee: true,
+    fire: 0.55, mag: 0, reload: 0, range: 3.6, dmg: 50, melee: true,
   },
   pompe: {
     nom: 'Fusil à pompe', emoji: '💥',
-    fire: 0.95, mag: 6, reload: 2.4, range: 34, dmg: 26, pellets: 6,
+    fire: 0.95, mag: 6, reload: 2.4, range: 34, dmg: 50, pellets: 6,
   },
   minigun: {
     nom: 'Minigun', emoji: '🌀',
-    fire: 0.05, mag: 120, reload: 3.2, range: 100, dmg: 9,
+    fire: 0.05, mag: 120, reload: 3.2, range: 100, dmg: 14,
   },
   bazooka: {
     nom: 'Bazooka', emoji: '🚀',
@@ -39,12 +41,12 @@ export const WEAPONS = {
     // CHAQUE pistolet (mag = total affiché). Deux détentes indépendantes :
     // clic gauche = pistolet droit, clic droit (ou bouton TIR gauche en
     // tactile) = pistolet gauche ; les deux maintenues = tir alterné.
-    fire: 0.05, mag: 60, magSide: 30, reload: 1.9, range: 70, dmg: 8, akimbo: true,
+    fire: 0.05, mag: 60, magSide: 30, reload: 1.9, range: 70, dmg: 13, akimbo: true,
   },
   baton: {
     nom: 'Bâton de Guignol', emoji: '🏏',
     // La tavelle du théâtre : mêlée rapide, gagnée au castelet de Guignol.
-    fire: 0.38, mag: 0, reload: 0, range: 3.4, dmg: 20, melee: true,
+    fire: 0.38, mag: 0, reload: 0, range: 3.4, dmg: 34, melee: true,
   },
   sniper: {
     nom: 'Fusil de précision', emoji: '🎯',
@@ -124,6 +126,56 @@ export function createWeapon(camera, scene, shootables, {
     camera.zoom = on ? scopeZoom : 1;
     camera.updateProjectionMatrix();
     onScope?.(on ? scopeZoom : null);
+  }
+
+  // --- Aide à la visée ---
+  // Les cibles vivantes (joueurs distants, PNJ) exposent
+  // userData.aimPoint(out) → centre du torse (Vector3) ou null si hors jeu.
+  // Deux effets discrets : les balles qui FRÔLENT une cible partent vers
+  // elle (aimantation), et la visée ralentit quand le réticule passe dessus
+  // (friction, lue par controls.js via state.aimFriction). Plus généreux en
+  // tactile, jamais à travers un mur, jamais pour le fusil de précision.
+  const AIM_CONE = IS_TOUCH ? 0.09 : 0.05; // demi-angle max (rad)
+  const AIM_RADIUS = IS_TOUCH ? 1.1 : 0.75; // rattrapage latéral max (m)
+  const _aimP = new THREE.Vector3();
+  const _aimDir = new THREE.Vector3();
+  const _aimBest = new THREE.Vector3();
+  const _camPos = new THREE.Vector3();
+  const _camFwd = new THREE.Vector3();
+  function findAimTarget(range, cone = AIM_CONE, radius = AIM_RADIUS) {
+    camera.getWorldPosition(_camPos);
+    camera.getWorldDirection(_camFwd);
+    let bestAng = Infinity;
+    for (const m of shootables) {
+      const p = m.userData.aimPoint?.(_aimP);
+      if (!p) continue;
+      // Point visé = le plus proche du rayon sur l'axe du corps (des genoux
+      // au sommet du crâne) : on garde la hauteur choisie par le joueur,
+      // un tir à hauteur de tête reste un tir à la tête.
+      const t = _aimDir.subVectors(p, _camPos).dot(_camFwd);
+      p.y = THREE.MathUtils.clamp(_camPos.y + _camFwd.y * t, p.y - 0.75, p.y + 0.55);
+      _aimDir.subVectors(p, _camPos);
+      const d = _aimDir.length();
+      if (d < 0.4 || d > range) continue;
+      _aimDir.divideScalar(d);
+      const ang = Math.acos(Math.min(1, _aimDir.dot(_camFwd)));
+      if (ang >= bestAng || ang > Math.min(cone, Math.atan2(radius, d))) continue;
+      if (worldHit && worldHit(_camPos, _aimDir, d) < d - 0.4) continue; // derrière un mur
+      bestAng = ang;
+      _aimBest.copy(_aimDir);
+    }
+    return bestAng < Infinity ? _aimBest : null;
+  }
+  // Après setFromCamera : si le rayon central ne touche aucune cible avant
+  // le premier mur, on le réoriente vers la cible la plus proche du réticule.
+  function assistRay(range, cone, radius) {
+    const hits = raycaster.intersectObjects(shootables, false);
+    const wallD = worldHit
+      ? worldHit(raycaster.ray.origin, raycaster.ray.direction, range)
+      : Infinity;
+    if (hits.length > 0 && hits[0].distance <= Math.min(wallD, range)) return;
+    const dir = findAimTarget(range, cone, radius);
+    if (dir) raycaster.ray.direction.copy(dir);
   }
 
   // --- Effets : traceurs et impacts (aussi utilisés pour les tirs des autres) ---
@@ -401,6 +453,7 @@ export function createWeapon(camera, scene, shootables, {
       swing = 1;
       audio.thud();
       raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+      assistRay(spec.range + 0.5, 0.4, 1.3); // un moulinet, ça ratisse large
       const hits = raycaster.intersectObjects(shootables, false);
       const wallD = worldHit
         ? worldHit(raycaster.ray.origin, raycaster.ray.direction, spec.range)
@@ -440,6 +493,7 @@ export function createWeapon(camera, scene, shootables, {
         ? { x: 0, y: 0 }
         : { x: (Math.random() - 0.5) * 0.16, y: (Math.random() - 0.5) * 0.12 };
       raycaster.setFromCamera(off, camera);
+      if (k === 0 && !spec.sniper) assistRay(spec.range);
       const wallD = worldHit
         ? worldHit(raycaster.ray.origin, raycaster.ray.direction, spec.range)
         : Infinity;
@@ -576,6 +630,13 @@ export function createWeapon(camera, scene, shootables, {
         onAmmoChange(ammo, false, spec);
       }
     }
+
+    // Friction de visée : réticule sur (ou tout près d') une cible → la
+    // caméra tourne moins vite, le temps de la suivre.
+    state.aimFriction = state.weaponEquipped && !aiming && !state.driving &&
+      !state.overlayOpen && findAimTarget(spec.range, AIM_CONE * 0.8)
+      ? (IS_TOUCH ? 0.5 : 0.72)
+      : 1;
 
     cooldown -= dt;
     const inputOk = IS_TOUCH || state.pointerLocked;
