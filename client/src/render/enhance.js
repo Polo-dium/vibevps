@@ -35,7 +35,7 @@ function roughnessFrom(src) {
     const glass = blue * (1 - Math.max(0, lum - 0.35) * 2);
     if (glass > 0.5) glossy++;
     // vert = rugosité (canal lu par three.js)
-    const rough = 0.92 - Math.max(0, glass) * 0.8;
+    const rough = 0.92 - Math.max(0, glass) * 0.55; // vitre satinée, pas miroir
     img.data[i] = img.data[i + 1] = img.data[i + 2] = rough * 255;
     img.data[i + 3] = 255;
   }
@@ -101,11 +101,24 @@ function upgrade(mat) {
       roughnessMap: roughTex, roughness: 1,
       metalness: 0,
       // les vitres renvoient le ciel ; le diffus garde l'éclairage d'origine
-      envMapIntensity: rough.glossy > 0.02 ? 1 : 0.6,
+      envMapIntensity: rough.glossy > 0.02 ? 0.75 : 0.6,
     });
     next.name = mat.name;
     next.userData = mat.userData;
     addDetail(next);
+    // Le code du monde garde une référence vers l'ANCIEN matériau et
+    // l'anime (fenêtres allumées la nuit, devantures, flash…) : couleurs
+    // partagées par référence, intensité émissive et opacité relayées.
+    next.color = mat.color;
+    next.emissive = mat.emissive;
+    for (const key of ['emissiveIntensity', 'opacity']) {
+      next[key] = mat[key];
+      Object.defineProperty(mat, key, {
+        configurable: true,
+        get: () => next[key],
+        set: (v) => { next[key] = v; },
+      });
+    }
   }
   done.set(mat, next);
   return next;

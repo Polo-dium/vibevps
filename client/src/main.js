@@ -419,6 +419,7 @@ async function boot() {
   const osmData = await osmPromise;
 
   if (osmData?.buildings?.length > 50) {
+    ctx.detail = quality.level; // finesse du bâti (corniches, matériaux)
     buildRealCity(ctx, osmData);
     // camera.far reste large : le dôme de ciel, les Alpes et les collines
     // sont des décors lointains qu'il ne faut jamais tronquer. Ce qui borne

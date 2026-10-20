@@ -16,6 +16,7 @@ import {
 } from './city.js';
 import { buildTraffic } from './traffic.js';
 import { buildRooftopBar } from './rooftops.js';
+import { addRoof, makeRoofSlopeMaterial } from './roofs.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // Construit le vrai Lyon à partir des empreintes OpenStreetMap
@@ -1388,9 +1389,9 @@ function makeAsphaltTexture() {
     g.fillRect((u - 0.12) * S, 0, 0.24 * S, S);
   }
   // Fissures fines
-  g.strokeStyle = 'rgba(24,26,30,0.5)';
-  g.lineWidth = 1;
-  for (let i = 0; i < 4; i++) {
+  g.strokeStyle = 'rgba(24,26,30,0.28)';
+  g.lineWidth = 0.6;
+  for (let i = 0; i < 3; i++) {
     let x = Math.random() * S, y = 0;
     g.beginPath();
     g.moveTo(x, y);
@@ -1712,6 +1713,10 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     wallMat.emissiveIntensity = Math.max(0, (ctx.env?.night ?? 0) * 1.1 - 0.1) * 0.8;
   });
   const roofMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  // Pans de toit (zinc à lucarnes / tuiles canal) : voir world/roofs.js
+  const slopeMat = makeRoofSlopeMaterial(ctx.detail !== 'bas');
+  // Corniches : un peu de géométrie en plus par façade, pas sur le palier Bas
+  const withCornice = ctx.detail !== 'bas';
   // Devantures séparées, fusionnées dans un unique mesh : la ville prend vie
   // au niveau des yeux sans multiplier les draw calls par immeuble.
   const shopPos = [], shopUv = [];
@@ -1724,7 +1729,7 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     const key = Math.floor(x / TILE) + ',' + Math.floor(z / TILE);
     let t = tiles.get(key);
     if (!t) {
-      t = { wp: [], wuv: [], wc: [], rp: [], rc: [] };
+      t = { wp: [], wuv: [], wc: [], rp: [], rc: [], sp: [], suv: [], sc: [], sa: [] };
       tiles.set(key, t);
     }
     return t;
@@ -1795,11 +1800,12 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     const BB = BELLE_RECT;
     const nearBelle = BB && cx > BB.minX - 34 && cx < BB.maxX + 34 &&
       cz > BB.minZ - 34 && cz < BB.maxZ + 34;
+    const vieuxLyon = !nearBelle && inVieuxLyon(cx, cz);
     if (nearBelle) {
       h = 19.2 + (hash2(bi) % 3) * 0.5; // quasi uniforme, ~6 étages
       wallColor.set(0xece3cd).offsetHSL(0, 0, (rand() - 0.5) * 0.015);
       roofColor.set(0x6d7585).offsetHSL(0, 0, (rand() - 0.5) * 0.02);
-    } else if (inVieuxLyon(cx, cz)) {
+    } else if (vieuxLyon) {
       // Rive droite de la Saône : les façades Renaissance colorées du Vieux
       // Lyon (ocre, rose, safran) — LA carte postale. Chaque branche de ce
       // if consomme EXACTEMENT 2 rand() : la séquence déterministe des
@@ -1852,24 +1858,24 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       }
     }
 
-    // Toit (triangulation de l'empreinte)
-    try {
-      const shape = pts.map(([x, z]) => new THREE.Vector2(x, z));
-      const tris = THREE.ShapeUtils.triangulateShape(shape, []);
-      for (const [a, bb, c] of tris) {
-        let pa = pts[a], pb = pts[bb], pc = pts[c];
-        // Normale vers le haut
-        const ny = (pb[1] - pa[1]) * (pc[0] - pa[0]) - (pb[0] - pa[0]) * (pc[1] - pa[1]);
-        if (ny < 0) { const t = pb; pb = pc; pc = t; }
-        tile.rp.push(pa[0], y1, pa[1], pb[0], y1, pb[1], pc[0], y1, pc[1]);
-        for (let k = 0; k < 3; k++) tile.rc.push(roofColor.r, roofColor.g, roofColor.b);
-      }
-    } catch { /* empreinte dégénérée : murs seuls */ }
-
-    // Acrotère (rebord de toit en pierre) sur les immeubles : rendu dans le
-    // mesh de toit (couleur unie, pas de fenêtres). Réaliste + repère de bord.
+    // Toiture (world/roofs.js) : mansarde de zinc à lucarnes autour de
+    // Bellecour et sur les toits gris, tuiles canal à faible pente ailleurs
+    // (Vieux Lyon compris), toit-terrasse pour les tours, les petits
+    // volumes et une part déterministe des immeubles. Choix par hash :
+    // aucun rand() consommé, la séquence des bâtiments suivants est intacte.
     const footA = (maxX - minX) * (maxZ - minZ);
-    if (footA > 50 && h > 7) {
+    const zincTint = nearBelle ||
+      (!vieuxLyon && [4, 5].includes(hash2(bi * 7 + 3) % ROOF_TINTS.length));
+    const roofKind = (h > 34 || h < 5 || footA < 30 || (!nearBelle && hash2(bi * 13 + 5) % 100 < 26))
+      ? 'plat' : zincTint ? 'zinc' : 'tuile';
+    const roof = addRoof(tile, pts.map(([x, z]) => [x, z]), y1, {
+      kind: roofKind, roofColor, stoneColor: acroCol,
+      cornice: withCornice && h > 7 && footA > 40,
+    });
+
+    // Acrotère (rebord de toit en pierre) sur les toits-terrasses : rendu
+    // dans le mesh de toit (couleur unie). Réaliste + repère de bord.
+    if (!roof.inset && footA > 50 && h > 7) {
       const ah = 0.75;
       for (let i = 0; i < pts.length; i++) {
         const [x1, z1] = pts[i];
@@ -1911,6 +1917,15 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       minX, maxX, minZ, maxZ,
       minY: y1 - 0.7, maxY: y1,
     });
+    // Toit en pente : on se pose aussi sur le terrasson
+    if (roof.inset) {
+      let ix0 = Infinity, ix1 = -Infinity, iz0 = Infinity, iz1 = -Infinity;
+      for (const [x, z] of roof.inset) {
+        ix0 = Math.min(ix0, x); ix1 = Math.max(ix1, x);
+        iz0 = Math.min(iz0, z); iz1 = Math.max(iz1, z);
+      }
+      ctx.colliders.push({ minX: ix0, maxX: ix1, minZ: iz0, maxZ: iz1, minY: roof.yTop - 0.7, maxY: roof.yTop });
+    }
 
     // Superstructures : cheminées / édicules d'ascenseur sur les grands toits
     const foot = (maxX - minX) * (maxZ - minZ);
@@ -1919,13 +1934,13 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       roofProps.push({
         x: cx + (rand() - 0.5) * (maxX - minX) * 0.4,
         z: cz + (rand() - 0.5) * (maxZ - minZ) * 0.4,
-        y: y1, s, red: rand() < 0.35,
+        y: roof.yTop, s, red: rand() < 0.35,
       });
     }
 
     // Candidat rooftop bar : grand toit plat, accessible et assez rectangulaire
     const realA = Math.abs(area) / 2;
-    if (foot > 210 && h >= 12 && h <= 46 && realA / foot > 0.72) {
+    if (!roof.inset && foot > 210 && h >= 12 && h <= 46 && realA / foot > 0.72) {
       rooftopCandidates.push({ cx, cz, y1, w: maxX - minX, d: maxZ - minZ });
     }
     kept += 1;
@@ -2014,6 +2029,18 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       ctx.scene.add(mesh);
       meshes.push(mesh);
     }
+    if (t.sp.length > 0) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(t.sp, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(t.suv, 2));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(t.sc, 3));
+      geo.setAttribute('atlas', new THREE.Float32BufferAttribute(t.sa, 1));
+      geo.computeVertexNormals();
+      const mesh = new THREE.Mesh(geo, slopeMat);
+      mesh.userData.cityTile = true;
+      ctx.scene.add(mesh);
+      meshes.push(mesh);
+    }
     if (meshes.length) tileCulling.push({ cx, cz, meshes, shown: true });
   }
 
@@ -2051,13 +2078,14 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(shopPos, 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(shopUv, 2));
     geo.computeVertexNormals();
+    const shopTex = makeShopfrontTexture();
     const mat = new THREE.MeshLambertMaterial({
-      map: makeShopfrontTexture(),
-      emissive: 0xffc46b, emissiveIntensity: 0,
+      map: shopTex,
+      emissive: 0xffffff, emissiveMap: shopTex.userData.emissive, emissiveIntensity: 0,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     });
     ctx.updatables.push(() => {
-      mat.emissiveIntensity = Math.max(0, (ctx.env?.night ?? 0) - 0.15) * 0.38;
+      mat.emissiveIntensity = Math.max(0, (ctx.env?.night ?? 0) - 0.15) * 1.1;
     });
     const shops = new THREE.Mesh(geo, mat);
     shops.userData.noShadow = true;
@@ -2085,13 +2113,16 @@ function buildOsmRoads(ctx, data, full = false) {
     if (len < 0.1) return len;
     const px = (-dz / len) * half, pz = (dx / len) * half;
     const ya = yAt(x1, z1) + dy, yb = yAt(x2, z2) + dy;
+    // Ordre des sommets ANTI-HORAIRE vu du ciel : face visible vers le haut.
+    // (L'ordre inverse tournait la face vers le sol : avec le culling par
+    // défaut, chaussées, trottoirs et marquages étaient invisibles d'en haut.)
     arr.push(
-      x1 - px, ya, z1 - pz, x2 - px, yb, z2 - pz, x2 + px, yb, z2 + pz,
-      x1 - px, ya, z1 - pz, x2 + px, yb, z2 + pz, x1 + px, ya, z1 + pz
+      x1 - px, ya, z1 - pz, x2 + px, yb, z2 + pz, x2 - px, yb, z2 - pz,
+      x1 - px, ya, z1 - pz, x1 + px, ya, z1 + pz, x2 + px, yb, z2 + pz
     );
     if (v0 != null && uvTarget) {
       const va = v0 / 9, vb = (v0 + len) / 9; // une tuile d'asphalte ≈ 9 m
-      uvTarget.push(0, va, 0, vb, 1, vb, 0, va, 1, vb, 1, va);
+      uvTarget.push(0, va, 1, vb, 0, vb, 0, va, 1, va, 1, vb);
     }
     return len;
   };
@@ -2328,7 +2359,9 @@ function buildGreenery(ctx, data, rand, full = false) {
     (() => { const p = new THREE.PlaneGeometry(3.2, 5.6); p.rotateY(Math.PI / 2); p.translate(0, 2.8, 0); return p; })(),
   ]);
   const billMat = new THREE.MeshBasicMaterial({
-    map: billTex, transparent: true, alphaTest: 0.4, vertexColors: true, side: THREE.DoubleSide,
+    // Pas de vertexColors : la géométrie n'a pas d'attribut couleur (les
+    // imposteurs sortaient NOIRS) ; la teinte vient des couleurs d'instance.
+    map: billTex, transparent: true, alphaTest: 0.4, side: THREE.DoubleSide,
   });
   const billboards = new THREE.InstancedMesh(billGeo, billMat, valid.length);
   billboards.userData.noShadow = true;
@@ -2347,7 +2380,8 @@ function buildGreenery(ctx, data, rand, full = false) {
     billboards.setMatrixAt(i, ZERO);
     col.setHSL(0.28 + rand() * 0.06, 0.45, 0.32 + rand() * 0.12);
     foliage.setColorAt(i, col);
-    billboards.setColorAt(i, col);
+    // un ton sous le houppier 3D : celui-ci a une occlusion cuite
+    billboards.setColorAt(i, col.clone().multiplyScalar(0.72));
     treeLod.push({ x, z, s, ty, far: false });
   });
   trunks.instanceMatrix.needsUpdate = true;
@@ -2422,41 +2456,77 @@ function makeTreeBillboardTexture() {
 
 // Cellule de commerce répétable : vitrine profonde, porte, enseigne et store.
 // Une unité représente environ 4,5 m de façade.
+// Devanture (un module de 4,5 m) : pilastres de pierre, bandeau d'enseigne,
+// store rayé, vitrine avec étagères éclairées, porte vitrée. Renvoie aussi
+// la carte ÉMISSIVE assortie : la nuit, seuls la vitrine, la porte et les
+// lettres de l'enseigne s'allument (avant, tout le rez-de-chaussée luisait
+// comme un bloc orange uni).
 function makeShopfrontTexture() {
   const W = 192, H = 128;
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const g = canvas.getContext('2d');
-  g.fillStyle = '#77736b'; g.fillRect(0, 0, W, H);
-  // Bandeau d'enseigne, suffisamment contrasté pour être lisible de loin
-  g.fillStyle = '#26394a'; g.fillRect(3, 5, W - 6, 27);
-  g.fillStyle = '#f2c45f';
-  for (let x = 14; x < W - 10; x += 22) g.fillRect(x, 14, 12, 4);
-  // Store rayé
-  for (let x = 3; x < W - 3; x += 16) {
-    g.fillStyle = (x / 16) % 2 ? '#c64f45' : '#eee4cf';
-    g.fillRect(x, 32, 16, 13);
+  const emi = document.createElement('canvas');
+  emi.width = W; emi.height = H;
+  const e = emi.getContext('2d');
+  e.fillStyle = '#000'; e.fillRect(0, 0, W, H);
+  // Pierre de taille + joints
+  g.fillStyle = '#8a857a'; g.fillRect(0, 0, W, H);
+  g.fillStyle = 'rgba(40,38,34,.35)';
+  for (let y = 8; y < H; y += 16) g.fillRect(0, y, 6, 1.5);
+  // Bandeau d'enseigne et lettres dorées
+  g.fillStyle = '#1f3242'; g.fillRect(6, 5, W - 12, 25);
+  g.fillStyle = '#c9a548'; g.fillRect(6, 5, W - 12, 2); g.fillRect(6, 28, W - 12, 2);
+  g.fillStyle = '#f2cf72'; e.fillStyle = '#ffd98a';
+  for (let x = 22; x < W - 22; x += 15) {
+    const hgt = 7 + ((x * 7) % 5);
+    g.fillRect(x, 17 - hgt / 2, 9, hgt);
+    e.fillRect(x, 17 - hgt / 2, 9, hgt);
   }
-  // Vitrines, reflets et intérieur chaud
-  g.fillStyle = '#182839'; g.fillRect(7, 48, 116, 72);
-  const grad = g.createLinearGradient(7, 48, 123, 120);
-  grad.addColorStop(0, 'rgba(126,194,220,.7)');
-  grad.addColorStop(0.45, 'rgba(28,53,75,.25)');
-  grad.addColorStop(1, 'rgba(255,188,92,.45)');
-  g.fillStyle = grad; g.fillRect(10, 51, 110, 66);
-  g.strokeStyle = '#beb6a6'; g.lineWidth = 4;
-  g.strokeRect(7, 48, 116, 72);
-  g.beginPath(); g.moveTo(65, 49); g.lineTo(65, 119); g.stroke();
-  // Porte vitrée et poignée
-  g.fillStyle = '#24323c'; g.fillRect(132, 43, 53, 77);
-  g.fillStyle = '#7394a5'; g.fillRect(138, 49, 41, 55);
-  g.fillStyle = '#d9c88d'; g.fillRect(141, 108, 35, 5);
-  g.fillStyle = '#f0d57b'; g.fillRect(169, 77, 4, 9);
-  // Seuil + ombre de contact
-  g.fillStyle = '#343331'; g.fillRect(0, 120, W, 8);
+  // Store rayé avec lambrequin festonné et ombre portée
+  for (let x = 6; x < W - 6; x += 14) {
+    g.fillStyle = (x / 14) % 2 < 1 ? '#b8443b' : '#efe5d1';
+    g.fillRect(x, 31, 14, 12);
+    g.beginPath(); g.arc(x + 7, 43, 7, 0, Math.PI); g.fill();
+  }
+  g.fillStyle = 'rgba(0,0,0,.28)'; g.fillRect(6, 50, W - 12, 6);
+  // Vitrine : intérieur chaud, étagères et silhouettes de produits
+  g.fillStyle = '#2b2620'; g.fillRect(10, 52, 112, 66);
+  e.fillStyle = '#5a4630'; e.fillRect(10, 52, 112, 66);
+  for (const y of [72, 92, 112]) {
+    g.fillStyle = '#6b5640'; g.fillRect(12, y, 108, 3);
+    for (let x = 16; x < 116; x += 9 + ((x * 3) % 6)) {
+      const hh = 6 + ((x * 13 + y) % 9);
+      g.fillStyle = ['#c0533f', '#e0b04a', '#5f8fb0', '#e8e0d0', '#6e9a54'][(x + y) % 5];
+      g.fillRect(x, y - hh, 6, hh);
+      e.fillStyle = '#a8865a'; e.fillRect(x, y - hh, 6, hh);
+    }
+  }
+  // Reflet du ciel sur la vitre (de jour) + châssis
+  const grad = g.createLinearGradient(10, 52, 122, 118);
+  grad.addColorStop(0, 'rgba(170,205,225,.55)');
+  grad.addColorStop(0.5, 'rgba(60,80,100,.12)');
+  grad.addColorStop(1, 'rgba(255,220,160,.18)');
+  g.fillStyle = grad; g.fillRect(10, 52, 112, 66);
+  g.strokeStyle = '#2c2a27'; g.lineWidth = 4;
+  g.strokeRect(9, 51, 114, 68);
+  g.beginPath(); g.moveTo(66, 52); g.lineTo(66, 118); g.stroke();
+  // Porte vitrée, imposte, poignée
+  g.fillStyle = '#2c2a27'; g.fillRect(134, 46, 50, 74);
+  g.fillStyle = '#3a4a52'; g.fillRect(140, 52, 38, 52);
+  g.fillStyle = 'rgba(170,205,225,.35)'; g.fillRect(140, 52, 38, 26);
+  e.fillStyle = '#6a5236'; e.fillRect(140, 52, 38, 52);
+  g.fillStyle = '#d6b45c'; g.fillRect(170, 82, 4, 10);
+  // Soubassement + seuil
+  g.fillStyle = '#5c584f'; g.fillRect(0, 118, W, 4);
+  g.fillStyle = '#343331'; g.fillRect(0, 122, W, 6);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  const emiTex = new THREE.CanvasTexture(emi);
+  emiTex.colorSpace = THREE.SRGBColorSpace;
+  emiTex.wrapS = emiTex.wrapT = THREE.RepeatWrapping;
+  tex.userData.emissive = emiTex;
   return tex;
 }
 
