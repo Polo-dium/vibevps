@@ -53,6 +53,7 @@ import { createQuality, fogDensityFor } from './quality.js';
 import { createPost } from './render/post.js';
 import { createEnvMap } from './render/envmap.js';
 import { enhanceScene } from './render/enhance.js';
+import { detail } from './render/detail.js';
 import { createLoadingScreen, nextPaint } from './ui/loading.js';
 import { createTutorial } from './ui/tutorial.js';
 
@@ -138,6 +139,7 @@ async function boot() {
   // de triangles de la ville (identique à tous les paliers).
   const quality = createQuality(IS_TOUCH);
   const SHADOWS = quality.preset.shadows;
+  detail.level = quality.level; // finesse du décor (render/detail.js)
 
   const renderer = new THREE.WebGLRenderer({
     antialias: !IS_TOUCH && quality.level !== 'bas', powerPreference: 'high-performance',
@@ -834,17 +836,12 @@ async function boot() {
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.14;
     group.add(ring);
-    const light = new THREE.PointLight(
-      0xff7b28,
-      80 * Math.max(0.4, scale),
-      95 * scale,
-      2
-    );
-    light.position.y = 5;
-    group.add(light);
+    // Pas de PointLight : en ajouter/retirer une recompilait TOUS les
+    // shaders de la scène (gel à chaque roquette de bazooka). La boule de
+    // feu additive (glow) fait l'éclair.
     scene.add(group);
     bombClouds.push({
-      group, stem, cap, glow, ring, light,
+      group, stem, cap, glow, ring,
       smokeMat, glowMat, ringMat,
       materials: [smokeMat, glowMat, ringMat], age: 0, duration,
     });
@@ -867,7 +864,6 @@ async function boot() {
       c.smokeMat.opacity = Math.max(0, 0.92 * (1 - Math.pow(t, 2.4)));
       c.glowMat.opacity = Math.max(0, 0.9 * (1 - t * 5));
       c.ringMat.opacity = Math.max(0, 0.72 * (1 - t * 3.2));
-      c.light.intensity = Math.max(0, 80 * (1 - t * 5));
       if (t >= 1) {
         removeBombCloud(c);
         bombClouds.splice(i, 1);
@@ -1100,8 +1096,9 @@ async function boot() {
   }
 
   // Relief + rugosité dérivés des textures du décor (pavés, crépi, vitres
-  // qui reflètent le ciel) — voir render/enhance.js. Pas sur le palier Bas.
-  if (quality.level !== 'bas') enhanceScene(scene);
+  // qui reflètent le ciel) — voir render/enhance.js. Palier Élevé seulement :
+  // sur tablette, ces 3 textures de plus par pixel coûtaient trop cher.
+  if (quality.level === 'eleve') enhanceScene(scene);
 
   // Le monde est bâti : on recense le petit décor pour ne dessiner que
   // celui à portée de vue. C'est de LOIN le premier poste de draw calls
@@ -2034,7 +2031,21 @@ async function boot() {
     }
     warm.position.copy(camera.position);
     scene.add(warm);
-    try { post.render(); } catch { /* le premier vrai rendu s'en chargera */ }
+    // TOUT le décor, même masqué (portée de vue, objets cachés) et hors
+    // champ : sinon ses shaders — et leurs variantes d'ombre — se
+    // compilaient en plein jeu, à la première apparition (une trentaine
+    // de programmes en marchant quelques secondes = à-coups réguliers).
+    const shown = [], unculled = [];
+    scene.traverse((o) => {
+      if (!o.visible) { shown.push(o); o.visible = true; }
+      if (o.frustumCulled) { unculled.push(o); o.frustumCulled = false; }
+    });
+    try {
+      renderer.compile(scene, camera);
+      post.render(); // passe réelle : compile aussi les variantes d'ombre
+    } catch { /* le premier vrai rendu s'en chargera */ }
+    for (const o of shown) o.visible = false;
+    for (const o of unculled) o.frustumCulled = true;
     scene.remove(warm);
   }
   loop();

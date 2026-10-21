@@ -140,3 +140,30 @@ export function hashColor(name) {
   c.setHSL((h % 360) / 360, 0.7, 0.55);
   return c;
 }
+
+// LUEUR ADDITIVE (à la place d'une vraie PointLight). Une lumière ponctuelle
+// coûte sur CHAQUE pixel éclairé de la ville, même loin et même éteinte, et
+// en ajouter/retirer une recompile tous les shaders de la scène (gel). Un
+// sprite additif donne l'impression de lumière pour le prix d'un quad.
+let glowTex = null;
+export function makeGlowSprite(color, size, opacity = 1) {
+  if (!glowTex) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.35, 'rgba(255,255,255,0.45)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    glowTex = new THREE.CanvasTexture(c);
+  }
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glowTex, color, transparent: true, opacity,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  s.scale.set(size, size, 1);
+  s.userData.noShadow = true;
+  return s;
+}

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { buildHuman } from './human.js';
-import { flattenColored } from './utils.js';
+import { flattenColored, makeGlowSprite } from './utils.js';
 
 // Rooftop bars : sur quelques grands toits, une terrasse festive — comptoir,
 // tabourets, transats, parasols, plantes, guirlandes lumineuses (la nuit) et
@@ -142,9 +142,9 @@ export function buildRooftopBar(ctx, { x, z, y, w, d, rand }) {
   const garland = new THREE.Points(garlandGeo, garlandMat);
   garland.userData.noShadow = true;
   g.add(garland);
-  // Lueur chaude d'ambiance : le bar s'allume vraiment la nuit, pas
-  // seulement ses guirlandes (portée courte, coût négligeable — ≤8 terrasses)
-  const barGlow = new THREE.PointLight(0xffb060, 0, 15, 1.7);
+  // Lueur chaude d'ambiance la nuit : sprite additif (une vraie PointLight
+  // par terrasse — jusqu'à 8 — pesait sur chaque pixel de toute la ville)
+  const barGlow = makeGlowSprite(0xffb060, 9, 0);
   barGlow.position.set(-w * 0.2, 1.8, -halfD + 1.2);
   g.add(barGlow);
 
@@ -193,7 +193,7 @@ export function buildRooftopBar(ctx, { x, z, y, w, d, rand }) {
   const night = () => ctx.env?.night ?? 0;
   return function update(dt) {
     garlandMat.opacity = Math.min(1, 0.12 + Math.max(0, night() * 1.3 - 0.15) * 1.0);
-    barGlow.intensity = night() * 9;
+    barGlow.material.opacity = night() * 0.55;
     for (const p of people) {
       p.phase += dt;
       if (!p.lounging) {

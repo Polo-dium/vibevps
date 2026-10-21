@@ -58,6 +58,51 @@ export const WEAPONS = {
   },
 };
 
+// Prises en main, par arme (repère du porte-arme, voir weaponModels.js) :
+// main DROITE sur la poignée pistolet, index vers la détente (paume contre
+// le flanc droit de la poignée : roulis ≈ −π/2) ; main GAUCHE sous le
+// garde-main / la pompe, DEVANT la droite, paume vers le haut (roulis ≈ π).
+// pos = point visé par le poing, rot = orientation du bras (voir arms.js).
+const GRIPS = {
+  ak: {
+    r: { pos: [0.032, -0.095, -0.075], rot: [0.7, 0.25, -1.5] },
+    l: { pos: [0, -0.085, -0.46], rot: [0.2, -0.3, 3.1] },
+  },
+  pompe: {
+    r: { pos: [0.032, -0.09, -0.015], rot: [0.7, 0.25, -1.5] },
+    l: { pos: [0, -0.09, -0.42], rot: [0.2, -0.3, 3.1] },
+  },
+  sniper: {
+    r: { pos: [0.034, -0.1, -0.07], rot: [0.7, 0.25, -1.5] },
+    l: { pos: [0, -0.075, -0.37], rot: [0.2, -0.3, 3.1] },
+  },
+  // Minigun : poing droit sur le bloc arrière, main gauche sous les canons
+  // (sur la poignée de transport, l'avant-bras barrait tout l'écran)
+  minigun: {
+    r: { pos: [0.06, -0.04, 0.0], rot: [0.6, 0.3, -1.5] },
+    l: { pos: [0, -0.1, -0.3], rot: [0.2, -0.3, 3.1] },
+  },
+  // Bazooka : deux poignées verticales sous le tube (gauche = l'avant)
+  bazooka: {
+    r: { pos: [0.054, -0.06, -0.095], rot: [0.7, 0.25, -1.5] },
+    l: { pos: [-0.014, -0.05, -0.32], rot: [0.6, -0.3, 1.5] },
+  },
+  // Manches (marteau, bâton) : les deux poings de part et d'autre du manche
+  marteau: {
+    r: { pos: [-0.015, -0.03, -0.12], rot: [0.5, 0.3, -1.5] },
+    l: { pos: [-0.085, -0.03, -0.27], rot: [0.4, -0.3, 1.5] },
+  },
+  baton: {
+    r: { pos: [0.035, -0.03, -0.03], rot: [0.5, 0.3, -1.5] },
+    l: { pos: [-0.035, -0.03, -0.17], rot: [0.4, -0.3, 1.5] },
+  },
+  // Akimbo : chaque main sur SON pistolet
+  akimbo: {
+    r: { pos: [0.16, -0.05, -0.19], rot: [0.3, -0.06, 0.06] },
+    l: { pos: [-0.16, -0.05, -0.19], rot: [0.3, 0.06, -0.06] },
+  },
+};
+
 // Mapping id ↔ petit entier pour la synchro réseau (voir netState() dans
 // main.js et remotes.js) : indice+1, 0 réservé à « pas d'arme en main ».
 // Ordre figé — ne jamais réordonner (casserait la compat avec les clients
@@ -85,6 +130,7 @@ export function createWeapon(camera, scene, shootables, {
     return models[id];
   }
   modelFor('ak').visible = true;
+  holder.userData.grips = GRIPS.ak; // l'AK de départ n'appelle pas select()
 
   const raycaster = new THREE.Raycaster();
   raycaster.far = spec.range;
@@ -402,12 +448,7 @@ export function createWeapon(camera, scene, shootables, {
     flash.position.copy(FLASH_HOME);
     // Akimbo : chaque main sur SON pistolet (arms.js lit ces prises à la
     // place de ses prises fusil par défaut).
-    holder.userData.grips = spec.akimbo
-      ? {
-        r: { pos: [0.16, -0.05, -0.19], rot: [0.3, -0.06, 0.06] },
-        l: { pos: [-0.16, -0.05, -0.19], rot: [0.3, 0.06, -0.06] },
-      }
-      : null;
+    holder.userData.grips = GRIPS[id] ?? null;
     toggle(true);
     onWeaponChange?.(spec);
   }

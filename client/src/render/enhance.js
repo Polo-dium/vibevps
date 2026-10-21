@@ -9,7 +9,7 @@ import { heightToNormal, detailNoise } from './materials.js';
 //  - une carte de rugosité : les zones sombres et bleutées (vitres) sont
 //    lisses et renvoient le ciel de scene.environment, le reste est mat.
 // Les deux villes en profitent sans retoucher leurs générateurs. Réservé
-// aux paliers Moyen/Élevé (décidé au chargement : changer de matériau à
+// au palier Élevé (décidé au chargement : changer de matériau à
 // chaud recompilerait tous les shaders).
 
 function readCanvas(tex) {

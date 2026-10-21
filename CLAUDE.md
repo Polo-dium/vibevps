@@ -38,7 +38,8 @@ npm start          # serveur de prod (sert client/dist)
     étalonnage, MSAA), reflets d'environnement procéduraux (`envmap.js`),
     matériaux PBR et profils extrudés (`materials.js`), passe matière sur le
     décor (`enhance.js` : normal/rugosité dérivées des textures + texture de
-    détail en coordonnées monde, paliers Moyen/Élevé).
+    détail en coordonnées monde, palier Élevé). `detail.js` : finesse du
+    décor (persos PBR, houppiers, corniches) réservée au palier Élevé.
   - `src/player/` — contrôles FPS + tactile, arme (modèles détaillés dans
     `weaponModels.js`), joueurs distants, voix.
   - `src/games/` — bornes d'arcade : mini-jeux HTML autonomes en iframe

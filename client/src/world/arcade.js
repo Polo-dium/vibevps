@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { addBox } from './utils.js';
-import { makeTextTexture } from './utils.js';
+import { makeTextTexture, makeGlowSprite } from './utils.js';
 import { ARCADE } from './layout.js';
 import { buildJetpackPad } from './city.js';
 
@@ -151,15 +151,16 @@ export function buildArcade(realCtx, { onPlayGame, onOpenCreator }) {
     });
   }
 
-  // Ambiance intérieure : lumières néon
+  // Ambiance intérieure : halos néon (sprites additifs — de vraies
+  // PointLights éclairaient chaque pixel de la ville entière)
   for (const [lx, lz, color] of [
     [cx - 9, cz, 0x00ffd5],
     [cx + 9, cz, 0xff3df0],
     [cx, cz - 4, 0x4da6ff],
   ]) {
-    const light = new THREE.PointLight(color, 30, 26, 1.8);
-    light.position.set(lx, h - 2, lz);
-    ictx.scene.add(light);
+    const glow = makeGlowSprite(color, 10, 0.5);
+    glow.position.set(lx, h - 2, lz);
+    ictx.scene.add(glow);
   }
   // Bandes lumineuses au plafond
   for (const lz of [cz - 5, cz, cz + 5]) {

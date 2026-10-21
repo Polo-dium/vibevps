@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { detail } from '../render/detail.js';
 
 // ARBRES PARTAGÉS (les deux villes + Bellecour HD) : un houppier en grappe
 // de lobes bosselés, ombré en couleurs de sommets (dessous sombre, cime
@@ -25,7 +26,8 @@ export function treeCrownGeometry() {
     [-0.2, 0.35, -0.8, 0.72], [0.1, 0.85, 0.05, 0.78], [0.55, -0.35, -0.5, 0.6], [-0.5, -0.3, 0.55, 0.6],
   ];
   const parts = lobes.map(([x, y, z, r]) => {
-    const g = new THREE.IcosahedronGeometry(r, 1);
+    // 80 triangles par lobe en Élevé, 20 ailleurs (×8 lobes × centaines d'arbres)
+    const g = new THREE.IcosahedronGeometry(r, detail.high ? 1 : 0);
     const p = g.attributes.position;
     // Bosselage déterministe : chaque sommet poussé/rentré un peu
     for (let i = 0; i < p.count; i++) {

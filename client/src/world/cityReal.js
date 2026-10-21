@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { treeCrownGeometry, treeTrunkGeometry } from './trees.js';
-import { addInvisibleWall, addBox } from './utils.js';
+import { addInvisibleWall, addBox, makeGlowSprite } from './utils.js';
 import { state } from '../state.js';
 import {
   ARCADE, RANGE, MUR_PEINT, BELLECOUR, BELLECOUR_REAL, makeRand,
@@ -688,7 +688,8 @@ function buildBasilica(ctx, bx, bz, by) {
     }
   }
   // Lumière chaude intérieure
-  const holy = new THREE.PointLight(0xffe2b0, 22, 40, 1.6);
+  // (halo additif : une PointLight éclairait chaque pixel de la ville)
+  const holy = makeGlowSprite(0xffe2b0, 18, 0.45);
   holy.position.set(bx, by + H - 3, bz);
   ctx.scene.add(holy);
 
@@ -1780,9 +1781,9 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
   });
   const roofMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   // Pans de toit (zinc à lucarnes / tuiles canal) : voir world/roofs.js
-  const slopeMat = makeRoofSlopeMaterial(ctx.detail !== 'bas');
-  // Corniches : un peu de géométrie en plus par façade, pas sur le palier Bas
-  const withCornice = ctx.detail !== 'bas';
+  const slopeMat = makeRoofSlopeMaterial(ctx.detail === 'eleve');
+  // Corniches : de la géométrie en plus par façade, palier Élevé seulement
+  const withCornice = ctx.detail === 'eleve';
   // Devantures séparées, fusionnées dans un unique mesh : la ville prend vie
   // au niveau des yeux sans multiplier les draw calls par immeuble.
   const shopPos = [], shopUv = [];

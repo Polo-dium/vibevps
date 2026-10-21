@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { flattenColored } from './utils.js';
 import { profileGeo } from '../render/materials.js';
+import { detail } from '../render/detail.js';
 
 // Humanoïde articulé (origine aux pieds, ~1,78 m) : silhouette anatomique
 // (épaules, coudes, genoux arrondis), visage (yeux, sourcils, bouche,
@@ -18,7 +19,10 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
   // Matériau unique de CET humain : la couleur multiplie les couleurs de
   // sommets, donc la mettre en rouge teinte tout le personnage (flash).
   // PBR mat (rugosité tissu/peau) : capte l'ambiance du ciel comme le décor.
-  const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
+  // PBR au palier Élevé seulement (Lambert, bien moins cher, ailleurs)
+  const bodyMat = detail.high
+    ? new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 })
+    : new THREE.MeshLambertMaterial({ vertexColors: true });
   const shirtMat = new THREE.MeshLambertMaterial({ color: shirt });
   const shirtDark = new THREE.MeshLambertMaterial({ color: new THREE.Color(shirt).multiplyScalar(0.72) });
   const pantsMat = new THREE.MeshLambertMaterial({ color: pants });

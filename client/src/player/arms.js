@@ -83,9 +83,10 @@ function buildArm(side) {
     f.rotation.x = 0.9; // repliés autour de la poignée
     group.add(f);
   }
+  // Pouce rabattu contre l'index (il ne pointe plus en l'air)
   const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.045, 3, 8), gloveMat);
-  thumb.position.set(side * -0.035, 0.03, HAND_LOCAL_Z - 0.01);
-  thumb.rotation.set(Math.PI / 2 - 0.2, 0, side * 0.5);
+  thumb.position.set(side * -0.04, -0.005, HAND_LOCAL_Z - 0.035);
+  thumb.rotation.set(Math.PI / 2 + 0.5, 0, side * 0.9);
   group.add(thumb);
 
   // Équipement propre au jetpack : une petite manette serrée dans la main
