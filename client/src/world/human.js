@@ -1,145 +1,185 @@
 import * as THREE from 'three';
-import { flattenColored } from './utils.js';
-import { profileGeo } from '../render/materials.js';
 import { detail } from '../render/detail.js';
+import { sculpt, withDetails, paint } from '../render/sculpt.js';
 
-// Humanoïde articulé (origine aux pieds, ~1,78 m) : silhouette anatomique
-// (épaules, coudes, genoux arrondis), visage (yeux, sourcils, bouche,
-// oreilles), coiffures, ceinture et chaussures à semelle.
-// Retourne les pivots membres pour l'animation de marche.
+// Humanoïde articulé (origine aux pieds, ~1,78 m), SCULPTÉ : au lieu de
+// cylindres et de sphères empilés, chaque partie est un volume organique
+// d'un seul tenant (render/sculpt.js) — deltoïdes, pectoraux, taille,
+// mollets, genoux, mâchoire, arcades, nez, oreilles se fondent les uns dans
+// les autres. Petits détails du visage (yeux, sourcils, bouche) ajoutés en
+// pièces fines dans le même mesh.
 //
-// PERF : les 12 pièces d'origine (un draw call chacune) sont cuites en 5
-// meshes à couleurs de sommets — un corps + quatre membres articulés, seuls
-// morceaux qui doivent tourner indépendamment. Avec une soixantaine
-// d'humains dans la ville (PNJ, terrasses, zombies, joueurs distants), c'est
-// ~420 draw calls économisés. Tous les meshes d'un humain partagent UN
-// matériau : `shirtMat` le teinte en entier (flash de dégâts).
+// PERF : 5 meshes par humain (un corps + quatre membres articulés), comme
+// avant. Les formes ne sont calculées qu'UNE fois par modèle (cache) : tous
+// les humains partagent positions, normales et index sur le GPU, seules
+// leurs couleurs de sommets diffèrent (voir paint()). Grille plus fine au
+// palier Élevé, plus grossière (moins de triangles) ailleurs.
+// Tous les meshes d'un humain partagent UN matériau : `shirtMat` le teinte
+// en entier (flash de dégâts).
+
+// Teintes (slots) des volumes
+const SHIRT = 0, SHIRT_DARK = 1, PANTS = 2, SKIN = 3, SKIN_DARK = 4, HAIR = 5,
+  SHOE = 6, SOLE = 7, BELT = 8, METAL = 9, WHITE = 10, EYE = 11, LIP = 12, CAP = 13;
+
+const cache = new Map();
+function cached(key, build) {
+  if (!cache.has(key)) cache.set(key, build());
+  return cache.get(key);
+}
+const cellSize = () => (detail.high ? 0.023 : 0.038);
+
+// Jambe, repère du pivot (hanche à l'origine) : cuisse galbée, genou,
+// mollet, cheville, chaussure à bout rond sur semelle claire
+function legShape() {
+  return [
+    { t: 'ell', c: [0, -0.02, 0.005], r: [0.092, 0.11, 0.1], slot: PANTS, k: 0.03 },
+    { t: 'cone', a: [0, -0.03, 0], b: [0, -0.4, -0.012], r1: 0.086, r2: 0.058, slot: PANTS, k: 0.04 },
+    { t: 'ell', c: [0.004, -0.17, -0.014], r: [0.066, 0.14, 0.064], slot: PANTS, k: 0.07 },
+    { t: 'sphere', c: [0, -0.42, -0.018], r: 0.058, slot: PANTS, k: 0.03 },
+    { t: 'cone', a: [0, -0.43, -0.005], b: [0, -0.74, 0.008], r1: 0.057, r2: 0.044, slot: PANTS, k: 0.03 },
+    { t: 'ell', c: [0, -0.54, 0.016], r: [0.046, 0.09, 0.046], slot: PANTS, k: 0.07 },
+    // Bas de pantalon un peu évasé sur la chaussure
+    { t: 'cone', a: [0, -0.7, 0.005], b: [0, -0.765, 0.005], r1: 0.05, r2: 0.058, slot: PANTS, k: 0.015 },
+    // Chaussure : empeigne + bout arrondi, semelle débordante
+    { t: 'box', c: [0, -0.8, -0.04], h: [0.052, 0.04, 0.115], round: 0.035, slot: SHOE, k: 0.03 },
+    { t: 'ell', c: [0, -0.81, -0.135], r: [0.054, 0.036, 0.06], slot: SHOE, k: 0.03 },
+    { t: 'box', c: [0, -0.848, -0.05], h: [0.06, 0.013, 0.14], round: 0.012, slot: SOLE, k: 0.006 },
+    { t: 'plane', h: -0.86, sub: true, k: 0.004 },
+  ];
+}
+
+// Bras, repère du pivot (épaule à l'origine) ; s = côté (-1 gauche, +1 droit)
+function armShape(s) {
+  return [
+    { t: 'ell', c: [-0.012 * s, -0.03, 0.002], r: [0.058, 0.076, 0.066], slot: SHIRT, k: 0.04 },
+    { t: 'cone', a: [0, -0.04, 0], b: [0, -0.27, 0.004], r1: 0.052, r2: 0.042, slot: SHIRT, k: 0.03 },
+    { t: 'ell', c: [0, -0.15, -0.016], r: [0.04, 0.075, 0.04], slot: SHIRT, k: 0.03 }, // biceps
+    { t: 'sphere', c: [0, -0.285, 0.006], r: 0.042, slot: SHIRT, k: 0.04 }, // coude
+    { t: 'cone', a: [0, -0.29, 0.004], b: [0, -0.47, -0.008], r1: 0.047, r2: 0.036, slot: SHIRT, k: 0.03 },
+    // Poignet de manche, puis poignet nu
+    { t: 'cone', a: [0, -0.455, -0.008], b: [0, -0.5, -0.01], r1: 0.04, r2: 0.04, slot: SHIRT_DARK, k: 0.012 },
+    { t: 'cone', a: [0, -0.49, -0.01], b: [0, -0.53, -0.01], r1: 0.027, r2: 0.028, slot: SKIN, k: 0.01 },
+    // Main : paume, doigts serrés, pouce vers l'intérieur
+    { t: 'box', c: [0, -0.567, -0.008], h: [0.017, 0.042, 0.04], round: 0.016, slot: SKIN, k: 0.02 },
+    { t: 'box', c: [0, -0.625, -0.012], h: [0.014, 0.028, 0.037], round: 0.013, rot: [0.15, 0, 0], slot: SKIN, k: 0.012 },
+    { t: 'cone', a: [-0.012 * s, -0.54, -0.035], b: [-0.03 * s, -0.592, -0.05], r1: 0.014, r2: 0.011, slot: SKIN, k: 0.012 },
+  ];
+}
+
+// Tronc, bassin, cou, tête et coiffure (un seul volume)
+function bodyShape(look) {
+  const p = [
+    // Bassin + ceinture
+    { t: 'ell', c: [0, 0.89, 0.005], r: [0.175, 0.12, 0.115], slot: PANTS, k: 0.03 },
+    { t: 'ell', c: [0, 0.985, 0.003], r: [0.184, 0.03, 0.124], slot: BELT, k: 0.004 },
+    // Taille, cage thoracique, pectoraux, dos, épaules
+    { t: 'ell', c: [0, 1.09, 0], r: [0.158, 0.13, 0.1], slot: SHIRT, k: 0.04 },
+    { t: 'ell', c: [0, 1.28, 0.0], r: [0.19, 0.17, 0.118], slot: SHIRT, k: 0.06 },
+    { t: 'ell', c: [-0.072, 1.3, -0.05], r: [0.08, 0.062, 0.055], slot: SHIRT, k: 0.05 },
+    { t: 'ell', c: [0.072, 1.3, -0.05], r: [0.08, 0.062, 0.055], slot: SHIRT, k: 0.05 },
+    { t: 'ell', c: [0, 1.3, 0.045], r: [0.175, 0.16, 0.085], slot: SHIRT, k: 0.05 },
+    { t: 'cone', a: [-0.18, 1.39, 0.008], b: [0.18, 1.39, 0.008], r1: 0.066, r2: 0.066, slot: SHIRT, k: 0.1 },
+    { t: 'cone', a: [-0.07, 1.44, 0.02], b: [0.07, 1.44, 0.02], r1: 0.05, r2: 0.05, slot: SHIRT, k: 0.08 }, // trapèzes
+    // Col + cou
+    { t: 'cone', a: [0, 1.45, 0.012], b: [0, 1.585, 0.0], r1: 0.054, r2: 0.05, slot: SKIN, k: 0.02 },
+    // Tête : crâne, mâchoire, menton, pommettes, arcades, nez, oreilles
+    { t: 'ell', c: [0, 1.678, 0.008], r: [0.093, 0.112, 0.104], slot: SKIN, k: 0.03 },
+    { t: 'ell', c: [0, 1.605, -0.03], r: [0.072, 0.058, 0.072], slot: SKIN, k: 0.05 },
+    { t: 'ell', c: [0, 1.572, -0.072], r: [0.03, 0.026, 0.028], slot: SKIN, k: 0.03 },
+    { t: 'ell', c: [-0.052, 1.648, -0.075], r: [0.03, 0.022, 0.025], slot: SKIN, k: 0.025 },
+    { t: 'ell', c: [0.052, 1.648, -0.075], r: [0.03, 0.022, 0.025], slot: SKIN, k: 0.025 },
+    { t: 'cone', a: [-0.05, 1.703, -0.088], b: [0.05, 1.703, -0.088], r1: 0.016, r2: 0.016, slot: SKIN, k: 0.02 },
+    { t: 'cone', a: [0, 1.682, -0.1], b: [0, 1.632, -0.124], r1: 0.011, r2: 0.017, slot: SKIN, k: 0.012 },
+    { t: 'ell', c: [-0.094, 1.665, 0.012], r: [0.014, 0.032, 0.022], slot: SKIN_DARK, k: 0.01 },
+    { t: 'ell', c: [0.094, 1.665, 0.012], r: [0.014, 0.032, 0.022], slot: SKIN_DARK, k: 0.01 },
+    // Orbites légèrement creusées
+    { t: 'sphere', c: [-0.038, 1.68, -0.106], r: 0.02, sub: true, k: 0.014 },
+    { t: 'sphere', c: [0.038, 1.68, -0.106], r: 0.02, sub: true, k: 0.014 },
+  ];
+  // Calotte de cheveux : en retrait du front, couvre le haut et la nuque
+  p.push({ t: 'ell', c: [0, 1.722, 0.006], r: [0.1, 0.088, 0.11], slot: look === 'casquette' ? CAP : HAIR, k: 0.012 });
+  if (look === 'casquette') {
+    p.push({ t: 'ell', c: [0, 1.718, 0.012], r: [0.106, 0.072, 0.112], slot: CAP, k: 0.01 });
+    p.push({ t: 'ell', c: [0, 1.725, -0.112], r: [0.082, 0.011, 0.068], slot: CAP, k: 0.012 });
+    p.push({ t: 'ell', c: [0, 1.665, 0.045], r: [0.088, 0.05, 0.075], slot: HAIR, k: 0.02 }); // nuque
+  } else if (look === 'long') {
+    p.push({ t: 'ell', c: [0, 1.6, 0.052], r: [0.11, 0.15, 0.07], slot: HAIR, k: 0.04 });
+    p.push({ t: 'ell', c: [-0.085, 1.62, 0.0], r: [0.035, 0.1, 0.06], slot: HAIR, k: 0.03 });
+    p.push({ t: 'ell', c: [0.085, 1.62, 0.0], r: [0.035, 0.1, 0.06], slot: HAIR, k: 0.03 });
+  } else {
+    p.push({ t: 'ell', c: [0, 1.645, 0.045], r: [0.09, 0.07, 0.07], slot: HAIR, k: 0.02 }); // nuque
+  }
+  return p;
+}
+
+// Détails trop fins pour la grille : yeux, pupilles, sourcils, bouche, boucle
+function faceDetails() {
+  const at = (x, y, z, sx = 1, sy = 1, sz = 1, rz = 0) => new THREE.Matrix4().compose(
+    new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, rz)), new THREE.Vector3(sx, sy, sz));
+  const eye = new THREE.SphereGeometry(0.0145, 10, 8);
+  const pupil = new THREE.SphereGeometry(0.0085, 8, 6);
+  const brow = new THREE.BoxGeometry(0.044, 0.01, 0.012);
+  const lip = new THREE.BoxGeometry(0.046, 0.011, 0.012);
+  const buckle = new THREE.BoxGeometry(0.055, 0.036, 0.016);
+  return [
+    { geometry: eye, slot: WHITE, matrix: at(-0.038, 1.68, -0.092, 1, 0.8, 0.7) },
+    { geometry: eye, slot: WHITE, matrix: at(0.038, 1.68, -0.092, 1, 0.8, 0.7) },
+    { geometry: pupil, slot: EYE, matrix: at(-0.038, 1.68, -0.1, 1, 1, 0.6) },
+    { geometry: pupil, slot: EYE, matrix: at(0.038, 1.68, -0.1, 1, 1, 0.6) },
+    { geometry: brow, slot: HAIR, matrix: at(-0.04, 1.707, -0.1, 1, 1, 1, 0.12) },
+    { geometry: brow, slot: HAIR, matrix: at(0.04, 1.707, -0.1, 1, 1, 1, -0.12) },
+    { geometry: lip, slot: LIP, matrix: at(0, 1.598, -0.103) },
+    { geometry: buckle, slot: METAL, matrix: at(0, 0.985, -0.112) },
+  ];
+}
+
+const legGeo = () => cached(`jambe|${cellSize()}`, () => sculpt(legShape(), { cell: cellSize() }));
+const armGeo = (s) => cached(`bras${s}|${cellSize()}`, () => sculpt(armShape(s), { cell: cellSize() }));
+const bodyGeo = (look) => cached(`corps|${look}|${cellSize()}`,
+  () => withDetails(sculpt(bodyShape(look), { cell: cellSize() }), faceDetails()));
+
 export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e, hair = 0x3a2c1e, style } = {}) {
   const group = new THREE.Group();
   // Matériau unique de CET humain : la couleur multiplie les couleurs de
   // sommets, donc la mettre en rouge teinte tout le personnage (flash).
-  // PBR mat (rugosité tissu/peau) : capte l'ambiance du ciel comme le décor.
   // PBR au palier Élevé seulement (Lambert, bien moins cher, ailleurs)
   const bodyMat = detail.high
     ? new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 })
     : new THREE.MeshLambertMaterial({ vertexColors: true });
-  const shirtMat = new THREE.MeshLambertMaterial({ color: shirt });
-  const shirtDark = new THREE.MeshLambertMaterial({ color: new THREE.Color(shirt).multiplyScalar(0.72) });
-  const pantsMat = new THREE.MeshLambertMaterial({ color: pants });
-  const skinMat = new THREE.MeshLambertMaterial({ color: skin });
-  const skinDark = new THREE.MeshLambertMaterial({ color: new THREE.Color(skin).multiplyScalar(0.8) });
-  const hairMat = new THREE.MeshLambertMaterial({ color: hair });
-  const shoeMat = new THREE.MeshLambertMaterial({ color: 0x23262d });
-  const soleMat = new THREE.MeshLambertMaterial({ color: 0xd8d4cc });
-  const beltMat = new THREE.MeshLambertMaterial({ color: 0x2a211b });
-  const metalMat = new THREE.MeshLambertMaterial({ color: 0xc9c2a8 });
-  const eyeMat = new THREE.MeshLambertMaterial({ color: 0x1b1d22 });
-  const whiteMat = new THREE.MeshLambertMaterial({ color: 0xf2efe8 });
-  const lipMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(skin).lerp(new THREE.Color(0xa0473d), 0.45) });
+  const C = (hex) => new THREE.Color(hex);
+  const palette = [];
+  palette[SHIRT] = C(shirt);
+  palette[SHIRT_DARK] = C(shirt).multiplyScalar(0.72);
+  palette[PANTS] = C(pants);
+  palette[SKIN] = C(skin);
+  palette[SKIN_DARK] = C(skin).multiplyScalar(0.86);
+  palette[HAIR] = C(hair);
+  palette[SHOE] = C(0x23262d);
+  palette[SOLE] = C(0xd8d4cc);
+  palette[BELT] = C(0x2a211b);
+  palette[METAL] = C(0xc9c2a8);
+  palette[WHITE] = C(0xf2efe8);
+  palette[EYE] = C(0x1b1d22);
+  palette[LIP] = C(skin).lerp(C(0xa0473d), 0.45);
+  palette[CAP] = C(shirt).multiplyScalar(0.72);
   // Coiffure stable pour une même tenue (déterministe) : courte, casquette
   // (gone du quartier) ou longue
   const look = style ?? ['court', 'casquette', 'long'][(shirt ^ (pants >> 3) ^ (hair << 1)) % 3];
 
-  // Les pièces sont d'abord posées telles quelles, puis fondues par pivot.
-  const piece = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => {
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(x, y, z);
-    m.rotation.set(rx, ry, rz);
-    m.scale.set(sx, sy, sz);
-    return m;
+  const limb = (geo, x, y) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(x, y, 0);
+    pivot.add(new THREE.Mesh(paint(geo, palette), bodyMat));
+    group.add(pivot);
+    return pivot;
   };
-  // Segment de membre : tronc de cône vertical de y0 (haut) à y1 (bas)
-  const seg = (r0, r1, y0, y1, mat, x = 0, z = 0, n = 10) =>
-    piece(new THREE.CylinderGeometry(r0, r1, y0 - y1, n), mat, x, (y0 + y1) / 2, z);
-  const ball = (r, mat, x, y, z, sx = 1, sy = 1, sz = 1, w = 10, h = 8) =>
-    piece(new THREE.SphereGeometry(r, w, h), mat, x, y, z, 0, 0, 0, sx, sy, sz);
-  // Surface de révolution d'UNE pièce (profil [rayon, hauteur] de haut en
-  // bas) : pas d'intersections entre sphères et cylindres, donc pas de
-  // liserés en dents de scie aux épaules, coudes et genoux.
-  const lathe = (profile, mat, x = 0, z = 0, sz = 1, n = 14) => piece(
-    new THREE.LatheGeometry(profile.map(([r, y]) => new THREE.Vector2(r, y)).reverse(), n),
-    mat, x, 0, z, 0, 0, 0, 1, 1, sz);
-
-  // Jambes (pivot à la hanche) : cuisse, genou, tibia, chaussure à semelle
-  function makeLeg(x) {
-    const pivot = new THREE.Group();
-    pivot.position.set(x, 0.86, 0);
-    const merged = flattenColored([
-      lathe([[0, 0.07], [0.06, 0.055], [0.088, 0.0], [0.08, -0.22], [0.068, -0.4], [0.065, -0.45],
-        [0.06, -0.6], [0.056, -0.74], [0.0, -0.75]], pantsMat),
-      seg(0.062, 0.064, -0.71, -0.76, pantsMat), // ourlet
-      // Chaussure : profil biseauté (pointe vers -z, comme le nez)
-      piece(profileGeo([[-0.075, -0.835], [0.17, -0.835], [0.185, -0.81], [0.16, -0.78], [0.07, -0.765],
-        [0.045, -0.72], [-0.065, -0.72], [-0.085, -0.77]], 0.118, { bevel: 0.014 }), shoeMat, 0, 0, 0),
-      piece(new THREE.BoxGeometry(0.124, 0.025, 0.27), soleMat, 0, -0.848, -0.05),
-    ], { material: bodyMat });
-    pivot.add(merged);
-    group.add(pivot);
-    return pivot;
-  }
-  const legL = makeLeg(-0.105);
-  const legR = makeLeg(0.105);
-
-  // Bras (pivot à l'épaule) : épaule, bras, coude, avant-bras, main
-  function makeArm(x) {
-    const pivot = new THREE.Group();
-    pivot.position.set(x, 1.42, 0);
-    const merged = flattenColored([
-      lathe([[0, 0.065], [0.045, 0.05], [0.066, 0.01], [0.062, -0.08], [0.052, -0.27], [0.049, -0.31],
-        [0.044, -0.42], [0.04, -0.5], [0.0, -0.505]], shirtMat),
-      seg(0.046, 0.046, -0.465, -0.51, shirtDark), // poignet de manche
-      ball(0.042, skinMat, 0, -0.57, -0.008, 0.75, 1.25, 1.05), // main
-      ball(0.017, skinMat, Math.sign(x) * -0.03, -0.55, -0.025, 1, 1.6, 1), // pouce
-    ], { material: bodyMat });
-    pivot.add(merged);
-    group.add(pivot);
-    return pivot;
-  }
-  const armL = makeArm(-0.3);
-  const armR = makeArm(0.3);
-
-  // Tronc, bassin, ceinture, cou, tête, visage, coiffure : rien ne bouge les
-  // uns par rapport aux autres, donc tout part dans un seul mesh.
-  const parts = [
-    // Bassin + ceinture à boucle
-    piece(new THREE.CylinderGeometry(0.2, 0.19, 0.2, 12), pantsMat, 0, 0.88, 0, 0, 0, 0, 1, 1, 0.62),
-    piece(new THREE.CylinderGeometry(0.205, 0.205, 0.045, 12), beltMat, 0, 0.98, 0, 0, 0, 0, 1, 1, 0.64),
-    piece(new THREE.BoxGeometry(0.06, 0.04, 0.02), metalMat, 0, 0.98, -0.13),
-    // Torse d'une pièce : taille, poitrine, épaules arrondies, départ du cou
-    lathe([[0.07, 1.51], [0.15, 1.475], [0.235, 1.43], [0.255, 1.36], [0.245, 1.24], [0.215, 1.1],
-      [0.198, 0.99], [0.2, 0.96], [0, 0.95]], shirtMat, 0, 0, 0.56, 18),
-    // Patte de boutonnage / fermeture éclair + col
-    piece(new THREE.BoxGeometry(0.018, 0.42, 0.01), shirtDark, 0, 1.2, -0.142),
-    piece(new THREE.TorusGeometry(0.068, 0.02, 6, 14), shirtDark, 0, 1.475, 0, Math.PI / 2),
-    // Cou + tête (crâne ovale, mâchoire)
-    seg(0.052, 0.058, 1.56, 1.46, skinMat),
-    ball(0.118, skinMat, 0, 1.655, 0, 0.9, 1.12, 1.02, 16, 12),
-    // Oreilles
-    ball(0.025, skinDark, -0.112, 1.66, 0.005, 0.5, 1, 0.8, 6, 6),
-    ball(0.025, skinDark, 0.112, 1.66, 0.005, 0.5, 1, 0.8, 6, 6),
-    // Nez (donne le sens du regard), yeux, sourcils, bouche
-    piece(new THREE.ConeGeometry(0.02, 0.05, 6), skinDark, 0, 1.65, -0.122, -Math.PI / 2 + 0.35),
-    ball(0.017, whiteMat, -0.041, 1.685, -0.098, 1, 0.75, 0.6, 8, 6),
-    ball(0.017, whiteMat, 0.041, 1.685, -0.098, 1, 0.75, 0.6, 8, 6),
-    ball(0.01, eyeMat, -0.041, 1.685, -0.108, 1, 1, 0.5, 6, 6),
-    ball(0.01, eyeMat, 0.041, 1.685, -0.108, 1, 1, 0.5, 6, 6),
-    piece(new THREE.BoxGeometry(0.045, 0.011, 0.012), hairMat, -0.042, 1.712, -0.102, 0, 0, 0.12),
-    piece(new THREE.BoxGeometry(0.045, 0.011, 0.012), hairMat, 0.042, 1.712, -0.102, 0, 0, -0.12),
-    piece(new THREE.BoxGeometry(0.045, 0.011, 0.01), lipMat, 0, 1.6, -0.108),
-  ];
-  // Coiffure : calotte de cheveux (+ visière, ou mèches longues)
-  // Basculée vers l'arrière : dégage le front et les yeux, couvre la nuque
-  parts.push(piece(new THREE.SphereGeometry(0.125, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.5),
-    look === 'casquette' ? shirtDark : hairMat, 0, 1.672, 0.01, 0.38, 0, 0, 0.94, 1.05, 1.06));
-  if (look === 'casquette') {
-    parts.push(piece(new THREE.CylinderGeometry(0.1, 0.1, 0.012, 12, 1, false, Math.PI * 0.5, Math.PI),
-      shirtDark, 0, 1.735, -0.1, 0.1, 0, 0, 1, 1, 0.9));
-  } else if (look === 'long') {
-    parts.push(ball(0.12, hairMat, 0, 1.58, 0.05, 1.02, 1.3, 0.7, 12, 8));
-  } else {
-    parts.push(ball(0.11, hairMat, 0, 1.64, 0.04, 1, 0.95, 0.9, 12, 8)); // nuque
-  }
-  const body = flattenColored(parts, { material: bodyMat });
+  // Jambes (pivot à la hanche), bras (pivot à l'épaule)
+  const legL = limb(legGeo(), -0.105, 0.86);
+  const legR = limb(legGeo(), 0.105, 0.86);
+  const armL = limb(armGeo(-1), -0.255, 1.41);
+  const armR = limb(armGeo(1), 0.255, 1.41);
+  // Tronc, tête, coiffure : rien ne bouge l'un par rapport à l'autre
+  const body = new THREE.Mesh(paint(bodyGeo(look), palette), bodyMat);
   group.add(body);
 
   // Animation de marche : balancement opposé jambes/bras

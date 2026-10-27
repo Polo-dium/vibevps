@@ -40,6 +40,16 @@ npm start          # serveur de prod (sert client/dist)
     décor (`enhance.js` : normal/rugosité dérivées des textures + texture de
     détail en coordonnées monde, palier Élevé). `detail.js` : finesse du
     décor (persos PBR, houppiers, corniches) réservée au palier Élevé.
+    `ao.js` : occlusion ambiante écran à demi-résolution (rendu ciné,
+    coupée en premier par la résolution dynamique). `atmosphere.js` : halo
+    du soleil dans la brume (patch global des chunks fog, tous paliers).
+    `sculpt.js` : modelage organique par champs de distance (union douce
+    de volumes → maillage « surface nets » au chargement, mis en cache et
+    partagé) — à utiliser pour tout personnage/statue/créature au lieu
+    d'empiler des primitives.
+  - `src/world/human.js` (humains sculptés, 5 meshes/humain, géométrie
+    partagée, couleurs par sommet) et `src/world/statue.js` (Louis XIV,
+    Saint-Exupéry et le Petit Prince).
   - `src/player/` — contrôles FPS + tactile, arme (modèles détaillés dans
     `weaponModels.js`), joueurs distants, voix.
   - `src/games/` — bornes d'arcade : mini-jeux HTML autonomes en iframe

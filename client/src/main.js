@@ -52,6 +52,7 @@ import { createCapture } from './capture.js';
 import { createQuality, fogDensityFor } from './quality.js';
 import { createPost } from './render/post.js';
 import { createEnvMap } from './render/envmap.js';
+import { setAtmosphere } from './render/atmosphere.js';
 import { enhanceScene } from './render/enhance.js';
 import { detail } from './render/detail.js';
 import { createLoadingScreen, nextPaint } from './ui/loading.js';
@@ -174,7 +175,7 @@ async function boot() {
   const ENV_DAY = {
     top: new THREE.Color(0x2e63b8), mid: new THREE.Color(0x7fa8dd),
     horizon: new THREE.Color(0xdce6ee), fog: new THREE.Color(0xdce6ee),
-    hemiSky: new THREE.Color(0xaac8f0), hemiGround: new THREE.Color(0x6e604c),
+    hemiSky: new THREE.Color(0xaac8f0), hemiGround: new THREE.Color(0x7d6a52),
     sun: new THREE.Color(0xffe7bd),
   };
   const ENV_NIGHT = {
@@ -216,7 +217,21 @@ async function boot() {
   scene.add(sun);
   scene.add(sun.target);
   const HEMI_MAX = SHADOWS ? 0.75 : 1.05;
+  // Ciel de JOUR avec ombres : nettement plus d'ambiance qu'avant. Les
+  // zones à l'ombre restaient à 1/8 de l'éclairement au soleil — un noir
+  // d'encre. Vers 1/3, comme sous un vrai ciel (et dans les shooters
+  // modernes) : l'ombre se lit, bleutée, sans boucher les détails.
+  const HEMI_DAY = SHADOWS ? 1.1 : 1.05;
   const SUN_MAX = SHADOWS ? 2.0 : 1.7;
+  // REBOND du ciel et des façades d'en face : une directionnelle douce, SANS
+  // ombre, à l'opposé du soleil et assez rasante. Les faces à contre-jour
+  // (murs à l'ombre, revers des bancs, salle d'arcade) cessent de virer au
+  // noir et gardent leur relief, comme sous la lumière indirecte d'un
+  // moteur moderne. Coût : un produit scalaire par pixel, aucune passe.
+  const fill = new THREE.DirectionalLight(0xa9bfe6, 0);
+  scene.add(fill);
+  scene.add(fill.target);
+  const FILL_MAX = SHADOWS ? 0.62 : 0.35;
   // Toujours configurée (même si les ombres démarrent désactivées) pour que
   // la touche O puisse les rallumer plus tard sans réglage à moitié fait.
   sun.castShadow = SHADOWS;
@@ -241,6 +256,9 @@ async function boot() {
   let shadowsEnabled = SHADOWS;
   // Résolution dynamique : facteur appliqué PAR-DESSUS le palier qualité
   let renderScale = 1;
+  // Occlusion ambiante du rendu ciné (render/ao.js), rognée en premier
+  let aoOn = true;
+  let aoCuts = 0;
   function applyRenderScale() {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.preset.pixelRatio) * renderScale);
     const { w, h } = viewSize();
@@ -269,6 +287,9 @@ async function boot() {
 
   quality.onChange((preset) => {
     renderScale = 1; // changer de palier remet la définition à neuf
+    aoOn = true;
+    aoCuts = 0;
+    post.setAO(true);
     viewScale = 1;   // …et la portée de vue
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatio));
     post.setEnabled(preset.postfx);
@@ -511,14 +532,16 @@ async function boot() {
     // Plancher relevé : depuis que la brume est plus légère, les façades à
     // contre-jour (aube/crépuscule) n'étaient plus adoucies par la brume et
     // viraient au noir. Un peu plus de lumière du ciel les garde lisibles ;
-    // midi (daylight=1) reste inchangé.
+    // Le jour, l'ambiance monte jusqu'à HEMI_DAY (voir plus haut).
     // La nuit, un rebond de ciel nettement plus fort : les façades et les
     // joueurs se détachent au lieu de se fondre dans un aplat bleu nuit.
-    hemi.intensity = HEMI_MAX * (0.8 + 0.2 * daylight) + 0.35 * env.night;
+    hemi.intensity = THREE.MathUtils.lerp(HEMI_MAX * 0.8 + 0.35, HEMI_DAY, daylight);
     sun.intensity = SUN_MAX * daylight + 0.65 * env.night; // clair de lune la nuit
     sun.color.copy(ENV_DAY.sun).lerp(DUSK_TINT, dusk * 0.7)
       .lerp(ENV_NIGHT.sun, env.night);
     if (shadowsEnabled) sun.castShadow = daylight > 0.04;
+    fill.intensity = FILL_MAX * daylight + 0.1 * env.night;
+    fill.color.copy(hemi.color).lerp(sun.color, 0.25);
 
     // La lumière vient du soleil le jour, de la lune la nuit. La lune suit
     // exactement l'orbite opposée au lieu d'utiliser une direction fixe.
@@ -526,6 +549,9 @@ async function boot() {
     else _lightDir.copy(env.sunDir).multiplyScalar(-1);
     env.lightDir = _lightDir;
     envMap.update(u.topColor.value, u.horizonColor.value, _lightDir, daylight);
+    // Halo du soleil dans la brume, plus marqué au ras de l'horizon (aube,
+    // crépuscule) où l'on regarde à travers le plus d'air
+    setAtmosphere(env.sunDir, u.sunTint.value, daylight * (0.75 + 0.5 * dusk));
     post.setNight(env.night);
 
     // Astres visibles : orbite centrée sur Lyon et assez large pour que les
@@ -672,7 +698,7 @@ async function boot() {
   const tutorial = createTutorial({ isTouch: IS_TOUCH });
   // Hook de debug (derrière ?debug) : téléportation/inspection pour les tests
   if (new URLSearchParams(location.search).has('debug')) {
-    window.__game = { controls, ctx, state, camera, ui, renderer, quality };
+    window.__game = { controls, ctx, state, camera, ui, renderer, quality, post };
     // État de la résolution dynamique, lisible par les tests automatisés
     window.__game.perf = {
       get renderScale() { return renderScale; },
@@ -1098,7 +1124,7 @@ async function boot() {
   // Relief + rugosité dérivés des textures du décor (pavés, crépi, vitres
   // qui reflètent le ciel) — voir render/enhance.js. Palier Élevé seulement :
   // sur tablette, ces 3 textures de plus par pixel coûtaient trop cher.
-  if (quality.level === 'eleve') enhanceScene(scene);
+  if (quality.level === 'eleve') enhanceScene(scene, renderer.capabilities.getMaxAnisotropy());
 
   // Le monde est bâti : on recense le petit décor pour ne dessiner que
   // celui à portée de vue. C'est de LOIN le premier poste de draw calls
@@ -1960,6 +1986,10 @@ async function boot() {
     updateEnvironment();
     sun.position.copy(controls.position).addScaledVector(env.lightDir, 165);
     sun.target.position.copy(controls.position);
+    // Rebond : à l'opposé du soleil (ou de la lune), presque à l'horizontale
+    fill.position.set(-env.lightDir.x, 0.35, -env.lightDir.z).normalize()
+      .multiplyScalar(100).add(controls.position);
+    fill.target.position.copy(controls.position);
 
     nearestInteractable = state.overlayOpen ? null : findNearestInteractable();
     ui.setPrompt(nearestInteractable?.label ?? null);
@@ -1976,7 +2006,14 @@ async function boot() {
       // doucement. Invisible sur une machine à l'aise, salvateur ailleurs.
       dynCooldown -= 1;
       if (dynCooldown <= 0 && !document.hidden) {
-        if (fpsValue < 45) {
+        if (fpsValue < 45 && aoOn && post.enabled) {
+          // L'occlusion ambiante part la première (coût purement en pixels).
+          // Après deux coupures, elle reste éteinte : pas de va-et-vient.
+          aoOn = false;
+          aoCuts += 1;
+          post.setAO(false);
+          dynCooldown = 4;
+        } else if (fpsValue < 45) {
           // On rogne d'abord la PORTÉE DE VUE : c'est elle qui commande le
           // nombre de draw calls (~700 des ~950 mesurés au centre-ville
           // viennent du petit décor lointain). La définition d'image ne baisse
@@ -2005,6 +2042,10 @@ async function boot() {
             viewScale = Math.min(1, viewScale + 0.06);
             applyViewDistance(quality.preset);
             dynCooldown = 6;
+          } else if (!aoOn && aoCuts < 2 && post.enabled) {
+            aoOn = true;
+            post.setAO(true);
+            dynCooldown = 30;
           }
         }
       }

@@ -3,6 +3,7 @@ import { plantTrees } from './trees.js';
 import { addBox, addInvisibleWall, makeTextTexture } from './utils.js';
 import { buildTraffic } from './traffic.js';
 import { buildHuman } from './human.js';
+import { buildRoyalStatue, buildSaintExupery } from './statue.js';
 import { audio } from '../audio.js';
 import { createMusicSource, gainForDistance } from '../music.js';
 import {
@@ -1576,18 +1577,13 @@ export function buildBellecour(ctx, rect = BELLECOUR, real = false) {
   );
   colonne.position.set(sx, 3.2, sz);
   ctx.scene.add(colonne);
-  const aviateur = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.42, 1.1, 4, 8),
-    new THREE.MeshPhongMaterial({ color: 0x3c5a4a, specular: 0x9fb8a8, shininess: 35 })
-  );
-  aviateur.position.set(sx, 6.6, sz);
-  ctx.scene.add(aviateur);
-  const prince = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.22, 0.5, 4, 8),
-    new THREE.MeshLambertMaterial({ color: 0xd4af37, emissive: 0x4a3a0c })
-  );
-  prince.position.set(sx + 0.7, 6.3, sz + 0.2);
-  ctx.scene.add(prince);
+  // Aviateur assis au sommet + Petit Prince doré, sculptés (world/statue.js),
+  // un peu agrandis pour se lire depuis la place
+  const saintEx = buildSaintExupery();
+  saintEx.position.set(sx, 5.8, sz);
+  saintEx.scale.setScalar(1.5);
+  saintEx.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  ctx.scene.add(saintEx);
   ctx.pois?.push({ id: 'saintex', nom: 'Saint-Exupéry et le Petit Prince', emoji: '✈️', x: sx, z: sz });
   ctx.interactables.push({
     x: sx, z: sz, r: 5,
@@ -1608,10 +1604,6 @@ function buildLouisXIV(ctx, x, z) {
   ctx.pois?.push({ id: 'roi', nom: 'Statue de Louis XIV', emoji: '👑', x, z });
   const stone = new THREE.MeshLambertMaterial({ color: 0x9b9384 });
   const stoneLight = new THREE.MeshLambertMaterial({ color: 0xb0a896 });
-  // Bronze patiné (vert-de-gris léger) — Phong pour le reflet au soleil
-  const bronze = new THREE.MeshPhongMaterial({
-    color: 0x3c5a4a, specular: 0x9fb8a8, shininess: 35, emissive: 0x0c1813,
-  });
 
   // --- Piédestal monumental (double base étagée + fût + corniche) ---
   const ped = new THREE.Group();
@@ -1656,99 +1648,8 @@ function buildLouisXIV(ctx, x, z) {
   st.position.set(x, 4.3, z);
   st.scale.setScalar(1.3);
 
-  // Corps du cheval
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.62, 1.7, 6, 12), bronze);
-  body.rotation.z = Math.PI / 2;
-  body.position.set(0, 1.65, 0);
-  st.add(body);
-  // Poitrail / arrière
-  const chest = new THREE.Mesh(new THREE.SphereGeometry(0.62, 12, 10), bronze);
-  chest.position.set(1.15, 1.65, 0);
-  st.add(chest);
-  const rump = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 10), bronze);
-  rump.position.set(-1.15, 1.7, 0);
-  st.add(rump);
-  // Encolure + tête
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.5, 1.2, 10), bronze);
-  neck.position.set(1.55, 2.4, 0);
-  neck.rotation.z = -0.7;
-  st.add(neck);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.42, 0.4), bronze);
-  head.position.set(2.15, 2.75, 0);
-  head.rotation.z = -0.35;
-  st.add(head);
-  for (const dz of [-0.13, 0.13]) {
-    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.22, 5), bronze);
-    ear.position.set(1.95, 3.0, dz);
-    st.add(ear);
-  }
-  // Queue
-  const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.05, 1.3, 7), bronze);
-  tail.position.set(-1.7, 1.4, 0);
-  tail.rotation.z = 0.8;
-  st.add(tail);
-  // Quatre jambes — l'antérieur droit levé, fier, comme le vrai Roi de bronze
-  const legPos = [[1.0, 0.2, false], [0.95, -0.2, true], [-1.0, 0.2, false], [-1.0, -0.2, false]];
-  for (const [lx, lz, raised] of legPos) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.1, 1.5, 7), bronze);
-    if (raised) {
-      leg.position.set(lx + 0.55, 1.35, lz);
-      leg.rotation.z = -1.15; // repliée vers l'avant
-      st.add(leg);
-      const hoof = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.16, 7), bronze);
-      hoof.position.set(lx + 1.2, 1.6, lz);
-      st.add(hoof);
-    } else {
-      leg.position.set(lx, 0.78, lz);
-      st.add(leg);
-      const hoof = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.16, 7), bronze);
-      hoof.position.set(lx, 0.08, lz);
-      st.add(hoof);
-    }
-  }
-
-  // Cavalier (Louis XIV)
-  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.55, 5, 10), bronze);
-  torso.position.set(0.1, 2.85, 0);
-  st.add(torso);
-  const rhead = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 10), bronze);
-  rhead.position.set(0.1, 3.5, 0);
-  st.add(rhead);
-  // Jambes le long du cheval
-  for (const dz of [-0.32, 0.32]) {
-    const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.55, 4, 8), bronze);
-    leg.position.set(0.05, 2.05, dz);
-    leg.rotation.x = dz > 0 ? 0.25 : -0.25;
-    st.add(leg);
-  }
-  // Bras droit levé (bâton de commandement)
-  const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.1, 0.5, 4, 8), bronze);
-  arm.position.set(0.35, 3.2, -0.35);
-  arm.rotation.z = -0.9;
-  st.add(arm);
-  const baton = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.7, 6), bronze);
-  baton.position.set(0.75, 3.55, -0.5);
-  baton.rotation.z = -0.5;
-  st.add(baton);
-  // Cape royale flottant derrière le cavalier + perruque et bicorne à plume
-  const cape = new THREE.Mesh(new THREE.ConeGeometry(0.42, 1.0, 8, 1, true), bronze);
-  cape.position.set(-0.35, 2.9, 0);
-  cape.rotation.z = 0.5;
-  st.add(cape);
-  const perruque = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), bronze);
-  perruque.position.set(0.02, 3.46, 0);
-  st.add(perruque);
-  const chapeau = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.12, 10), bronze);
-  chapeau.position.set(0.1, 3.72, 0);
-  st.add(chapeau);
-  const plume = new THREE.Mesh(
-    new THREE.ConeGeometry(0.07, 0.5, 6),
-    new THREE.MeshLambertMaterial({ color: 0xd4af37, emissive: 0x4a3a0c })
-  );
-  plume.position.set(-0.05, 3.98, 0.12);
-  plume.rotation.x = 0.25;
-  st.add(plume);
-
+  // Cheval et cavalier sculptés d'un seul tenant (world/statue.js)
+  st.add(buildRoyalStatue());
   st.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   ctx.scene.add(st);
 

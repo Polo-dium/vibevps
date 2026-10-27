@@ -124,10 +124,24 @@ function upgrade(mat) {
   return next;
 }
 
-export function enhanceScene(scene) {
+// maxAniso : filtrage anisotrope maximal du GPU (16 en général) sur TOUTES
+// les textures du décor — sols et façades vus en biais restent nets jusqu'au
+// fond de la place au lieu de baver (le flou rasant typique du low-cost).
+// Coût négligeable sur une carte graphique de PC, d'où le palier Élevé.
+export function enhanceScene(scene, maxAniso = 8) {
   let n = 0;
+  const sharpen = (m) => {
+    for (const key of ['map', 'normalMap', 'roughnessMap']) {
+      const t = m?.[key];
+      if (t && t.anisotropy < maxAniso) {
+        t.anisotropy = maxAniso;
+        t.needsUpdate = true;
+      }
+    }
+  };
   scene.traverse((o) => {
-    if (!o.isMesh || o.isInstancedMesh && !o.material?.map) return;
+    if (!o.isMesh) return;
+    if (o.isInstancedMesh && !o.material?.map) return;
     if (Array.isArray(o.material)) {
       o.material = o.material.map((m) => {
         const u = upgrade(m);
@@ -139,6 +153,8 @@ export function enhanceScene(scene) {
       if (u !== o.material) n++;
       o.material = u;
     }
+    if (Array.isArray(o.material)) o.material.forEach(sharpen);
+    else sharpen(o.material);
   });
   return n;
 }

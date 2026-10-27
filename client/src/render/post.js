@@ -4,6 +4,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { AOPass } from './ao.js';
 
 // RENDU « CINÉ » (palier Élevé uniquement) : la scène passe par un
 // composeur au lieu d'aller droit à l'écran.
@@ -11,8 +12,11 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 //  - bloom HDR à demi-résolution : néons, lampadaires, soleil, éclairs de
 //    bouche bavent comme dans un vrai moteur — seuil relevé le jour pour
 //    que les façades blanches au soleil ne s'embrasent pas
+//  - occlusion ambiante en espace écran à demi-résolution (render/ao.js)
 //  - étalonnage final : contraste en S, saturation, léger virage
-//    ombres froides / hautes lumières chaudes, vignette
+//    ombres froides / hautes lumières chaudes, vignette, puis netteté
+//    adaptative (type AMD CAS) : textures et arêtes nettes comme dans un
+//    shooter moderne, sans halos — 4 lectures, quasi gratuit
 // Bas et Moyen gardent le rendu direct : zéro coût ajouté sur mobile.
 
 const GradeShader = {
@@ -22,6 +26,8 @@ const GradeShader = {
     saturation: { value: 1.1 },
     vignette: { value: 0.32 },
     night: { value: 0 },
+    texel: { value: new THREE.Vector2(1, 1) },
+    sharpness: { value: 0.55 },
   },
   vertexShader: /* glsl */`
     varying vec2 vUv;
@@ -31,10 +37,23 @@ const GradeShader = {
     }`,
   fragmentShader: /* glsl */`
     uniform sampler2D tDiffuse;
-    uniform float contrast, saturation, vignette, night;
+    uniform float contrast, saturation, vignette, night, sharpness;
+    uniform vec2 texel;
     varying vec2 vUv;
     void main() {
+      // Netteté adaptative : le poids négatif des voisins est modulé par
+      // le contraste local (fort dans les zones plates, faible sur les
+      // arêtes déjà dures — pas de liseré blanc autour des silhouettes)
       vec3 c = texture2D(tDiffuse, vUv).rgb;
+      vec3 cn = texture2D(tDiffuse, vUv + vec2(0.0, texel.y)).rgb;
+      vec3 cs = texture2D(tDiffuse, vUv - vec2(0.0, texel.y)).rgb;
+      vec3 ce = texture2D(tDiffuse, vUv + vec2(texel.x, 0.0)).rgb;
+      vec3 cw = texture2D(tDiffuse, vUv - vec2(texel.x, 0.0)).rgb;
+      vec3 mn = min(c, min(min(cn, cs), min(ce, cw)));
+      vec3 mx = max(c, max(max(cn, cs), max(ce, cw)));
+      vec3 amp = sqrt(clamp(min(mn, 1.0 - mx) / max(mx, vec3(1e-4)), 0.0, 1.0));
+      vec3 wgt = -amp * mix(0.125, 0.2, sharpness) * sharpness;
+      c = clamp((c + (cn + cs + ce + cw) * wgt) / (1.0 + 4.0 * wgt), 0.0, 1.0);
       float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
       // Saturation puis contraste en S autour du gris moyen
       c = mix(vec3(l), c, saturation);
@@ -57,8 +76,13 @@ export function createPost(renderer, scene, camera) {
     type: THREE.HalfFloatType,
     samples: 4,
   });
+  // Profondeur résolue dans une texture : l'occlusion ambiante la relit
+  // (le composeur la duplique pour son second tampon)
+  target.depthTexture = new THREE.DepthTexture(size.x, size.y);
   const composer = new EffectComposer(renderer, target);
   composer.addPass(new RenderPass(scene, camera));
+  const ao = new AOPass(camera);
+  composer.addPass(ao);
   const bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.3, 0.55, 1.0);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
@@ -66,13 +90,17 @@ export function createPost(renderer, scene, camera) {
   composer.addPass(grade);
 
   let enabled = false;
-  return {
+  const api = {
     get enabled() { return enabled; },
     setEnabled(on) { enabled = on; },
     setSize(w, h) {
       composer.setPixelRatio(renderer.getPixelRatio());
       composer.setSize(w, h);
+      const pr = renderer.getPixelRatio();
+      grade.uniforms.texel.value.set(1 / Math.max(1, Math.round(w * pr)), 1 / Math.max(1, Math.round(h * pr)));
     },
+    // Occlusion ambiante coupée quand la machine peine (voir la boucle)
+    setAO(on) { ao.enabled = on; },
     // Réglages qui suivent l'heure : la nuit, le bloom s'ouvre un peu. Les
     // halos additifs des lampadaires dépassent déjà 1 en HDR : seuil haut,
     // sinon toute la place baigne dans un brouillard lumineux.
@@ -88,4 +116,6 @@ export function createPost(renderer, scene, camera) {
       else renderer.render(scene, camera);
     },
   };
+  api.setSize(size.x, size.y);
+  return api;
 }
