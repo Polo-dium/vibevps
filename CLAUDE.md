@@ -80,6 +80,11 @@ npm start          # serveur de prod (sert client/dist)
     orienté sur les murs (`Kit` : géométrie fusionnée par matériau,
     colliders en cellules). La place Saint-Jean se recale devant la façade
     (`ctx.placeOverrides`).
+  - `src/world/passerelles.js` : passerelles piétonnes de la Saône (Palais de
+    Justice haubanée, Saint-Georges et Saint-Vincent suspendues), absentes
+    des rues OSM. Traversée au plus court mesurée sur `ctx.waterMask` autour
+    d'un point GPS, tablier bombé praticable, escaliers sur les quais.
+    Réutilise le `Kit` exporté par `monuments.js`.
   - `src/world/funicular.js` : la ficelle Saint-Jean → Fourvière (ville OSM)
     à travers le parc du Rosaire, deux cabines contrepoids calées sur
     `Date.now()` (même horaire chez tous), embarquement par E à quai. Le

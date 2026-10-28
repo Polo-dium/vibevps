@@ -28,6 +28,7 @@ import { createTerraces } from './terraces.js';
 import { buildPlacesLyon } from './squares.js';
 import { buildMonuments } from './monuments.js';
 import { buildFuniculaire } from './funicular.js';
+import { buildPasserelles } from './passerelles.js';
 import { createParkedCars } from './parked.js';
 import { buildStreetSigns } from './streetsigns.js';
 
@@ -1074,6 +1075,9 @@ export function buildRealCity(ctx, data) {
     buildFuniculaire(ctx, ctx.ficelle.A, ctx.ficelle.B);
     // Grandes places dallées (Terreaux, Jacobins…), fontaines, tour métallique
     buildPlacesLyon(ctx, data.scale ?? 0.5);
+    // Passerelles piétonnes de la Saône (Palais de Justice, Saint-Georges,
+    // Saint-Vincent) — absentes des rues OSM du jeu
+    buildPasserelles(ctx, data.scale ?? 0.5);
     // Le théâtre et son concert permanent (un morceau de l'album par jour)
     buildTheatre(ctx, ctx.theatre);
     buildConcert(ctx, ctx.theatre);

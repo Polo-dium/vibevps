@@ -310,8 +310,8 @@ function roofGeo(len, wid, h, hip = 0) {
 // Chantier d'un monument : repère local (u = axe principal, v = travers,
 // y = haut, origine au sol), géométries accumulées par matériau, colliders
 // découpés en cellules (AABB monde serrées même quand le bâtiment est en
-// biais).
-class Kit {
+// biais). Partagé avec les passerelles (world/passerelles.js).
+export class Kit {
   constructor(ctx, x, z, y0, ax, az) {
     this.ctx = ctx;
     this.o = [x, y0, z];
