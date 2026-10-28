@@ -295,7 +295,8 @@ function styleOf(name, structure) {
   const n = String(name ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
   for (const d of DEFS) {
     const tag = d[0].replace('passerelle-', '').replace(/-/g, ' ');
-    if (n.includes(tag) || (tag === 'palais' && n.includes('palais de justice'))) return { type: d[4], opts: d[5] };
+    // la passerelle du Palais de Justice s'appelle « Pierre Truche » dans OSM
+    if (n.includes(tag) || (tag === 'palais' && n.includes('pierre truche'))) return { type: d[4], opts: d[5] };
   }
   if (structure === 'cable-stayed') return { type: 'haubans', opts: { steel: 0xe6e8e8, cable: 0xd5d9dc, plank: 0x8d7a64 } };
   if (structure === 'suspension') return { type: 'suspendue', opts: { steel: 0x5d6d7e, cable: 0x4b5a69, plank: 0x7d6a55 } };

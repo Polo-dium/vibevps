@@ -92,7 +92,14 @@ export function collectBridgeSpans(ctx, data) {
   // son nom).
   for (const b of data.bridges ?? []) spans.push(...spansOf(b.p, b.w, { kind: b.kind, n: b.n, s: b.s }, mask, polys));
   for (const r of data.roads) spans.push(...spansOf(r.p, r.w, { kind: 'road' }, mask, polys));
-  return merge(spans);
+  const merged = merge(spans);
+  // Trottoirs d'un pont routier tracés à part dans OSM (footway bridge=yes
+  // nommée « Pont Wilson ») : ce ne sont pas des passerelles
+  const roadSpans = merged.filter((s) => s.kind === 'road');
+  return merged.filter((s) => s.kind !== 'foot' || !roadSpans.some((r) =>
+    Math.abs(r.ax * s.ax + r.az * s.az) > 0.9 &&
+    Math.abs(-(s.cx - r.cx) * r.az + (s.cz - r.cz) * r.ax) < r.wide + 8 &&
+    Math.abs((s.cx - r.cx) * r.ax + (s.cz - r.cz) * r.az) < r.half + 10));
 }
 
 // Ponts routiers : pierre en dos d'âne + chaussée praticable
