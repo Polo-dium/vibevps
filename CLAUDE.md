@@ -53,9 +53,13 @@ npm start          # serveur de prod (sert client/dist)
     partagé) — à utiliser pour tout personnage/statue/créature au lieu
     d'empiler des primitives.
   - `src/render/facade.js` : patch de shader des murs OSM — chaque fenêtre
-    de la cellule répétée se décline (persiennes, voilages, balcons filants),
+    de la cellule répétée se décline (vitres en retrait par parallaxe,
+    persiennes, voilages, balcons filants),
     hasard tiré de floor(uv) + teinte de l'immeuble. `enhance.js` reprend
     `material.userData.shaderPatch` au palier Élevé.
+  - `src/render/road.js` : chaussée et pavés qui se mouillent après l'averse
+    partagée (`rainAmount`), flaques le long des caniveaux (miroirs au palier
+    Élevé, reflets rasants assombris = façades d'en face).
   - `src/world/bridge.js` : ponts de pierre de la ville OSM (arches
     surbaissées, piles à becs, balustres instanciés au palier Élevé,
     lampadaires versés dans `buildLamps` via `ctx.bridgeLamps`).

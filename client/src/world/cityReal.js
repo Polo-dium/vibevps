@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { facadeShaderPatch } from '../render/facade.js';
+import { roadShaderPatch, tickRoadWetness } from '../render/road.js';
 import { treeCrownGeometry, treeTrunkGeometry, treeFoliageMaterial } from './trees.js';
 import { addInvisibleWall, addBox, makeGlowSprite } from './utils.js';
 import { state } from '../state.js';
@@ -2349,6 +2350,17 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
   console.log(`Lyon OSM : ${kept} bâtiments dans ${tiles.size} tuiles.`);
 }
 
+// Sol de rue qui se mouille sous l'averse, flaques comprises (render/road.js) ;
+// enhance.js reprend le patch quand il passe le matériau en PBR (Élevé)
+function wetable(mat, gutter, key) {
+  const patch = roadShaderPatch(gutter);
+  mat.userData.shaderPatch = patch;
+  mat.userData.shaderPatchKey = key;
+  mat.onBeforeCompile = patch;
+  mat.customProgramCacheKey = () => key;
+  return mat;
+}
+
 function buildOsmRoads(ctx, data, full = false) {
   const pos = [];        // chaussée
   const walk = [];       // trottoirs (rubans élargis clairs, sous la chaussée)
@@ -2523,17 +2535,19 @@ function buildOsmRoads(ctx, data, full = false) {
   addMesh(walk, new THREE.MeshLambertMaterial({ map: sidewalkTex }), walkUv);
   if (cobble.length) {
     for (let i = 0; i < cobble.length; i += 3) cobbleUv.push(cobble[i] / 2.4, cobble[i + 2] / 2.4);
-    const pv = addMesh(cobble, new THREE.MeshLambertMaterial({
+    const pv = addMesh(cobble, wetable(new THREE.MeshLambertMaterial({
       map: makeCobbleTexture(),
       polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
-    }), cobbleUv);
+    }), false, 'paves'), cobbleUv);
     pv.name = 'pavés';
   }
   const asphaltTex = makeAsphaltTexture();
-  addMesh(pos, new THREE.MeshLambertMaterial({
+  const asphaltMat = new THREE.MeshLambertMaterial({
     map: asphaltTex,
     polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
-  }), roadUv);
+  });
+  addMesh(pos, wetable(asphaltMat, true, 'asphalte'), roadUv);
+  ctx.updatables.push(tickRoadWetness);
   if (curb.length) {
     addMesh(curb, new THREE.MeshLambertMaterial({
       color: 0xc4c0b6, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
