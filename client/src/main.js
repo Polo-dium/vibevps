@@ -723,7 +723,11 @@ async function boot() {
   };
   const weapon = createWeapon(camera, scene, ctx.shootables, {
     onAmmoChange: (ammo, reloading, spec) => ui.setAmmo(ammo, reloading, state.weaponEquipped, spec),
-    onShot: (a, b) => net.send({ t: 'shot', a, b }),
+    onShot: (a, b) => {
+      net.send({ t: 'shot', a, b });
+      // la détonation fait s'envoler les pigeons du coin
+      ctx.scareBirds?.(a[0] ?? a.x, a[2] ?? a.z, 30);
+    },
     onRocketExplosion: (point) => ctx.onRocketExplosion?.(point),
     getGroundY: () => controls.position.y,
     onWeaponChange: (spec) => ui.toast(`${spec.emoji} ${spec.nom} en main ! (2 pour changer d'arme)`),
