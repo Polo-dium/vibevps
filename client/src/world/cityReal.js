@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { facadeShaderPatch } from '../render/facade.js';
 import { treeCrownGeometry, treeTrunkGeometry, treeFoliageMaterial } from './trees.js';
 import { addInvisibleWall, addBox, makeGlowSprite } from './utils.js';
 import { state } from '../state.js';
@@ -1844,6 +1845,12 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     map: facadeTex, vertexColors: true,
     emissive: 0xffffff, emissiveMap: emiTex, emissiveIntensity: 0,
   });
+  // Chaque fenêtre décline la cellule répétée : persiennes, voilages,
+  // balcons filants… (render/facade.js ; repris par enhance.js au palier Élevé)
+  wallMat.userData.shaderPatch = facadeShaderPatch;
+  wallMat.userData.shaderPatchKey = 'facade';
+  wallMat.onBeforeCompile = facadeShaderPatch;
+  wallMat.customProgramCacheKey = () => 'facade';
   ctx.updatables.push(() => {
     wallMat.emissiveIntensity = Math.max(0, (ctx.env?.night ?? 0) * 1.1 - 0.1) * 0.8;
   });
@@ -2340,6 +2347,28 @@ function buildOsmRoads(ctx, data, full = false) {
     }
   });
   const isCrossing = (x, z) => (nodeRoads.get(nodeKey(x, z))?.size ?? 0) >= 2;
+  // Largeur de la plus large rue à chaque nœud : les bordures de trottoir
+  // s'arrêtent avant d'entrer dans le carrefour (sinon elles barreraient la
+  // rue transversale d'un trait de granit)
+  const nodeW = new Map();
+  data.roads.forEach((road) => {
+    for (let i = 0; i + 1 < road.p.length; i += 2) {
+      const k = nodeKey(road.p[i], road.p[i + 1]);
+      nodeW.set(k, Math.max(nodeW.get(k) ?? 0, road.w));
+    }
+  });
+  const curb = [], gutter = [];
+  // Bande parallèle à l'axe, entre les décalages latéraux o1 et o2 (signés)
+  const strip = (arr, x1, z1, x2, z2, o1, o2, dy) => {
+    const dx = x2 - x1, dz = z2 - z1, len = Math.hypot(dx, dz);
+    const nx = -dz / len, nz = dx / len;
+    const ya = yAt(x1, z1) + dy, yb = yAt(x2, z2) + dy;
+    const [lo, hi] = o1 < o2 ? [o1, o2] : [o2, o1];
+    arr.push(
+      x1 + nx * lo, ya, z1 + nz * lo, x2 + nx * hi, yb, z2 + nz * hi, x2 + nx * lo, yb, z2 + nz * lo,
+      x1 + nx * lo, ya, z1 + nz * lo, x1 + nx * hi, ya, z1 + nz * hi, x2 + nx * hi, yb, z2 + nz * hi
+    );
+  };
   for (const road of data.roads) {
     const half = road.w / 2;
     if (road.w < 6) {
@@ -2367,6 +2396,21 @@ function buildOsmRoads(ctx, data, full = false) {
       ribbon(walk, x1, z1, x2, z2, half + 1.6, -0.02, uvAcc, walkUv);
       const len = ribbon(pos, x1, z1, x2, z2, half, 0, uvAcc, roadUv);
       uvAcc += len;
+      // Bordure de granit (25 cm) + caniveau sombre côté chaussée, raccourcis
+      // aux carrefours
+      if (len > 0.5) {
+        const ux = (x2 - x1) / len, uz = (z2 - z1) / len;
+        const kA = nodeKey(x1, z1), kB = nodeKey(x2, z2);
+        const tA = isCrossing(x1, z1) ? (nodeW.get(kA) ?? 0) / 2 + 1.2 : 0;
+        const tB = isCrossing(x2, z2) ? (nodeW.get(kB) ?? 0) / 2 + 1.2 : 0;
+        if (len - tA - tB > 0.8) {
+          const ax = x1 + ux * tA, az = z1 + uz * tA, bx = x2 - ux * tB, bz = z2 - uz * tB;
+          for (const sd of [-1, 1]) {
+            strip(curb, ax, az, bx, bz, sd * half, sd * (half + 0.25), 0.004);
+            strip(gutter, ax, az, bx, bz, sd * (half - 0.35), sd * half, 0.002);
+          }
+        }
+      }
       // Passage piéton à l'entrée de la rue, juste après un carrefour
       // (et juste avant le suivant), sur les rues assez larges
       if (road.w >= 5.5 && len > 9) {
@@ -2428,6 +2472,15 @@ function buildOsmRoads(ctx, data, full = false) {
     map: asphaltTex,
     polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
   }), roadUv);
+  if (curb.length) {
+    addMesh(curb, new THREE.MeshLambertMaterial({
+      color: 0xc4c0b6, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    }));
+    addMesh(gutter, new THREE.MeshLambertMaterial({
+      color: 0x55575a, transparent: true, opacity: 0.55, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    }));
+  }
   if (zebra.length) {
     // Bandes blanches peintes sur l'asphalte (canvas 2 px : blanc / bitume)
     const zc = document.createElement('canvas');

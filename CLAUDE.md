@@ -52,6 +52,10 @@ npm start          # serveur de prod (sert client/dist)
     de volumes → maillage « surface nets » au chargement, mis en cache et
     partagé) — à utiliser pour tout personnage/statue/créature au lieu
     d'empiler des primitives.
+  - `src/render/facade.js` : patch de shader des murs OSM — chaque fenêtre
+    de la cellule répétée se décline (persiennes, voilages, balcons filants),
+    hasard tiré de floor(uv) + teinte de l'immeuble. `enhance.js` reprend
+    `material.userData.shaderPatch` au palier Élevé.
   - `src/world/bridge.js` : ponts de pierre de la ville OSM (arches
     surbaissées, piles à becs, balustres instanciés au palier Élevé,
     lampadaires versés dans `buildLamps` via `ctx.bridgeLamps`).

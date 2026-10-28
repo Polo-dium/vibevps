@@ -47,7 +47,9 @@ function roughnessFrom(src) {
 // sol → xz, murs → xy ou zy), fondue au-delà de ~40 m pour éviter le moiré.
 function addDetail(mat) {
   const detailMap = detailNoise();
+  const extra = mat.userData.shaderPatch; // patch propre au matériau d'origine
   mat.onBeforeCompile = (shader) => {
+    extra?.(shader);
     shader.uniforms.detailMap = { value: detailMap };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vDWPos;\nvarying vec3 vDWN;')
@@ -69,7 +71,7 @@ function addDetail(mat) {
           diffuseColor.rgb *= mix(1.0, 0.72 + dd * 0.56, fade);
         }`);
   };
-  mat.customProgramCacheKey = () => 'detail';
+  mat.customProgramCacheKey = () => 'detail' + (extra ? '|' + mat.userData.shaderPatchKey : '');
 }
 
 const done = new Map(); // ancien matériau → nouveau
