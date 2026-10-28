@@ -76,6 +76,71 @@ function nearRiver(bands, x, z, margin = 0) {
   return false;
 }
 
+// VRAI RELIEF (data.relief, tools/relief.mjs) : grille d'altitudes tirée
+// du modèle de terrain Terrarium, déjà à l'échelle des hauteurs du jeu.
+// Interpolation bilinéaire ; hors grille, plat.
+function makeReliefFn(relief) {
+  const bin = atob(relief.data);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const view = new DataView(bytes.buffer);
+  const { n, res, half, scale } = relief;
+  const g = new Float32Array(n * n);
+  for (let k = 0; k < n * n; k++) g[k] = view.getUint16(k * 2, true) / scale; // petit-boutiste
+  return (x, z) => {
+    const fx = (x + half) / res, fz = (z + half) / res;
+    if (fx < 0 || fz < 0 || fx >= n - 1 || fz >= n - 1) return 0;
+    const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
+    const k = j * n + i;
+    return (g[k] * (1 - u) + g[k + 1] * u) * (1 - v) + (g[k + n] * (1 - u) + g[k + n + 1] * u) * v;
+  };
+}
+
+// Distance (m jeu) au plus proche pixel d'eau du masque : chanfrein 3-4 en
+// deux passes, une fois au chargement. Sert à faire descendre les collines
+// en pente continue jusqu'aux quais (plus de marches à 16 / 48 m).
+function waterDistanceFn(mask) {
+  const { n, res, bound } = mask;
+  const INF = 1e9;
+  const d = new Float32Array(n * n);
+  for (let k = 0; k < n * n; k++) d[k] = mask.grid[k] ? 0 : INF;
+  const a = 1, b = Math.SQRT2;
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const k = j * n + i;
+      let v = d[k];
+      if (i > 0) v = Math.min(v, d[k - 1] + a);
+      if (j > 0) {
+        v = Math.min(v, d[k - n] + a);
+        if (i > 0) v = Math.min(v, d[k - n - 1] + b);
+        if (i < n - 1) v = Math.min(v, d[k - n + 1] + b);
+      }
+      d[k] = v;
+    }
+  }
+  for (let j = n - 1; j >= 0; j--) {
+    for (let i = n - 1; i >= 0; i--) {
+      const k = j * n + i;
+      let v = d[k];
+      if (i < n - 1) v = Math.min(v, d[k + 1] + a);
+      if (j < n - 1) {
+        v = Math.min(v, d[k + n] + a);
+        if (i < n - 1) v = Math.min(v, d[k + n + 1] + b);
+        if (i > 0) v = Math.min(v, d[k + n - 1] + b);
+      }
+      d[k] = v;
+    }
+  }
+  return (x, z) => {
+    const fx = (x + bound) / res - 0.5, fz = (z + bound) / res - 0.5;
+    const i = Math.max(0, Math.min(n - 2, Math.floor(fx))), j = Math.max(0, Math.min(n - 2, Math.floor(fz)));
+    const u = Math.max(0, Math.min(1, fx - i)), v = Math.max(0, Math.min(1, fz - j));
+    const k = j * n + i;
+    const c = (d[k] * (1 - u) + d[k + 1] * u) * (1 - v) + (d[k + n] * (1 - u) + d[k + n + 1] * u) * v;
+    return c >= INF / 2 ? Infinity : c * res;
+  };
+}
+
 // Collines réelles : max d'ellipsoïdes analytiques (cap = plateau)
 function makeHillsFn(hills) {
   return (x, z) => {
@@ -760,14 +825,38 @@ function buildBasilica(ctx, bx, bz, by) {
 // chemin en lacets posé sur la pente. (Les arbres viennent de buildGreenery,
 // via ctx.parkRects ; le terrain y est coloré en herbe.)
 function buildParcRosaire(ctx, x0, z0, x1, z1) {
-  const N = 34;
+  // Ruban continu de 3,5 m qui ÉPOUSE la pente (un sommet tous les ~1,5 m)
+  // au lieu de dalles plates posées en escalier sur le flanc
+  const N = 140;
+  const pts = [];
   for (let i = 0; i <= N; i++) {
     const t = i / N;
-    const x = x0 + (x1 - x0) * t;
-    const z = z0 + (z1 - z0) * t + Math.sin(t * Math.PI * 3) * 26; // lacets
-    const y = Math.max(0, ctx.terrainHeight?.(x, z) ?? 0);
-    addBox(ctx, { x, y, z, w: 4, h: 0.14, d: 5.5, color: 0xcfc4a5, collider: false });
+    pts.push([x0 + (x1 - x0) * t, z0 + (z1 - z0) * t + Math.sin(t * Math.PI * 3) * 26]); // lacets
   }
+  const pos = [], idx = [];
+  for (let i = 0; i <= N; i++) {
+    const [ax, az] = pts[Math.max(0, i - 1)], [bx, bz] = pts[Math.min(N, i + 1)];
+    const len = Math.hypot(bx - ax, bz - az) || 1;
+    const nx = -(bz - az) / len * 1.75, nz = (bx - ax) / len * 1.75;
+    const [x, z] = pts[i];
+    for (const s of [-1, 1]) {
+      const px = x + nx * s, pz = z + nz * s;
+      pos.push(px, Math.max(0, ctx.terrainHeight?.(px, pz) ?? 0) + 0.06, pz);
+    }
+    if (i < N) idx.push(i * 2, i * 2 + 2, i * 2 + 1, i * 2 + 1, i * 2 + 2, i * 2 + 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  // normales vers le haut quel que soit le sens des lacets
+  const nrm = geo.attributes.normal;
+  if (nrm.getY(0) < 0) { idx.reverse(); geo.setIndex(idx); geo.computeVertexNormals(); }
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+    color: 0xcfc4a5, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+  }));
+  mesh.receiveShadow = true;
+  ctx.scene.add(mesh);
 }
 
 export function buildRealCity(ctx, data) {
@@ -945,8 +1034,20 @@ export function buildRealCity(ctx, data) {
       zMin: rhoneContinuation.zStart, zMax: rhoneContinuation.zEnd,
     }] : [];
     ctx.waterMask = mask;
-    const hillsBase = Array.isArray(data.hills) && data.hills.length
-      ? makeHillsFn(data.hills) : () => 0;
+    // Vrai relief si le JSON l'a (tools/relief.mjs), sinon ellipsoïdes
+    const relief = data.relief ? makeReliefFn(data.relief) : null;
+    const hillsAll = relief ?? (Array.isArray(data.hills) && data.hills.length
+      ? makeHillsFn(data.hills) : () => 0);
+    // Au-delà des limites jouables, le relief redescend doucement vers la
+    // campagne (plus de mur au bord du maillage)
+    const hillsBase = relief ? (x, z) => {
+      const out = Math.max(Math.abs(x), Math.abs(z)) - bound;
+      const h = hillsAll(x, z);
+      if (out <= 0) return h;
+      const t = Math.min(1, out / 110);
+      return h * (1 - t * t * (3 - 2 * t));
+    } : hillsAll;
+    ctx.hasRelief = !!relief;
     // Esplanade en plateau : la pente de la colline est écrêtée à la hauteur
     // de la basilique (sinon elle ressort à travers le sol de la nef)
     const basY0 = hillsBase(basX, basZ);
@@ -963,12 +1064,12 @@ export function buildRealCity(ctx, data) {
       // vert plonge dans la Saône. À ≤16 m de l'eau le sol reste au niveau
       // du quai, jusqu'à 48 m la colline est plafonnée, au-delà elle est
       // libre. (Sondes sur le masque, seulement quand il y a du relief.)
-      const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]];
-      const shoreMax = (x, z) => {
-        for (const [dx, dz] of DIRS) if (mask.isWater(x + dx * 16, z + dz * 16)) return 0.5;
-        for (const [dx, dz] of DIRS) if (mask.isWater(x + dx * 48, z + dz * 48)) return 12;
-        return Infinity;
-      };
+      // Plafond = fonction CONTINUE de la distance à l'eau : quai plat sur
+      // 12 m, puis pente de 45° au plus (les anciens paliers 16 m / 48 m
+      // faisaient des marches verticales sur le flanc de Fourvière)
+      const waterDist = waterDistanceFn(mask);
+      ctx.waterDistance = waterDist;
+      const shoreMax = (x, z) => Math.max(0.5, waterDist(x, z) - 12);
       ctx.terrainHeight = (x, z) => {
         if (mask.isWater(x, z)) return BED_Y;
         const h = ground(x, z);
@@ -1231,7 +1332,18 @@ function buildTerrainMesh(ctx, bound, data) {
       const hsh = ((Math.floor(x / 64) * 73856093) ^ (Math.floor(z / 64) * 19349663)) >>> 0;
       c.copy(meadow).offsetHSL(((hsh % 13) - 6) * 0.004, 0, ((hsh % 7) - 3) * 0.02);
       c.lerp(asphalt, Math.max(urban(x, z), quayBlend(x, z)));
-    } else c.copy(grass).lerp(forest, Math.min(1, (h - 1.4) / 32));
+    } else {
+      // Collines : prairie → bois avec l'altitude, et les PENTES fortes en
+      // sous-bois sombre (les « balmes » boisées de Fourvière et de la
+      // Croix-Rousse). Bâties (plateau de la Croix-Rousse, Saint-Just…),
+      // elles prennent le socle urbain comme la plaine.
+      const H = ctx.terrainHeight;
+      const gx = H(x + 6, z) - H(x - 6, z), gz = H(x, z + 6) - H(x, z - 6);
+      const slope = Math.hypot(gx, gz) / 12;
+      c.copy(grass).lerp(forest, Math.min(1, (h - 1.4) / 32 + slope * 0.9));
+      // jardins et cours : le bâti des collines ne grise qu'à moitié le sol
+      c.lerp(asphalt, urban(x, z) * 0.5 * (1 - Math.min(0.8, slope)));
+    }
     colors[i * 3] = c.r;
     colors[i * 3 + 1] = c.g;
     colors[i * 3 + 2] = c.b;
@@ -1285,6 +1397,9 @@ function buildCountryside(ctx, bound, rand) {
     new THREE.CircleGeometry(bound * 3, 40),
     new THREE.MeshLambertMaterial({ color: 0x5d7a4a })
   );
+  // Prairies et monts restent verts en toute saison (seasons.js rousissait
+  // tout ce qui est vert : à l'automne, Lyon finissait au milieu d'un désert)
+  meadow.material.userData.noSeason = true;
   meadow.rotation.x = -Math.PI / 2;
   // SOUS le lit des fleuves (BED_Y), pas juste sous le terrain : un disque
   // plein centré sur la carte placé au-dessus de WATER_Y passerait le test
@@ -1297,6 +1412,7 @@ function buildCountryside(ctx, bound, rand) {
   const geo = new THREE.ConeGeometry(1, 1, 7); // écrasé/étiré par instance
   geo.translate(0, 0.5, 0); // base du cône au sol
   const mat = new THREE.MeshLambertMaterial({ color: 0x51684a });
+  mat.userData.noSeason = true;
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0);
   const matrices = [];
@@ -2043,7 +2159,11 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     // Sur la ville complète, le bâtiment est posé sur le terrain (pentes de
     // la Croix-Rousse, flanc de Fourvière) avec une jupe enterrée de 2 m
     const yBase = full ? Math.max(0, ctx.terrainHeight?.(cx, cz) ?? 0) : 0;
-    const y0 = yBase - (full ? 2 : 0);
+    // Jupe enterrée jusque sous le coin le plus BAS de l'empreinte : sur les
+    // pentes de Fourvière, 2 m sous le centre laissaient des coins en l'air
+    let yLow = yBase;
+    if (full) for (const [x, z] of pts) yLow = Math.min(yLow, Math.max(0, ctx.terrainHeight?.(x, z) ?? 0));
+    const y0 = full ? yLow - 2 : 0;
     const y1 = yBase + h;
 
     // Murs (contour + cours)
@@ -2510,7 +2630,23 @@ function buildOsmRoads(ctx, data, full = false) {
       x1 + nx * lo, ya, z1 + nz * lo, x1 + nx * hi, ya, z1 + nz * hi, x2 + nx * hi, yb, z2 + nz * hi
     );
   };
-  for (const road of data.roads) {
+  // Sur le relief, les tronçons OSM longs (jusqu'à 100 m entre deux
+  // nœuds) coupaient à travers la colline ou flottaient au-dessus : on les
+  // redécoupe tous les ~6 m là où le sol n'est pas plat
+  const dense = (p) => {
+    if (!full) return p;
+    const out = [p[0], p[1]];
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      const x1 = p[i], z1 = p[i + 1], x2 = p[i + 2], z2 = p[i + 3];
+      const ya = yAt(x1, z1), yb = yAt(x2, z2), ym = yAt((x1 + x2) / 2, (z1 + z2) / 2);
+      const flat = Math.abs(ya - yb) < 0.15 && Math.abs((ya + yb) / 2 - ym) < 0.15;
+      const k = flat ? 1 : Math.max(1, Math.ceil(Math.hypot(x2 - x1, z2 - z1) / 6));
+      for (let t = 1; t <= k; t++) out.push(x1 + ((x2 - x1) * t) / k, z1 + ((z2 - z1) * t) / k);
+    }
+    return out;
+  };
+  for (const road0 of data.roads) {
+    const road = { ...road0, p: dense(road0.p) };
     const half = road.w / 2;
     if (road.w < 6) {
       let inside = 0, n = 0;
@@ -2803,6 +2939,66 @@ function buildGreenery(ctx, data, rand, full = false) {
       }
     }
   }
+  // BALMES BOISÉES : sur le vrai relief, les pentes fortes de Fourvière et
+  // de la Croix-Rousse (et les jardins clairsemés de Saint-Just) se couvrent
+  // de bois, hors bâtiments, rues et emprises de jeu. Générateur DÉDIÉ : la
+  // séquence partagée (teintes des arbres existants…) ne bouge pas.
+  const nBase = valid.length;
+  const frand = makeRand(5501);
+  if (ctx.hasRelief) {
+    const H = (x, z) => ctx.terrainHeight(x, z);
+    // grille des chaussées (cellules de 6 m) pour ne rien planter sur une rue
+    const RC = 6, roadCells = new Set();
+    for (const road of data.roads) {
+      const r = road.w / 2 + 2;
+      for (let i = 0; i + 3 < road.p.length; i += 2) {
+        const x1 = road.p[i], z1 = road.p[i + 1], x2 = road.p[i + 2], z2 = road.p[i + 3];
+        const len = Math.hypot(x2 - x1, z2 - z1), k = Math.max(1, Math.ceil(len / 3));
+        for (let t = 0; t <= k; t++) {
+          const x = x1 + ((x2 - x1) * t) / k, z = z1 + ((z2 - z1) * t) / k;
+          for (let dx = -r; dx <= r; dx += RC / 2) {
+            for (let dz = -r; dz <= r; dz += RC / 2) roadCells.add(Math.floor((x + dx) / RC) + ',' + Math.floor((z + dz) / RC));
+          }
+        }
+      }
+    }
+    const F = ctx.ficelle;
+    const onFic = (x, z) => {
+      if (!F) return false;
+      const dx = F.B.x - F.A.x, dz = F.B.z - F.A.z;
+      const t = Math.max(-0.1, Math.min(1.1, ((x - F.A.x) * dx + (z - F.A.z) * dz) / (dx * dx + dz * dz)));
+      return Math.hypot(F.A.x + dx * t - x, F.A.z + dz * t - z) < 9;
+    };
+    const lim = ctx.worldBound - 12, STEP = 7, CAP = 3600;
+    const cand = [];
+    for (let gz = -lim; gz < lim; gz += STEP) {
+      for (let gx = -lim; gx < lim; gx += STEP) {
+        const x = gx + (frand() - 0.5) * STEP, z = gz + (frand() - 0.5) * STEP;
+        const pick = frand();
+        const h = H(x, z);
+        if (h < 2.5) continue;
+        const slope = Math.hypot(H(x + 4, z) - H(x - 4, z), H(x, z + 4) - H(x, z - 4)) / 8;
+        // dense sur les balmes, épars sur les replats des collines
+        if (pick > (slope > 0.45 ? 0.75 : slope > 0.25 ? 0.4 : 0.06)) continue;
+        if (inWater(x, z) || inReserved(x, z) || onFic(x, z) || ctx.theatre?.covers(x, z)) continue;
+        if (roadCells.has(Math.floor(x / RC) + ',' + Math.floor(z / RC))) continue;
+        let hit = false;
+        for (const b of ctx.colliders.nearby ? ctx.colliders.nearby(x, z, 2) : []) {
+          if (x > b.minX - 2 && x < b.maxX + 2 && z > b.minZ - 2 && z < b.maxZ + 2) { hit = true; break; }
+        }
+        if (hit) continue;
+        cand.push([x, z, 0.8 + frand() * 0.6, h]);
+      }
+    }
+    // plafond (perf mobile) : tirage sur toute la carte, pas dans l'ordre du
+    // balayage (tout finissait au nord) ; le cœur de la ville (Fourvière,
+    // Croix-Rousse, là où l'on joue) passe avant la périphérie
+    const core = (t) => Math.max(Math.abs(t[0]), Math.abs(t[1])) < 900;
+    const nCore = cand.filter(core).length;
+    const kCore = Math.min(1, (CAP * 0.65) / Math.max(1, nCore));
+    const kOut = Math.min(1, (CAP - Math.min(nCore, CAP * 0.65)) / Math.max(1, cand.length - nCore));
+    for (const t of cand) if (frand() < (core(t) ? kCore : kOut)) valid.push(t);
+  }
   if (valid.length === 0) return;
 
   const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5d4632 });
@@ -2830,6 +3026,11 @@ function buildGreenery(ctx, data, rand, full = false) {
   });
   const billboards = new THREE.InstancedMesh(billGeo, billMat, valid.length);
   billboards.userData.noShadow = true;
+  // Pas de culling global : la sphère englobante de l'InstancedMesh est
+  // calculée au premier rendu, quand toutes ses instances sont encore à
+  // zéro (sphère nulle sur Bellecour) — les arbres lointains disparaissaient
+  // dès qu'on ne regardait pas vers le centre. Le vertex shader est léger.
+  billboards.frustumCulled = false;
 
   const m = new THREE.Matrix4();
   const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -2843,7 +3044,8 @@ function buildGreenery(ctx, data, rand, full = false) {
     m.setPosition(x, ty + 3.6 * s, z);
     foliage.setMatrixAt(i, m);
     billboards.setMatrixAt(i, ZERO);
-    col.setHSL(0.28 + rand() * 0.06, 0.45, 0.32 + rand() * 0.12);
+    const rr = i < nBase ? rand : frand;
+    col.setHSL(0.28 + rr() * 0.06, 0.45, 0.32 + rr() * 0.12);
     foliage.setColorAt(i, col);
     // un ton sous le houppier 3D : celui-ci a une occlusion cuite
     billboards.setColorAt(i, col.clone().multiplyScalar(0.5)); // matériau non éclairé : plus sombre

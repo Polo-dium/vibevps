@@ -74,7 +74,7 @@ async function boot() {
   // jour publiée par la GitHub Action sur la branche osm-data — le jeu
   // n'attend plus que le VPS ait régénéré la sienne. Repli sur la carte
   // locale si GitHub ne répond pas dans les temps.
-  const OSM_FORMAT = 2;
+  const OSM_FORMAT = 3; // 3 = vrai relief (tools/relief.mjs)
   const OSM_GITHUB = 'https://raw.githubusercontent.com/Polo-dium/vibevps/osm-data/lyon-osm.json';
   const osmPromise = fetch('/lyon-osm.json')
     .then((res) => res.ok ? res.json() : null)

@@ -12,7 +12,7 @@ on:
   # branche de travail) : la carte suit les améliorations de fetch-osm.mjs
   push:
     branches: [claude/3d-arcade-map-vps-5v3opg, ccr-10d2d3e3-8jvu9z]
-    paths: [tools/fetch-osm.mjs, .github/workflows/osm-data.yml]
+    paths: [tools/fetch-osm.mjs, tools/relief.mjs, .github/workflows/osm-data.yml]
 
 permissions:
   contents: write

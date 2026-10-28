@@ -39,6 +39,14 @@ npm start          # serveur de prod (sert client/dist)
   - `src/world/` — ville procédurale (`city.js`), vrai Lyon OSM optionnel
     (`cityReal.js`, activé si `client/public/lyon-osm.json` existe, généré par
     `tools/fetch-osm.mjs`), ciel (`sky.js`), PNJ (`npcs.js`).
+  - VRAI RELIEF : `tools/relief.mjs` (appelé par fetch-osm, ou seul sur un
+    JSON existant) lit les tuiles d'altitude Terrarium (AWS Open Data,
+    décodeur PNG maison) → `data.relief` (grille Uint16 base64, hauteurs
+    déjà × H_SCALE, ville plate ramenée à 0). Côté client `makeReliefFn` le
+    remplace aux ellipsoïdes `data.hills` (repli), les collines descendent
+    en pente continue vers l'eau (`waterDistanceFn`), les rues sont
+    redécoupées tous les 6 m sur les pentes, les balmes se boisent
+    (`buildGreenery`, rand dédié). JSON `version: 3` = relief.
   - `src/render/` — rendu « ciné » au palier Élevé (`post.js` : bloom HDR,
     étalonnage, MSAA), reflets d'environnement procéduraux (`envmap.js`),
     matériaux PBR et profils extrudés (`materials.js`), passe matière sur le

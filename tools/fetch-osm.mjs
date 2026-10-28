@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildRelief } from './relief.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(__dirname, '..', 'client', 'public', 'lyon-osm.json');
@@ -517,17 +518,29 @@ for (const el of data.elements) {
   console.log(`  ${nRel} bâtiment(s) issus de relations (cours intérieures comprises).`);
 }
 
+// Vrai relief (tuiles d'altitude Terrarium, voir tools/relief.mjs). En cas
+// d'échec, la carte reste utilisable : le client retombe sur les collines
+// ellipsoïdes de HILLS.
+let relief = null;
+try {
+  relief = await buildRelief({ half: Math.ceil(bound + 10) + 300, res: 10, scale: SCALE, hScale: H_SCALE });
+} catch (err) {
+  console.warn(`  Relief indisponible (${err.message}) : collines analytiques.`);
+}
+
 const out = {
-  attribution: '© les contributeurs OpenStreetMap (ODbL)',
+  attribution: '© les contributeurs OpenStreetMap (ODbL) ; relief : Terrarium (AWS Open Data, SRTM…)',
   // Format des données : le client recharge la version publiée sur GitHub
   // si le serveur lui sert un fichier plus ancien (voir main.js).
   // 2 = bâtiments en relation avec cours intérieures (holes).
-  version: 2,
+  // 3 = vrai relief (relief) + ponts (bridges).
+  version: relief ? 3 : 2,
   scale: SCALE,
   bound: Math.ceil(bound + 10),
   water: cleanWater(),
   waterPolys,
   hills: HILLS,
+  relief,
   confluenceZ: CONFLUENCE_Z,
   poi: { basilica: BASILICA, crayon: crayonPoi },
   buildings,
