@@ -31,6 +31,11 @@ npm start          # serveur de prod (sert client/dist)
 - `client/` — Three.js 0.172 + Vite, **zéro asset externe** : géométrie en
   primitives, textures en canvas procédural, audio 100 % WebAudio + synthèse
   vocale. Ça doit rester ainsi (poids ~180 kB gzip).
+  EXCEPTION validée par Polo (28/10/2026) : la chanteuse du concert peut
+  être un modèle .glb (image → 3D, brief Grok dans le Drive
+  `CallMeIt_rushs/Chanteuse_3D/`), chargé à l'approche du théâtre. Les
+  musiques et clips de l'album sont aussi des fichiers (`public/music`,
+  `public/clips`).
   - `src/world/` — ville procédurale (`city.js`), vrai Lyon OSM optionnel
     (`cityReal.js`, activé si `client/public/lyon-osm.json` existe, généré par
     `tools/fetch-osm.mjs`), ciel (`sky.js`), PNJ (`npcs.js`).
