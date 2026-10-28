@@ -347,6 +347,7 @@ async function boot() {
   const ctx = {
     scene,
     renderer, // rendus annexes (gros plan de l'écran du concert)
+    camera, // passants : réapparition hors du champ de vision
     colliders: new ColliderGrid(),
     taggables: [],
     interactables: [],

@@ -21,6 +21,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { planTheatre, buildTheatre } from './theatre.js';
 import { buildConcert } from './concert.js';
 import { riverWaterMaterial } from '../render/water.js';
+import { createPassersby } from './passersby.js';
 
 // Construit le vrai Lyon à partir des empreintes OpenStreetMap
 // (client/public/lyon-osm.json, généré par tools/fetch-osm.mjs).
@@ -1023,6 +1024,10 @@ export function buildRealCity(ctx, data) {
     // Trafic sur les vrais quais courbes ; basilique de Fourvière (reculée
     // sur la colline) + parc du Rosaire qui descend vers Saint-Jean.
     buildTraffic(ctx, data.water, bound - 8);
+    // Passants sur les trottoirs, recyclés autour du joueur
+    const t0 = performance.now();
+    createPassersby(ctx, data);
+    console.info(`🚶 Passants : trottoirs préparés en ${Math.round(performance.now() - t0)} ms`);
     // Bars à terrasse sur les quais du fleuve le plus large (le Rhône) :
     // musique, parasols et PNJ installés — chacun son ambiance
     if (widest?.cx) {
@@ -1543,17 +1548,38 @@ function lampSpotsOsm(ctx, data, full = false, zConf = null) {
     }
   }
   const inWater = (x, z) => (ctx.waterMask ? ctx.waterMask.isWater(x, z) : nearRiver(data.water, x, z, 4));
-  const cap = full ? 700 : 220;
+  // Rues : un lampadaire tous les ~26 m de tracé, au bord du trottoir,
+  // PERPENDICULAIREMENT à la rue et en quinconce ; jamais dans un
+  // bâtiment, l'eau ou le théâtre
+  const cap = full ? 1700 : 220;
+  const inBuilding = (x, z) => {
+    for (const b of ctx.colliders.nearby ? ctx.colliders.nearby(x, z, 1) : []) {
+      if (x > b.minX - 0.5 && x < b.maxX + 0.5 && z > b.minZ - 0.5 && z < b.maxZ + 0.5 && b.maxY > 2) return true;
+    }
+    return false;
+  };
   let done = false;
   for (const road of data.roads) {
     if (done) break;
-    if (road.w < 6) continue; // seulement les grands axes
-    for (let i = 0; i + 1 < road.p.length; i += 20) {
-      const x = road.p[i], z = road.p[i + 1];
-      if (inWater(x, z) || Math.abs(x) > ctx.worldBound - 6 || Math.abs(z) > ctx.worldBound - 6) continue;
-      const gy = full ? Math.max(0, ctx.terrainHeight?.(x, z) ?? 0) : 0;
-      spots.push([x + road.w / 2 + 1.5, z, gy]);
-      if (spots.length > cap) { done = true; break; }
+    if (road.w < 5.5) continue; // rues carrossables
+    let acc = 13, side = 1;
+    for (let i = 0; i + 3 < road.p.length; i += 2) {
+      const x1 = road.p[i], z1 = road.p[i + 1], x2 = road.p[i + 2], z2 = road.p[i + 3];
+      const len = Math.hypot(x2 - x1, z2 - z1);
+      if (len < 0.01) continue;
+      const ux = (x2 - x1) / len, uz = (z2 - z1) / len;
+      for (let t = 26 - acc; t < len; t += 26) {
+        const off = road.w / 2 + 1.3;
+        const x = x1 + ux * t - uz * off * side, z = z1 + uz * t + ux * off * side;
+        side = -side;
+        if (inWater(x, z) || Math.abs(x) > ctx.worldBound - 6 || Math.abs(z) > ctx.worldBound - 6) continue;
+        if (ctx.theatre?.covers(x, z) || inBuilding(x, z)) continue;
+        const gy = full ? Math.max(0, ctx.terrainHeight?.(x, z) ?? 0) : 0;
+        spots.push([x, z, gy]);
+        if (spots.length > cap) { done = true; break; }
+      }
+      acc = (acc + len) % 26;
+      if (done) break;
     }
   }
   return spots;
