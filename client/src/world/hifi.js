@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { flattenColored } from './utils.js';
-import { treeCrownGeometry } from './trees.js';
+import { treeCrownGeometry, treeFoliageMaterial } from './trees.js';
 
 // LES LIEUX EN HAUTE FIDÉLITÉ 🏛️
 //
@@ -132,7 +132,7 @@ function buildBellecourHd(ctx, group) {
   }
 
   // Double rangée d'arbres au nord et au sud, comme sur la vraie place
-  const crownMat = new THREE.MeshLambertMaterial({ color: 0x528440, vertexColors: true });
+  const crownMat = treeFoliageMaterial(0x528440);
   for (const sz of [-halfD + 9, -halfD + 17, halfD - 9, halfD - 17]) {
     for (let x = -halfW + 12; x <= halfW - 12; x += 9) {
       const jitter = ((x * 7919 + sz * 104729) % 100) / 100 - 0.5;

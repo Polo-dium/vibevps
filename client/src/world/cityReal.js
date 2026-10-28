@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { treeCrownGeometry, treeTrunkGeometry } from './trees.js';
+import { treeCrownGeometry, treeTrunkGeometry, treeFoliageMaterial } from './trees.js';
 import { addInvisibleWall, addBox, makeGlowSprite } from './utils.js';
 import { state } from '../state.js';
 import {
@@ -12,7 +12,7 @@ import {
   buildPeniches, buildSilure, buildFourviere, buildLamps,
   buildTraboules, buildRiverWorks, composeRiverTerrain, buildConfluence,
   buildConfluenceMuseum, buildJetpackPad, buildTerrasse,
-  makeWaterTexture, WATER_Y, BED_Y,
+  WATER_Y, BED_Y,
 } from './city.js';
 import { buildTraffic } from './traffic.js';
 import { buildRooftopBar } from './rooftops.js';
@@ -20,6 +20,7 @@ import { addRoof, makeRoofSlopeMaterial } from './roofs.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { planTheatre, buildTheatre } from './theatre.js';
 import { buildConcert } from './concert.js';
+import { riverWaterMaterial } from '../render/water.js';
 
 // Construit le vrai Lyon à partir des empreintes OpenStreetMap
 // (client/public/lyon-osm.json, généré par tools/fetch-osm.mjs).
@@ -486,12 +487,8 @@ function buildWaterSurfaces(ctx, polys) {
     const key = p.length + ':' + p[0] + ':' + p[p.length >> 1];
     if (!seen.has(key)) { seen.add(key); uniq.push(p); }
   }
-  const tex = makeWaterTexture();
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  const mat = new THREE.MeshPhongMaterial({
-    map: tex, transparent: true, opacity: 0.96,
-    specular: 0x8fa8c4, shininess: 60, side: THREE.DoubleSide, // reflet bleuté, plus vert
-  });
+  // Eau PBR partagée (render/water.js) : reflets du ciel, rides animées
+  const mat = riverWaterMaterial();
   uniq.forEach((ring, i) => {
     // Forme en (x, −z) puis rotation −90° : géographie préservée, normale
     // vers le haut (une rotation +90° inverserait la carte).
@@ -505,12 +502,7 @@ function buildWaterSurfaces(ctx, polys) {
     mesh.position.y = WATER_Y + (i % 3) * 0.02;
     ctx.scene.add(mesh);
   });
-  // Eau vivante : le défilement principal + une ondulation croisée lente
-  // en X — les vaguelettes semblent se croiser au lieu de couler tout droit
-  ctx.updatables.push((dt) => {
-    tex.offset.y -= dt * 0.012;
-    tex.offset.x = Math.sin(performance.now() / 5200) * 0.04;
-  });
+  ctx.updatables.push((dt) => mat.userData.tick(dt));
 }
 
 // Ruban aval du Rhône : prolonge visuellement et physiquement le fleuve au
@@ -543,18 +535,10 @@ function buildRiverContinuation(ctx, continuation) {
   bed.position.y = BED_Y + 0.02;
   ctx.scene.add(bed);
 
-  const tex = makeWaterTexture();
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  const water = new THREE.Mesh(geometry(), new THREE.MeshPhongMaterial({
-    map: tex, transparent: true, opacity: 0.96,
-    specular: 0x9cb9ce, shininess: 70, side: THREE.DoubleSide,
-  }));
+  // Même eau que les fleuves OSM (le temps est déjà avancé par eux)
+  const water = new THREE.Mesh(geometry(), riverWaterMaterial());
   water.position.y = WATER_Y + 0.015;
   ctx.scene.add(water);
-  ctx.updatables.push((dt) => {
-    tex.offset.y -= dt * 0.014;
-    tex.offset.x = Math.sin(performance.now() / 4700) * 0.04;
-  });
 }
 
 // Basilique Notre-Dame de Fourvière : à sa vraie place sur la colline, à
@@ -2524,7 +2508,7 @@ function buildGreenery(ctx, data, rand, full = false) {
   const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, valid.length);
 
   const foliageGeo = treeCrownGeometry(); // houppier en grappe, ombrage cuit
-  const foliageMat = new THREE.MeshLambertMaterial({ color: 0x5b8a3f, flatShading: true, vertexColors: true });
+  const foliageMat = treeFoliageMaterial(0x5b8a3f); // cartes de feuilles (trees.js)
   const foliage = new THREE.InstancedMesh(foliageGeo, foliageMat, valid.length);
 
   // LOD lointain : au-delà de ~150 m du joueur, troncs+feuillage (12+12
@@ -2620,14 +2604,19 @@ function makeTreeBillboardTexture() {
   // multiplié par un brun, il reste sombre et chaud plutôt que de virer vert)
   g.fillStyle = '#6b4a2f';
   g.fillRect(S * 0.46, S * 0.7, S * 0.08, S * 0.28);
-  const grad = g.createRadialGradient(S * 0.5, S * 0.36, S * 0.04, S * 0.5, S * 0.36, S * 0.34);
-  grad.addColorStop(0, '#ffffff');
-  grad.addColorStop(0.75, '#ffffff');
-  grad.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = grad;
-  g.beginPath();
-  g.ellipse(S * 0.5, S * 0.36, S * 0.34, S * 0.32, 0, 0, Math.PI * 2);
-  g.fill();
+  // Silhouette feuillue : une grappe de petites boules (bord dentelé, pas
+  // un ovale lisse), plus claires en haut
+  let seed = 51;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 70; i++) {
+    const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * S * 0.3;
+    const x = S * 0.5 + Math.cos(a) * r, y = S * 0.37 + Math.sin(a) * r * 0.9;
+    const v = Math.round(170 + (S * 0.37 - y) * 1.6 + rnd() * 40);
+    g.fillStyle = `rgb(${v},${v},${v})`;
+    g.beginPath();
+    g.arc(x, y, S * (0.04 + rnd() * 0.05), 0, Math.PI * 2);
+    g.fill();
+  }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
