@@ -223,5 +223,6 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
     // Pivot de l'épaule droite : point d'accroche pour une arme tenue en
     // main (voir player/remotes.js), suit le balancement de marche.
     armR,
+    armL, // pivot de l'épaule gauche (fans du concert : bras en l'air)
   };
 }

@@ -43,6 +43,15 @@ Télécharge le fichier, renomme-le `clair-de-lune.mp3` (ou adapte le nom dans
 `REAL_TRACKS` côté code), dépose-le ici sur le VPS. Format MP3 recommandé
 (compatibilité Safari/iOS bien meilleure que l'OGG).
 
+## L'album (concert du théâtre de Fourvière)
+
+`accept-all.mp3` et `call-me-it.mp3` sont les morceaux des clips, extraits
+des montages HQ (dépôt videotest). Ils sont joués en boucle au théâtre
+gallo-romain, un par jour (voir `client/src/world/album.js` et
+`client/src/world/concert.js`). Pour ajouter un titre de l'album : déposer
+le MP3 ici et ajouter son entrée (durée, paroles par section) dans
+`album.js` — la rotation quotidienne le prend en compte automatiquement.
+
 ## Ajouter d'autres morceaux
 
 Dans `client/src/music.js`, ajoute une entrée à `REAL_TRACKS` avec un nouvel

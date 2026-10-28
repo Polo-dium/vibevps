@@ -399,3 +399,28 @@ export function paint(geo, palette) {
   out.boundingBox = geo.boundingBox;
   return out;
 }
+
+// Champ de distance d'une liste de volumes (sans maillage) : sert à poser
+// des détails pile SUR une surface (bretelles, cordons, sangles).
+export function field(primsIn) {
+  const prims = primsIn.map(prepare);
+  return (x, y, z) => evalAll(prims, x, y, z);
+}
+
+// Ramène un point sur la surface du champ puis l'écarte de `lift` le long
+// de la normale. Renvoie [x, y, z].
+export function onSurface(f, p, lift = 0) {
+  let [x, y, z] = p;
+  const e = 0.002;
+  let nx = 0, ny = 0, nz = 0;
+  for (let it = 0; it < 6; it++) {
+    const d = f(x, y, z);
+    nx = f(x + e, y, z) - f(x - e, y, z);
+    ny = f(x, y + e, z) - f(x, y - e, z);
+    nz = f(x, y, z + e) - f(x, y, z - e);
+    const l = Math.hypot(nx, ny, nz) || 1;
+    nx /= l; ny /= l; nz /= l;
+    x -= nx * d; y -= ny * d; z -= nz * d;
+  }
+  return [x + nx * lift, y + ny * lift, z + nz * lift];
+}

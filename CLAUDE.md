@@ -50,6 +50,15 @@ npm start          # serveur de prod (sert client/dist)
   - `src/world/human.js` (humains sculptés, 5 meshes/humain, géométrie
     partagée, couleurs par sommet) et `src/world/statue.js` (Louis XIV,
     Saint-Exupéry et le Petit Prince).
+  - Théâtre gallo-romain de Fourvière (ville OSM) : `theatre.js` (gradins
+    praticables — `ctx.terrainHeight` réécrit dans l'emprise,
+    `ctx.terrainMeshHeight` garde le maillage du sol sous la pierre),
+    `concert.js` (concert permanent : morceau du jour + position de lecture
+    déduits de `Date.now()`, son spatial chargé à l'approche, écran géant en
+    gros plan via un calque de caméra, faisceaux additifs), `singer.js`
+    (la chanteuse des clips, sculptée), `album.js` (titres, paroles par
+    section). Ajouter un morceau : MP3 dans `client/public/music/` + une
+    entrée dans `album.js`.
   - `src/player/` — contrôles FPS + tactile, arme (modèles détaillés dans
     `weaponModels.js`), joueurs distants, voix.
   - `src/games/` — bornes d'arcade : mini-jeux HTML autonomes en iframe

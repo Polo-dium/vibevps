@@ -346,6 +346,7 @@ async function boot() {
   let radioHintShown = false; // indice « radio de bord », une fois par session
   const ctx = {
     scene,
+    renderer, // rendus annexes (gros plan de l'écran du concert)
     colliders: new ColliderGrid(),
     taggables: [],
     interactables: [],

@@ -18,6 +18,8 @@ import { buildTraffic } from './traffic.js';
 import { buildRooftopBar } from './rooftops.js';
 import { addRoof, makeRoofSlopeMaterial } from './roofs.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { planTheatre, buildTheatre } from './theatre.js';
+import { buildConcert } from './concert.js';
 
 // Construit le vrai Lyon à partir des empreintes OpenStreetMap
 // (client/public/lyon-osm.json, généré par tools/fetch-osm.mjs).
@@ -981,6 +983,14 @@ export function buildRealCity(ctx, data) {
       ctx.terrainHeight = ground;
       composeRiverTerrain(ctx, data.water, [], null);
     }
+    // Grand théâtre gallo-romain : le relief est réécrit dans son emprise
+    // (gradins praticables) AVANT le maillage du sol et les bâtiments
+    const theatre = planTheatre(ground, data.scale ?? 0.5);
+    const natural = ctx.terrainHeight;
+    ctx.terrainHeight = (x, z) => theatre.ground(x, z) ?? natural(x, z);
+    ctx.terrainMeshHeight = (x, z) => theatre.meshGround(x, z, ctx.terrainHeight(x, z));
+    ctx.theatre = theatre;
+    EXTRA_RECTS.push(theatre.rect);
     buildTerrainMesh(ctx, bound, data);
     // rand DÉDIÉ : ne pas consommer le générateur partagé ici, sinon tout
     // le placement aval (arbres, teintes…) se décale d'une version à l'autre
@@ -1050,6 +1060,9 @@ export function buildRealCity(ctx, data) {
     const basY = Math.max(0, ctx.terrainHeight(bX, bZ));
     buildBasilica(ctx, bX, bZ, basY);
     buildParcRosaire(ctx, bX + 42, bZ, -215, -152);
+    // Le théâtre et son concert permanent (un morceau de l'album par jour)
+    buildTheatre(ctx, ctx.theatre);
+    buildConcert(ctx, ctx.theatre);
     // Le Crayon : repéré par nom dans les données OSM, sinon position
     // approximative (calculée avec la même projection que fetch-osm.mjs)
     const [crX, crZ, crH] = data.poi?.crayon ?? [1045, -150, 99];
@@ -1160,7 +1173,9 @@ function buildTerrainMesh(ctx, bound, data) {
   };
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
-    const h = ctx.terrainHeight(x, z);
+    // Hauteur d'affichage : peut passer sous une géométrie qui fait office
+    // de sol (gradins du théâtre), voir ctx.terrainMeshHeight
+    const h = (ctx.terrainMeshHeight ?? ctx.terrainHeight)(x, z);
     pos.setY(i, h);
     const inPark = parks.some((r) => x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ);
     if (h < -0.5) c.copy(bedC);
@@ -2277,6 +2292,8 @@ function buildOsmRoads(ctx, data, full = false) {
     for (let i = 0; i + 3 < road.p.length; i += 2) {
       const x1 = road.p[i], z1 = road.p[i + 1];
       const x2 = road.p[i + 2], z2 = road.p[i + 3];
+      // Allées du site antique : le théâtre a ses propres dallages
+      if (ctx.theatre?.covers(x1, z1) || ctx.theatre?.covers(x2, z2)) continue;
       // Trottoir un peu plus large et 2 cm plus bas, chaussée par-dessus
       ribbon(walk, x1, z1, x2, z2, half + 1.6, -0.02, uvAcc, walkUv);
       const len = ribbon(pos, x1, z1, x2, z2, half, 0, uvAcc, roadUv);
