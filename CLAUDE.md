@@ -59,6 +59,11 @@ npm start          # serveur de prod (sert client/dist)
   - `src/world/bridge.js` : ponts de pierre de la ville OSM (arches
     surbaissées, piles à becs, balustres instanciés au palier Élevé,
     lampadaires versés dans `buildLamps` via `ctx.bridgeLamps`).
+  - `src/world/terraces.js` : terrasses de café devant les devantures
+    « café »/« bouchon » (mobilier instancié par quartier, clients assis
+    recyclés autour du joueur — `buildHuman({ seated: true })` ajoute des
+    genoux). `roofs.js` : lucarnes et souches de cheminée en volume
+    (InstancedMesh par tuile de ville).
   - `src/world/human.js` (humains sculptés, 7 meshes/humain (coudes articulés), géométrie
     partagée, couleurs par sommet) et `src/world/statue.js` (Louis XIV,
     Saint-Exupéry et le Petit Prince).

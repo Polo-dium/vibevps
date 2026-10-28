@@ -58,11 +58,12 @@ export function insetPolygon(pts, d) {
   return out;
 }
 
-// Atlas 2 cases (u ∈ [0;0,5[ zinc + lucarne, [0,5;1[ tuiles canal), en
+// Atlas 3 cases (u ∈ [0;1/3[ zinc + lucarne peinte, [1/3;2/3[ tuiles canal,
+// [2/3;1[ zinc nu — sous les lucarnes 3D du palier Élevé), en
 // niveaux de gris clairs : la couleur de sommet (zinc bleuté, terre cuite)
 // donne la teinte, la texture le relief.
 function makeRoofAtlas() {
-  const W = 512, H = 256;
+  const W = 768, H = 256;
   const c = document.createElement('canvas');
   c.width = W;
   c.height = H;
@@ -81,6 +82,8 @@ function makeRoofAtlas() {
     g.fillStyle = `rgba(90,96,104,${0.04 + (i % 5) * 0.012})`;
     g.fillRect((i * 97) % 256, (i * 53) % 200, 6 + (i % 4) * 4, 40 + (i % 7) * 10);
   }
+  // Case « zinc nu » : copie du zinc AVANT la lucarne peinte
+  g.drawImage(c, 0, 0, 256, 256, 512, 0, 256, 256);
   // Lucarne : jouées de pierre, fronton cintré, vitre sombre à petits bois
   const lx = 92, lw = 72, ly = 70, lh = 120; // canvas : y vers le bas (haut du toit = 0)
   g.fillStyle = 'rgba(40,40,44,0.45)'; // ombre portée sous la lucarne
@@ -140,9 +143,9 @@ export function makeRoofSlopeMaterial(pbr) {
       .replace('#include <common>', '#include <common>\nvarying float vAtlas;')
       .replace('#include <map_fragment>', `
         #ifdef USE_MAP
-          vec2 auv = vec2(fract(vMapUv.x) * 0.5 + vAtlas, fract(vMapUv.y));
+          vec2 auv = vec2(fract(vMapUv.x) / 3.0 + vAtlas, fract(vMapUv.y));
           vec4 sampledDiffuseColor = textureGrad(map, auv,
-            dFdx(vMapUv) * vec2(0.5, 1.0), dFdy(vMapUv) * vec2(0.5, 1.0));
+            dFdx(vMapUv) * vec2(1.0 / 3.0, 1.0), dFdy(vMapUv) * vec2(1.0 / 3.0, 1.0));
           diffuseColor *= sampledDiffuseColor;
         #endif`);
   };
@@ -154,7 +157,7 @@ export function makeRoofSlopeMaterial(pbr) {
 // pts : empreinte (sens horaire, comme les murs), y1 : haut des murs.
 // Retourne { yTop, inset } (yTop = altitude du terrasson, pour colliders
 // et superstructures).
-export function addRoof(tile, pts, y1, { kind, roofColor, stoneColor, cornice }) {
+export function addRoof(tile, pts, y1, { kind, roofColor, stoneColor, cornice, dormers = null }) {
   // Points trop proches retirés (les arêtes minuscules cassent le décalage)
   const p = [];
   for (const q of pts) {
@@ -226,10 +229,27 @@ export function addRoof(tile, pts, y1, { kind, roofColor, stoneColor, cornice })
   const mh = zinc ? 2.4 : d * 0.42; // mansarde raide / tuiles à ~23°
   const yTop = y1 + mh;
   const slopeLen = Math.hypot(d, mh);
-  const atlas = zinc ? 0 : 0.5;
+  // Lucarnes en volume (palier Élevé) : la case de zinc nu remplace la
+  // lucarne peinte, et chaque travée reçoit sa vraie lucarne (InstancedMesh)
+  const real = zinc && dormers;
+  const atlas = zinc ? (real ? 2 / 3 : 0) : 1 / 3;
   for (let i = 0; i < p.length; i++) {
     const j = (i + 1) % p.length;
     const len = Math.hypot(p[j][0] - p[i][0], p[j][1] - p[i][1]);
+    if (real && len > 2.6) {
+      const u = Math.max(1, Math.round(len / 3));
+      for (let k = 0; k < u; k++) {
+        const t = (k + 0.5) / u;
+        if (t * len < 1.3 || (1 - t) * len < 1.3) continue;
+        const Px = p[i][0] + (p[j][0] - p[i][0]) * t, Pz = p[i][1] + (p[j][1] - p[i][1]) * t;
+        const Qx = inset[i][0] + (inset[j][0] - inset[i][0]) * t, Qz = inset[i][1] + (inset[j][1] - inset[i][1]) * t;
+        const dd = Math.hypot(Qx - Px, Qz - Pz);
+        if (dd < 0.5) continue;
+        const ix = (Qx - Px) / dd, iz = (Qz - Pz) / dd; // vers l'intérieur
+        const s0 = 0.22 * dd;
+        dormers.push([Px + ix * s0, y1 + (mh * s0) / dd, Pz + iz * s0, Math.atan2(-ix, -iz)]);
+      }
+    }
     // zinc : un module de lucarne par travée de fenêtre (aligné sur la
     // façade) ; tuiles : ~2 m de tuile par répétition
     const u = zinc ? Math.max(1, Math.round(len / 3)) : len / 2;
@@ -242,4 +262,62 @@ export function addRoof(tile, pts, y1, { kind, roofColor, stoneColor, cornice })
   const topC = roofColor.clone().multiplyScalar(zinc ? 0.82 : 0.9);
   flat(inset, yTop, topC);
   return { yTop, inset, poly: p };
+}
+
+// --- Superstructures en volume (InstancedMesh par tuile de ville) ---------
+function colored(geo, hex) {
+  const g = geo.index ? geo.toNonIndexed() : geo;
+  for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
+  const c = new THREE.Color(hex);
+  const arr = new Float32Array(g.attributes.position.count * 3);
+  for (let i = 0; i < arr.length; i += 3) { arr[i] = c.r; arr[i + 1] = c.g; arr[i + 2] = c.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+  return g;
+}
+
+// Lucarne de mansarde : jouées en pierre, fenêtre à meneau, chapeau de zinc
+// cintré. Origine = bas de la face avant posée sur le pan, +z vers la rue.
+let dormerGeo = null, chimneyGeo = null;
+export function dormerGeometry(mergeGeometries) {
+  if (dormerGeo) return dormerGeo;
+  const STONE = 0xece4d4, GLASS = 0x1c2430, ZINC = 0x8c949e;
+  const body = new THREE.BoxGeometry(1.1, 1.3, 1.4);
+  body.translate(0, 0.65, -0.7);
+  const glass = new THREE.PlaneGeometry(0.64, 0.92);
+  glass.translate(0, 0.66, 0.006);
+  const mullion = new THREE.BoxGeometry(0.05, 0.92, 0.03);
+  mullion.translate(0, 0.66, 0.012);
+  const transom = new THREE.BoxGeometry(0.64, 0.04, 0.03);
+  transom.translate(0, 0.86, 0.012);
+  const sill = new THREE.BoxGeometry(0.86, 0.07, 0.12);
+  sill.translate(0, 0.17, 0.04);
+  const cap = new THREE.CylinderGeometry(0.62, 0.62, 1.55, 10, 1, false, 0, Math.PI);
+  cap.rotateX(Math.PI / 2);
+  cap.rotateZ(Math.PI / 2);
+  cap.translate(0, 1.3, -0.7);
+  dormerGeo = mergeGeometries([
+    colored(body, STONE), colored(glass, GLASS), colored(mullion, STONE),
+    colored(transom, STONE), colored(sill, STONE), colored(cap, ZINC),
+  ]);
+  return dormerGeo;
+}
+
+// Souche de cheminée lyonnaise : fût enduit (teinté par instance à la
+// couleur de l'immeuble), dalle de couronnement, trois mitrons de terre cuite
+export function chimneyGeometry(mergeGeometries) {
+  if (chimneyGeo) return chimneyGeo;
+  const stack = new THREE.BoxGeometry(0.95, 1.3, 0.52);
+  stack.translate(0, 0.65, 0);
+  const band = new THREE.BoxGeometry(1.0, 0.06, 0.57);
+  band.translate(0, 1.05, 0);
+  const slab = new THREE.BoxGeometry(1.06, 0.08, 0.62);
+  slab.translate(0, 1.34, 0);
+  const parts = [colored(stack, 0xffffff), colored(band, 0xe6e2da), colored(slab, 0xb8b6b0)];
+  for (const x of [-0.3, 0, 0.3]) {
+    const pot = new THREE.CylinderGeometry(0.085, 0.11, 0.34, 6, 1, true);
+    pot.translate(x, 1.55, 0);
+    parts.push(colored(pot, 0xc06a45));
+  }
+  chimneyGeo = mergeGeometries(parts);
+  return chimneyGeo;
 }

@@ -141,15 +141,22 @@ const ELBOW = [0, -0.285, 0.006];
 function shiftPrim(p, d) {
   const q = { ...p };
   for (const k of ['c', 'a', 'b']) if (q[k]) q[k] = [q[k][0] - d[0], q[k][1] - d[1], q[k][2] - d[2]];
+  if (q.t === 'plane') q.h -= d[1]; // plan horizontal (semelle) : hauteur absolue
   return q;
 }
 const armGeo = (s) => cached(`bras${s}|${cellSize()}`, () => sculpt(armShape(s).slice(0, 4), { cell: cellSize() }));
+// Jambe articulée au genou (KNEE, repère de la hanche) : variante « assise »
+// des clients de terrasse uniquement (2 meshes de plus)
+const KNEE = [0, -0.42, -0.018];
+const thighGeo = () => cached(`cuisse|${cellSize()}`, () => sculpt(legShape().slice(0, 4), { cell: cellSize() }));
+const shinGeo = () => cached(`tibia|${cellSize()}`,
+  () => sculpt(legShape().slice(3).map((p) => shiftPrim(p, KNEE)), { cell: cellSize() }));
 const foreGeo = (s) => cached(`avantbras${s}|${cellSize()}`,
   () => sculpt(armShape(s).slice(3).map((p) => shiftPrim(p, ELBOW)), { cell: cellSize() }));
 const bodyGeo = (look) => cached(`corps|${look}|${cellSize()}`,
   () => withDetails(sculpt(bodyShape(look), { cell: cellSize() }), faceDetails()));
 
-export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e, hair = 0x3a2c1e, style } = {}) {
+export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e, hair = 0x3a2c1e, style, seated = false } = {}) {
   const group = new THREE.Group();
   // Matériau unique de CET humain : la couleur multiplie les couleurs de
   // sommets, donc la mettre en rouge teinte tout le personnage (flash).
@@ -185,8 +192,21 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
     return pivot;
   };
   // Jambes (pivot à la hanche), bras (pivot à l'épaule)
-  const legL = limb(legGeo(), -0.105, 0.86);
-  const legR = limb(legGeo(), 0.105, 0.86);
+  const legL = limb(seated ? thighGeo() : legGeo(), -0.105, 0.86);
+  const legR = limb(seated ? thighGeo() : legGeo(), 0.105, 0.86);
+  // Assis : tibias articulés au genou (rotation.x < 0 = replie la jambe)
+  let kneeL = null, kneeR = null;
+  if (seated) {
+    const shin = (leg) => {
+      const pivot = new THREE.Group();
+      pivot.position.set(...KNEE);
+      pivot.add(new THREE.Mesh(paint(shinGeo(), palette), bodyMat));
+      leg.add(pivot);
+      return pivot;
+    };
+    kneeL = shin(legL);
+    kneeR = shin(legR);
+  }
   const armL = limb(armGeo(-1), -0.255, 1.41);
   const armR = limb(armGeo(1), 0.255, 1.41);
   // Avant-bras : pivot au coude, enfant du bras (rotation.x > 0 = plie
@@ -251,5 +271,6 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
     armR,
     armL, // pivot de l'épaule gauche (fans du concert : bras en l'air)
     foreL, foreR, // pivots des coudes
+    legL, legR, kneeL, kneeR, // hanches ; genoux (variante assise seulement)
   };
 }

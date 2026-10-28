@@ -17,12 +17,13 @@ import {
 } from './city.js';
 import { buildTraffic } from './traffic.js';
 import { buildRooftopBar } from './rooftops.js';
-import { addRoof, makeRoofSlopeMaterial } from './roofs.js';
+import { addRoof, makeRoofSlopeMaterial, dormerGeometry, chimneyGeometry } from './roofs.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { planTheatre, buildTheatre } from './theatre.js';
 import { buildConcert } from './concert.js';
 import { riverWaterMaterial } from '../render/water.js';
 import { createPassersby } from './passersby.js';
+import { createTerraces } from './terraces.js';
 
 // Construit le vrai Lyon à partir des empreintes OpenStreetMap
 // (client/public/lyon-osm.json, généré par tools/fetch-osm.mjs).
@@ -1029,6 +1030,8 @@ export function buildRealCity(ctx, data) {
     const t0 = performance.now();
     createPassersby(ctx, data);
     console.info(`🚶 Passants : trottoirs préparés en ${Math.round(performance.now() - t0)} ms`);
+    // Terrasses de café devant les devantures « café » et « bouchon »
+    ctx.terraces = createTerraces(ctx, ctx.terraceSpots ?? [], data.roads);
     // Bars à terrasse sur les quais du fleuve le plus large (le Rhône) :
     // musique, parasols et PNJ installés — chacun son ambiance
     if (widest?.cx) {
@@ -1871,7 +1874,7 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     const key = Math.floor(x / TILE) + ',' + Math.floor(z / TILE);
     let t = tiles.get(key);
     if (!t) {
-      t = { wp: [], wuv: [], wc: [], rp: [], rc: [], sp: [], suv: [], sc: [], sa: [] };
+      t = { wp: [], wuv: [], wc: [], rp: [], rc: [], sp: [], suv: [], sc: [], sa: [], dm: [], ch: [] };
       tiles.set(key, t);
     }
     return t;
@@ -2030,7 +2033,17 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
             ax, ys0, az, bx, ys0, bz, bx, ys1, bz,
             ax, ys0, az, bx, ys1, bz, ax, ys1, az
           );
-          const [u0, u1, v0, v1] = shopCellUv(hash2(bi * 131 + i * 17 + k * 7) % SHOPS.length);
+          const shop = hash2(bi * 131 + i * 17 + k * 7) % SHOPS.length;
+          const [u0, u1, v0, v1] = shopCellUv(shop);
+          // Café ou bouchon : candidat à une terrasse (voir terraces.js)
+          if (SHOPS[shop].terrasse) {
+            const mx = (ax + bx) / 2, mz = (az + bz) / 2;
+            let nx = -(bz - az), nz = bx - ax;
+            const nl = Math.hypot(nx, nz) || 1;
+            nx /= nl; nz /= nl;
+            if (nx * (mx - cx) + nz * (mz - cz) < 0) { nx = -nx; nz = -nz; }
+            (ctx.terraceSpots ??= []).push({ x: mx, z: mz, nx, nz });
+          }
           shopUv.push(u0, v0, u1, v0, u1, v1, u0, v0, u1, v1, u0, v1);
         }
       }
@@ -2051,6 +2064,7 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       : addRoof(tile, pts.map(([x, z]) => [x, z]), y1, {
         kind: roofKind, roofColor, stoneColor: acroCol,
         cornice: withCornice && h > 7 && footA > 40,
+        dormers: withCornice ? tile.dm : null, // lucarnes en volume (Élevé)
       });
 
     // Acrotère (rebord de toit en pierre) sur les toits-terrasses : rendu
@@ -2119,6 +2133,28 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       ctx.colliders.push({ minX: ix0, maxX: ix1, minZ: iz0, maxZ: iz1, minY: roof.yTop - 0.7, maxY: roof.yTop });
     }
 
+    // Souches de cheminée sur les toits en pente, aux angles du terrasson
+    // (murs mitoyens) — choisies par hash, aucun rand() consommé
+    if (roof.inset && h > 7) {
+      const ins = roof.inset;
+      let icx = 0, icz = 0;
+      for (const [x, z] of ins) { icx += x; icz += z; }
+      icx /= ins.length; icz /= ins.length;
+      const n = ctx.detail === 'eleve' ? 3 : ctx.detail === 'moyen' ? 2 : 1;
+      const used = new Set();
+      for (let k = 0; k < n; k++) {
+        const vi = hash2(bi * 53 + k * 19) % ins.length;
+        if (used.has(vi) || (k > 0 && hash2(bi * 7 + k) % 3 === 0)) continue;
+        used.add(vi);
+        const [vx, vz] = ins[vi];
+        const dx = icx - vx, dz = icz - vz, dl = Math.hypot(dx, dz);
+        if (dl < 1.6) continue;
+        const [wx, wz] = ins[(vi + 1) % ins.length];
+        tile.ch.push([vx + (dx / dl) * 0.8, roof.yTop - 0.1, vz + (dz / dl) * 0.8,
+          Math.atan2(-(wz - vz), wx - vx), 1 + (hash2(bi + k * 31) % 3) * 0.15, wallColor.getHex()]);
+      }
+    }
+
     // Superstructures : cheminées / édicules d'ascenseur sur les grands toits
     const foot = (maxX - minX) * (maxZ - minZ);
     if (foot > 55 && rand() < 0.75) {
@@ -2166,14 +2202,16 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     const edicules = new THREE.InstancedMesh(
       chimGeo, new THREE.MeshLambertMaterial({ color: 0x8a8f98 }), props.length
     );
+    // (souches de cheminée : même modèle que sur les toits en pente)
     const chimneys = new THREE.InstancedMesh(
-      chimGeo, new THREE.MeshLambertMaterial({ color: 0xa8543c }), props.length
+      chimneyGeometry(mergeGeometries), new THREE.MeshLambertMaterial({ vertexColors: true, color: 0xe9dcc8 }), props.length
     );
     const m = new THREE.Matrix4();
     let ne = 0, nc = 0;
     for (const p of props) {
       if (p.red) {
-        m.makeScale(0.6 * p.s, 1.5 * p.s, 0.6 * p.s);
+        const cs = Math.min(1.5, 0.7 + p.s * 0.3);
+        m.makeScale(cs, cs, cs);
         m.setPosition(p.x, p.y, p.z);
         chimneys.setMatrixAt(nc++, m);
       } else {
@@ -2194,6 +2232,9 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
   // les quartiers à portée de vue (voir plus bas). Sans ça, le Grand Lyon
   // entier part au GPU à chaque frame, où qu'on soit.
   const tileCulling = [];
+  const propMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _s = new THREE.Vector3();
+  const _Y = new THREE.Vector3(0, 1, 0), _c = new THREE.Color(), _white = new THREE.Color(0xffffff);
   for (const [key, t] of tiles) {
     const [kx, kz] = key.split(',').map(Number);
     const cx = (kx + 0.5) * TILE, cz = (kz + 0.5) * TILE;
@@ -2233,6 +2274,27 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       ctx.scene.add(mesh);
       meshes.push(mesh);
     }
+    // Lucarnes et cheminées en volume : une InstancedMesh par tuile (masquée
+    // avec elle au loin)
+    const inst = (list, geo, mat, tint, name) => {
+      if (!list.length) return;
+      const im = new THREE.InstancedMesh(geo, mat, list.length);
+      list.forEach(([x, y, z, yaw, sc = 1, col], i) => {
+        _q.setFromAxisAngle(_Y, yaw);
+        _m.compose(_v.set(x, y, z), _q, _s.set(sc, sc, sc));
+        im.setMatrixAt(i, _m);
+        if (tint) im.setColorAt(i, _c.setHex(col).lerp(_white, 0.35));
+      });
+      im.instanceMatrix.needsUpdate = true;
+      im.computeBoundingSphere();
+      im.castShadow = true;
+      im.userData.cityTile = true;
+      im.name = name;
+      ctx.scene.add(im);
+      meshes.push(im);
+    };
+    inst(t.dm, dormerGeometry(mergeGeometries), propMat, false, 'lucarnes');
+    inst(t.ch, chimneyGeometry(mergeGeometries), propMat, true, 'cheminées');
     if (meshes.length) tileCulling.push({ cx, cz, meshes, shown: true });
   }
 
@@ -2785,9 +2847,9 @@ const SHOPS = [
   { nom: 'PHARMACIE', band: '#e9efe9', ink: '#1f8a4c', awn: ['#2e9e5b', '#eef3ee'], goods: ['#e8eef2', '#9fc7d8', '#d64b4b', '#ffffff'], cross: true },
   { nom: 'TABAC PRESSE', band: '#262b36', ink: '#f2f2f2', awn: ['#c43c35', '#262b36'], goods: ['#3a6db0', '#e0b04a', '#c43c35', '#eaeaea'], carotte: true },
   { nom: 'LIBRAIRIE', band: '#2c3b2c', ink: '#e8dcb8', awn: ['#4b6b3e', '#e8dcb8'], goods: ['#7a3b2e', '#2e4a6b', '#c9a548', '#4b6b3e', '#e8e0d0'] },
-  { nom: 'BOUCHON LYONNAIS', band: '#5c1d1d', ink: '#f0d9a0', awn: ['#b22b2b', '#f2ead8'], goods: ['#f2ead8', '#b22b2b', '#3a2a20'], vichy: true },
+  { nom: 'BOUCHON LYONNAIS', terrasse: true, band: '#5c1d1d', ink: '#f0d9a0', awn: ['#b22b2b', '#f2ead8'], goods: ['#f2ead8', '#b22b2b', '#3a2a20'], vichy: true },
   { nom: 'FLEURISTE', band: '#3f5a3a', ink: '#f7e9f0', awn: ['#d86a9a', '#f7eef2'], goods: ['#e04b7a', '#f2c94c', '#ffffff', '#9b59b6', '#5aa05a'] },
-  { nom: 'CAFÉ DES GONES', band: '#1f3242', ink: '#f2cf72', awn: ['#1f5a7a', '#efe5d1'], goods: ['#6b4a2f', '#e8e0d0', '#c0533f', '#d9a35a'] },
+  { nom: 'CAFÉ DES GONES', terrasse: true, band: '#1f3242', ink: '#f2cf72', awn: ['#1f5a7a', '#efe5d1'], goods: ['#6b4a2f', '#e8e0d0', '#c0533f', '#d9a35a'] },
   { nom: 'MODE', band: '#141414', ink: '#ffffff', awn: ['#141414', '#e9e4dc'], goods: ['#c0c0c8', '#8a2f45', '#2f4a8a', '#e9e4dc'] },
 ];
 function drawShop(g, e, ox, oy, S) {
