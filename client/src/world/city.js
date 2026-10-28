@@ -4,6 +4,7 @@ import { addBox, addInvisibleWall, makeTextTexture } from './utils.js';
 import { buildTraffic } from './traffic.js';
 import { buildHuman } from './human.js';
 import { buildRoyalStatue, buildSaintExupery } from './statue.js';
+import { buildStoneBridge } from './bridge.js';
 import { audio } from '../audio.js';
 import { createMusicSource, gainForDistance } from '../music.js';
 import {
@@ -237,6 +238,7 @@ export function buildRiverWorks(ctx, band, {
   // Ponts surélevés (au centre courbe du fleuve) : tablier + rampes + piles
   const DECK_Y = 1.25;
   const pileMat = new THREE.MeshLambertMaterial({ color: 0x7a7264 });
+  const bridgeStepMat = new THREE.MeshLambertMaterial({ color: 0xb3a68c });
   for (const bz of bridgesZ) {
     const bcx = cxAt(bz);
 
@@ -263,9 +265,11 @@ export function buildRiverWorks(ctx, band, {
         mesh.userData.noShadow = false;
         ctx.scene.add(mesh);
       };
-      const deck = new THREE.Mesh(new THREE.BoxGeometry(len, 0.4, 9.5),
-        new THREE.MeshLambertMaterial({ color: 0x8b8f99 }));
-      place(deck, 0, DECK_Y);
+      // Vrai pont de pierre (arches, piles à becs, balustrade, lampadaires)
+      ctx.bridgeLamps = ctx.bridgeLamps ?? [];
+      ctx.bridgeLamps.push(...buildStoneBridge(ctx, {
+        cx0, cz0, yaw, len, over: OVER, deckY: DECK_Y, bedY: BED_Y, waterY: WATER_Y,
+      }));
       // Collision : AABB englobante du tablier tourné (marchable dessus)
       const ex = Math.abs(px) * len / 2 + Math.abs(pz) * 4.75;
       const ez = Math.abs(pz) * len / 2 + Math.abs(px) * 4.75;
@@ -273,20 +277,11 @@ export function buildRiverWorks(ctx, band, {
         minX: cx0 - ex, maxX: cx0 + ex, minY: BED_Y, maxY: DECK_Y + 0.2,
         minZ: cz0 - ez, maxZ: cz0 + ez,
       });
-      // Garde-corps le long du tablier
-      for (const side of [-4.4, 4.4]) {
-        const rail = new THREE.Mesh(new THREE.BoxGeometry(len, 0.95, 0.4),
-          new THREE.MeshLambertMaterial({ color: 0x6f7884 }));
-        rail.position.set(cx0 + px * 0 - pz * side, DECK_Y + 0.6, cz0 + pz * 0 + px * side);
-        rail.rotation.y = yaw;
-        ctx.scene.add(rail);
-      }
       // Rampes d'accès en escalier aux deux extrémités (sur la berge)
       for (const dir of [-1, 1]) {
         const s0 = dir * (len / 2 - OVER / 2);
         for (let i = 1; i <= 6; i++) {
-          const step = new THREE.Mesh(new THREE.BoxGeometry(0.9, i * 0.275, 9.5),
-            new THREE.MeshLambertMaterial({ color: 0x7d828c }));
+          const step = new THREE.Mesh(new THREE.BoxGeometry(0.9, i * 0.275, 9.5), bridgeStepMat);
           place(step, s0 + dir * (4.2 + (6 - i) * 0.85), (i * 0.275) / 2);
           const sx = cx0 + px * (s0 + dir * (4.2 + (6 - i) * 0.85));
           const sz2 = cz0 + pz * (s0 + dir * (4.2 + (6 - i) * 0.85));
@@ -295,11 +290,6 @@ export function buildRiverWorks(ctx, band, {
             minZ: sz2 - 4.9, maxZ: sz2 + 4.9,
           });
         }
-      }
-      // Piles dans l'eau
-      for (const s of [-len / 4, len / 4]) {
-        const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.1, DECK_Y - BED_Y, 8), pileMat);
-        place(pile, s, (DECK_Y + BED_Y) / 2);
       }
       continue;
     }

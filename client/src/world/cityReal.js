@@ -1623,6 +1623,8 @@ function lampSpotsOsm(ctx, data, full = false, zConf = null) {
       if (done) break;
     }
   }
+  // Lampadaires des ponts de pierre (posés sur le trottoir du tablier)
+  if (ctx.bridgeLamps) spots.push(...ctx.bridgeLamps);
   return spots;
 }
 

@@ -52,6 +52,9 @@ npm start          # serveur de prod (sert client/dist)
     de volumes → maillage « surface nets » au chargement, mis en cache et
     partagé) — à utiliser pour tout personnage/statue/créature au lieu
     d'empiler des primitives.
+  - `src/world/bridge.js` : ponts de pierre de la ville OSM (arches
+    surbaissées, piles à becs, balustres instanciés au palier Élevé,
+    lampadaires versés dans `buildLamps` via `ctx.bridgeLamps`).
   - `src/world/human.js` (humains sculptés, 5 meshes/humain, géométrie
     partagée, couleurs par sommet) et `src/world/statue.js` (Louis XIV,
     Saint-Exupéry et le Petit Prince).
