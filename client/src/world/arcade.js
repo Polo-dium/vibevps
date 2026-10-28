@@ -89,18 +89,61 @@ export function buildArcade(realCtx, { onPlayGame, onOpenCreator }) {
     else if (!interiorVisible && dist < 40) { interiorVisible = true; interior.visible = true; }
   });
 
-  const wallColor = 0x8a6f5a;
-  // Murs (extérieur ET intérieur taguables)
-  addBox(ctx, { x: cx, z: north + t / 2, w, h, d: t, color: wallColor, taggable: true });
-  addBox(ctx, { x: west + t / 2, z: cz, w: t, h, d, color: wallColor, taggable: true });
-  addBox(ctx, { x: east - t / 2, z: cz, w: t, h, d, color: wallColor, taggable: true });
+  // PAVILLON LYONNAIS : pierre de taille, soubassement, grandes baies
+  // cintrées (vitrées, elles s'allument néon la nuit), corniche ; toit en
+  // croupe de zinc cerné d'un liseré néon. Les murs restent des boîtes
+  // taguables à collision (mêmes dimensions qu'avant).
+  const facade = makePavilionFacade();
+  const lit = [];
+  const wallMat = (len) => {
+    const m = new THREE.MeshLambertMaterial({
+      map: facade.map.clone(), emissiveMap: facade.emissive.clone(),
+      emissive: new THREE.Color(1, 1, 1), emissiveIntensity: 0,
+    });
+    for (const tx of [m.map, m.emissiveMap]) {
+      tx.wrapS = THREE.RepeatWrapping;
+      tx.repeat.set(Math.max(1, Math.round(len / 4.2)), 1);
+      tx.needsUpdate = true;
+    }
+    lit.push(m);
+    return m;
+  };
+  const plainStone = new THREE.MeshLambertMaterial({ color: 0xc9b896 });
+  addBox(ctx, { x: cx, z: north + t / 2, w, h, d: t, material: wallMat(w), taggable: true });
+  addBox(ctx, { x: west + t / 2, z: cz, w: t, h, d, material: wallMat(d), taggable: true });
+  addBox(ctx, { x: east - t / 2, z: cz, w: t, h, d, material: wallMat(d), taggable: true });
   // Façade sud avec porte
   const sideW = (w - doorWidth) / 2;
-  addBox(ctx, { x: west + sideW / 2, z: south - t / 2, w: sideW, h, d: t, color: wallColor, taggable: true });
-  addBox(ctx, { x: east - sideW / 2, z: south - t / 2, w: sideW, h, d: t, color: wallColor, taggable: true });
-  addBox(ctx, { x: cx, y: doorHeight, z: south - t / 2, w: doorWidth, h: h - doorHeight, d: t, color: wallColor, taggable: true });
-  // Toit
-  addBox(ctx, { x: cx, y: h, z: cz, w: w + 1, h: 0.5, d: d + 1, color: 0x3a2f28 });
+  addBox(ctx, { x: west + sideW / 2, z: south - t / 2, w: sideW, h, d: t, material: wallMat(sideW), taggable: true });
+  addBox(ctx, { x: east - sideW / 2, z: south - t / 2, w: sideW, h, d: t, material: wallMat(sideW), taggable: true });
+  addBox(ctx, { x: cx, y: doorHeight, z: south - t / 2, w: doorWidth, h: h - doorHeight, d: t, material: plainStone, taggable: true });
+  // Toit plat (collision, corniche) + croupe de zinc par-dessus
+  addBox(ctx, { x: cx, y: h, z: cz, w: w + 1, h: 0.5, d: d + 1, color: 0xd8ccb0 });
+  const roof = new THREE.Mesh(
+    new THREE.ConeGeometry(Math.SQRT1_2, 1, 4, 1).rotateY(Math.PI / 4),
+    new THREE.MeshStandardMaterial({ color: 0x6f7a86, roughness: 0.45, metalness: 0.6 })
+  );
+  roof.scale.set(w + 0.6, 3.2, d + 0.6);
+  roof.position.set(cx, h + 0.5 + 1.6, cz);
+  roof.castShadow = true;
+  ctx.scene.add(roof);
+  // Liseré néon au bord du toit (rose côté porte, cyan ailleurs)
+  const neonPink = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 0.4, 1.9) });
+  const neonCyan = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.3, 1.9, 1.8) });
+  for (const [x0, z0, len, rot, mat] of [
+    [cx, south + 0.52, w + 1.05, 0, neonPink], [cx, north - 0.52, w + 1.05, 0, neonCyan],
+    [west - 0.52, cz, d + 1.05, Math.PI / 2, neonCyan], [east + 0.52, cz, d + 1.05, Math.PI / 2, neonCyan],
+  ]) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(len, 0.09, 0.09), mat);
+    bar.position.set(x0, h + 0.5, z0);
+    bar.rotation.y = rot;
+    ctx.scene.add(bar);
+  }
+  // Baies : éteintes le jour, néon la nuit
+  ctx.updatables.push(() => {
+    const n = realCtx.env?.night ?? 0;
+    for (const m of lit) m.emissiveIntensity = 0.15 + 1.1 * n;
+  });
 
   // Sol intérieur
   const floor = new THREE.Mesh(
@@ -280,4 +323,63 @@ function buildMachine(ctx, { x, z, ry, title, accent, label, action, creator = f
     minZ: z - 0.65, maxZ: z + 0.65,
   });
   ctx.interactables.push({ x, z, r: 2.3, label, action });
+}
+
+// Façade de pavillon (un module de ~4,2 m × 9 m) : pierre de taille,
+// soubassement, baie cintrée vitrée, clé de voûte, corniche. Carte émissive
+// assortie : seule la baie s'allume (dégradé rose → cyan, comme des néons
+// d'arcade vus à travers la vitre).
+function makePavilionFacade() {
+  const W = 128, H = 256;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const e = document.createElement('canvas');
+  e.width = W; e.height = H;
+  const ge = e.getContext('2d');
+  ge.fillStyle = '#000'; ge.fillRect(0, 0, W, H);
+  const yOf = (m) => H - (m / 9) * H; // mètres → pixels (0 en bas)
+  g.fillStyle = '#cbbb98'; g.fillRect(0, 0, W, H);
+  // Assises de pierre
+  g.strokeStyle = 'rgba(90,75,55,0.35)'; g.lineWidth = 1;
+  for (let m = 0.8; m < 8.3; m += 0.55) { g.beginPath(); g.moveTo(0, yOf(m)); g.lineTo(W, yOf(m)); g.stroke(); }
+  // Soubassement plus sombre
+  g.fillStyle = '#9d8f74'; g.fillRect(0, yOf(0.8), W, H - yOf(0.8));
+  // Pilastres de chaque côté
+  g.fillStyle = 'rgba(255,248,230,0.25)';
+  g.fillRect(0, yOf(8.3), 10, yOf(0.8) - yOf(8.3));
+  g.fillRect(W - 10, yOf(8.3), 10, yOf(0.8) - yOf(8.3));
+  // Baie cintrée : encadrement, vitrage, petits bois
+  const bx0 = 22, bx1 = W - 22, by0 = yOf(1.2), byT = yOf(5.6), r = (bx1 - bx0) / 2;
+  const arch = (ctx2) => {
+    ctx2.beginPath();
+    ctx2.moveTo(bx0, by0); ctx2.lineTo(bx0, byT);
+    ctx2.arc((bx0 + bx1) / 2, byT, r, Math.PI, 0);
+    ctx2.lineTo(bx1, by0); ctx2.closePath();
+  };
+  g.fillStyle = '#e8dcc0'; g.save(); g.translate(0, 0); arch(g); g.lineWidth = 10; g.strokeStyle = '#e8dcc0'; g.stroke(); g.restore();
+  const glass = g.createLinearGradient(0, byT - r, 0, by0);
+  glass.addColorStop(0, '#2c3550'); glass.addColorStop(1, '#151a29');
+  g.fillStyle = glass; arch(g); g.fill();
+  g.strokeStyle = 'rgba(30,26,22,0.9)'; g.lineWidth = 3;
+  g.beginPath(); g.moveTo((bx0 + bx1) / 2, byT - r); g.lineTo((bx0 + bx1) / 2, by0);
+  for (let m = 2.4; m < 5.6; m += 1.1) { g.moveTo(bx0, yOf(m)); g.lineTo(bx1, yOf(m)); }
+  g.stroke();
+  // Clé de voûte + corniche
+  g.fillStyle = '#efe4c8'; g.fillRect((bx0 + bx1) / 2 - 6, byT - r - 10, 12, 14);
+  g.fillStyle = '#e2d6b8'; g.fillRect(0, 0, W, yOf(8.3));
+  g.fillStyle = 'rgba(80,65,45,0.4)'; g.fillRect(0, yOf(8.3), W, 3);
+  // Émissif : la baie seule, néon rose en haut → cyan en bas
+  const neon = ge.createLinearGradient(0, byT - r, 0, by0);
+  neon.addColorStop(0, '#d0359c'); neon.addColorStop(1, '#1fa3b8');
+  ge.fillStyle = neon; arch(ge); ge.fill();
+  ge.strokeStyle = '#000'; ge.lineWidth = 3;
+  ge.beginPath(); ge.moveTo((bx0 + bx1) / 2, byT - r); ge.lineTo((bx0 + bx1) / 2, by0);
+  for (let m = 2.4; m < 5.6; m += 1.1) { ge.moveTo(bx0, yOf(m)); ge.lineTo(bx1, yOf(m)); }
+  ge.stroke();
+  const map = new THREE.CanvasTexture(c);
+  map.colorSpace = THREE.SRGBColorSpace;
+  const emissive = new THREE.CanvasTexture(e);
+  emissive.colorSpace = THREE.SRGBColorSpace;
+  return { map, emissive };
 }
