@@ -34,6 +34,7 @@ const QUERY = `
   way["building"](${BBOX});
   relation["building"](${BBOX});
   way["highway"~"^(primary|secondary|tertiary|residential|pedestrian|living_street|unclassified|service)$"](${BBOX});
+  way["highway"~"^(footway|path|cycleway|steps)$"]["bridge"](${BBOX});
   way["waterway"="river"](${BBOX});
   way["natural"="water"](${BBOX});
   way["waterway"="riverbank"](${BBOX});
@@ -362,6 +363,14 @@ console.log(`  ${waterPolys.length} surface(s) d’eau extraite(s).`);
 
 const buildings = [];
 const roads = [];
+// PONTS : chaque way OSM taguée bridge=* (pont routier ou passerelle). Le
+// client ne garde que ceux qui franchissent l'eau, et bâtit à leur vraie
+// place les ponts de pierre et les passerelles (world/realBridges.js).
+// kind : 'road' | 'foot' ; s : bridge:structure (suspension, cable-stayed,
+// arch, beam…) ; n : nom (bridge:name prioritaire, ex. « Pont Bonaparte »).
+const bridges = [];
+const FOOT_RE = /^(footway|path|cycleway|steps|pedestrian)$/;
+const FOOT_ONLY_RE = /^(footway|path|cycleway|steps)$/; // pas des rues du jeu
 let bound = 200;
 
 // Recolle bout à bout des ways membres d'une relation en anneaux fermés
@@ -457,7 +466,19 @@ for (const el of data.elements) {
       console.log(`  Tour repérée pour « Le Crayon » : ${el.tags.name} (h=${h})`);
     }
   } else if (el.tags?.highway) {
-    roads.push({ w: roadWidth(el.tags), p: pts.flat() });
+    const isBridge = el.tags.bridge && el.tags.bridge !== 'no';
+    const foot = FOOT_RE.test(el.tags.highway);
+    if (isBridge) {
+      const b = { kind: foot ? 'foot' : 'road', w: roadWidth(el.tags), p: pts.flat() };
+      const n = el.tags['bridge:name'] || el.tags.name;
+      if (n) b.n = n;
+      if (el.tags['bridge:structure']) b.s = el.tags['bridge:structure'];
+      bridges.push(b);
+    }
+    // Les sentiers/passerelles ne sont pas des rues (seules les voies
+    // piétonnes en sont déjà) ; un pont routier reste une rue
+    // (marquée b: 1, champ facultatif — les anciens clients l'ignorent)
+    if (!FOOT_ONLY_RE.test(el.tags.highway)) roads.push(isBridge ? { w: roadWidth(el.tags), p: pts.flat(), b: 1 } : { w: roadWidth(el.tags), p: pts.flat() });
   }
 }
 
@@ -511,11 +532,12 @@ const out = {
   poi: { basilica: BASILICA, crayon: crayonPoi },
   buildings,
   roads,
+  bridges,
 };
 
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
 fs.writeFileSync(OUT, JSON.stringify(out));
 const sizeMb = (fs.statSync(OUT).size / 1e6).toFixed(1);
-console.log(`OK : ${buildings.length} bâtiments, ${roads.length} rues → ${OUT} (${sizeMb} Mo)`);
+console.log(`OK : ${buildings.length} bâtiments, ${roads.length} rues, ${bridges.length} ponts → ${OUT} (${sizeMb} Mo)`);
 console.log('Relance un build pour l’intégrer : npm run build && systemctl restart vibevps');
 console.log('(ou attends simplement le prochain déploiement automatique)');

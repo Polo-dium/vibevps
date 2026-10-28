@@ -94,8 +94,9 @@ function prep(geo) {
   return g;
 }
 
+// (les pièces longues sont découpées tous les ~2 m pour suivre le dos d'âne)
 function box(w, h, d, x, y, z, ry = 0) {
-  const g = new THREE.BoxGeometry(w, h, d);
+  const g = new THREE.BoxGeometry(w, h, d, w > 4 ? Math.ceil(w / 2) : 1);
   if (ry) g.rotateY(ry);
   g.translate(x, y, z);
   return g;
@@ -116,12 +117,14 @@ function arcPoints(x0, span, ySpring, rise, segs, extra = 0) {
 
 /**
  * Pont de pierre posé au centre (cx0, cz0), tablier orienté `yaw`, de
- * longueur `len` dont `over` m mordent sur chaque berge.
+ * longueur `len` dont `over` m mordent sur chaque berge, demi-largeur
+ * `halfW`. `hump` : flèche du dos d'âne au milieu (0 = tablier plat) —
+ * la chaussée suit humpAt(s) = hump · (1 − (2s/len)²), s le long du pont.
  * Retourne les emplacements de lampadaires [x, z, y].
  */
-export function buildStoneBridge(ctx, { cx0, cz0, yaw, len, over, deckY, bedY, waterY }) {
+export function buildStoneBridge(ctx, { cx0, cz0, yaw, len, over, deckY, bedY, waterY, halfW = 4.75, hump = 0 }) {
   materials();
-  const HALF_W = 4.75;
+  const HALF_W = halfW;
   const top = deckY + 0.2;
   const L2 = len / 2;
   const wSpan = len - over * 2; // emprise de l'eau
@@ -131,6 +134,7 @@ export function buildStoneBridge(ctx, { cx0, cz0, yaw, len, over, deckY, bedY, w
   const span = (wSpan + inset * 2 - (n - 1) * PIER) / n;
   const ySpring = waterY + 0.25;
   const rise = Math.min(span * 0.28, deckY - 0.75 - ySpring);
+  const humpAt = (x) => hump * Math.max(0, 1 - (x / L2) ** 2);
 
   // --- Corps du pont : profil percé d'arches, extrudé sur la largeur ------
   const shape = new THREE.Shape();
@@ -138,6 +142,8 @@ export function buildStoneBridge(ctx, { cx0, cz0, yaw, len, over, deckY, bedY, w
   shape.moveTo(-L2, yBot);
   shape.lineTo(L2, yBot);
   shape.lineTo(L2, top);
+  // dessus du profil découpé tous les 2 m : il épousera le dos d'âne
+  for (let x = L2 - 2; x > -L2 + 0.5; x -= 2) shape.lineTo(x, top);
   shape.lineTo(-L2, top);
   shape.closePath();
   const arches = [];
@@ -202,7 +208,21 @@ export function buildStoneBridge(ctx, { cx0, cz0, yaw, len, over, deckY, bedY, w
       parts.push(prep(box(0.5, 1.06, 0.6, x, top + 0.53, zr)));
     }
   }
-  const geo = metricUv(mergeGeometries(parts));
+  const merged = mergeGeometries(parts);
+  if (hump > 0) {
+    // Dos d'âne : tout ce qui est au-dessus des naissances des arches monte
+    // avec le tablier (progressivement entre naissance et chaussée) ; piles
+    // et fondations restent en place
+    const p = merged.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i);
+      if (y <= ySpring) continue;
+      const t = Math.min(1, (y - ySpring) / Math.max(0.1, top - ySpring));
+      p.setY(i, y + humpAt(p.getX(i)) * t);
+    }
+    merged.computeVertexNormals();
+  }
+  const geo = metricUv(merged);
   const mesh = new THREE.Mesh(geo, stoneMat);
   mesh.position.set(cx0, 0, cz0);
   mesh.rotation.y = yaw;
@@ -210,11 +230,16 @@ export function buildStoneBridge(ctx, { cx0, cz0, yaw, len, over, deckY, bedY, w
   ctx.scene.add(mesh);
 
   // Chaussée (bande d'asphalte entre deux trottoirs de pierre)
-  const road = new THREE.Mesh(new THREE.PlaneGeometry(len, 6.2), roadMat);
-  road.rotation.x = -Math.PI / 2;
+  const roadGeo = new THREE.PlaneGeometry(len, Math.max(3, HALF_W * 2 - 3.3), Math.ceil(len / 2), 1);
+  roadGeo.rotateX(-Math.PI / 2);
+  {
+    const p = roadGeo.attributes.position;
+    for (let i = 0; i < p.count; i++) p.setY(i, top + 0.005 + humpAt(p.getX(i)));
+    roadGeo.computeVertexNormals();
+  }
+  const road = new THREE.Mesh(roadGeo, roadMat);
   const roadG = new THREE.Group();
   roadG.add(road);
-  road.position.y = top + 0.005;
   roadG.position.set(cx0, 0, cz0);
   roadG.rotation.y = yaw;
   road.receiveShadow = true;
@@ -230,7 +255,7 @@ export function buildStoneBridge(ctx, { cx0, cz0, yaw, len, over, deckY, bedY, w
     let i = 0;
     for (const zs of [-1, 1]) {
       for (let x = -L2 + 0.6; x < L2 - 0.5 && i < count; x += STEP) {
-        v.set(x, top + 0.22, zs * (HALF_W - 0.05)).applyQuaternion(q);
+        v.set(x, top + 0.22 + humpAt(x), zs * (HALF_W - 0.05)).applyQuaternion(q);
         m.compose(v.set(v.x + cx0, v.y, v.z + cz0), q, one);
         inst.setMatrixAt(i++, m);
       }
@@ -249,7 +274,7 @@ export function buildStoneBridge(ctx, { cx0, cz0, yaw, len, over, deckY, bedY, w
     const s = -L2 + 1.5 + ((len - 3) * k) / nl;
     const side = k % 2 ? 1 : -1;
     const off = side * (HALF_W - 0.75);
-    lamps.push([cx0 + px * s - pz * off, cz0 + pz * s + px * off, top]);
+    lamps.push([cx0 + px * s - pz * off, cz0 + pz * s + px * off, top + humpAt(s)]);
   }
   return lamps;
 }

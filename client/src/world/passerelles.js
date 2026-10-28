@@ -23,7 +23,7 @@ const OVER = 2.6;   // le tablier mord sur chaque quai (palier des escaliers)
 const STEP = 0.45;  // giron des marches
 const STAIR_U = [0.9, 2.6]; // bande du quai (depuis l'eau) occupée par les escaliers
 
-function insidePoly(r, x, z) {
+export function insidePoly(r, x, z) {
   let c = false;
   for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
     const [xi, zi] = r[i], [xj, zj] = r[j];
@@ -35,7 +35,7 @@ function insidePoly(r, x, z) {
 // Distance exacte jusqu'au bord de l'eau le long d'un rayon parti de l'eau
 // (polygones OSM : le masque à 4 m peut se tromper d'une maille, et la
 // chaussée du quai commence ~3 m plus loin)
-function edgeDist(polys, x, z, dx, dz) {
+export function edgeDist(polys, x, z, dx, dz) {
   let best = Infinity;
   for (const ring of polys) {
     for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -273,6 +273,51 @@ const DEFS = [
     { steel: 0x5d6d7e, cable: 0x4b5a69, plank: 0x7d6a55, stonePortal: true }],
 ];
 
+// Passerelle « à poutre » (Paul-Couturier, Masaryk…) : tablier sur de
+// fines piles dans le fleuve, tous les ~28 m
+function girder(k, c, yA, yB, opts) {
+  const ends = [-c.half - OVER, c.half + OVER];
+  const yOf = deck(k, ends, yA, yB, opts);
+  const n = Math.max(1, Math.round((c.half * 2) / 28));
+  for (let i = 1; i < n; i++) {
+    const u = -c.half + (i * c.half * 2) / n;
+    for (const sv of [-1, 1]) {
+      const h = yOf(u) - 0.4 + 2.6;
+      k.add('stone', new THREE.CylinderGeometry(0.45, 0.55, h, 10), { u, y: yOf(u) - 0.4 - h / 2, v: sv * (DW - 0.4), color: 0xb8b0a2 });
+    }
+    k.box('steel', u - 0.3, u + 0.3, yOf(u) - 0.75, yOf(u) - 0.35, -DW, DW, opts.steel);
+  }
+}
+
+// Style d'une passerelle d'après son nom OSM (les lyonnaises connues) ou
+// sa structure (bridge:structure)
+function styleOf(name, structure) {
+  const n = String(name ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+  for (const d of DEFS) {
+    const tag = d[0].replace('passerelle-', '').replace(/-/g, ' ');
+    if (n.includes(tag) || (tag === 'palais' && n.includes('palais de justice'))) return { type: d[4], opts: d[5] };
+  }
+  if (structure === 'cable-stayed') return { type: 'haubans', opts: { steel: 0xe6e8e8, cable: 0xd5d9dc, plank: 0x8d7a64 } };
+  if (structure === 'suspension') return { type: 'suspendue', opts: { steel: 0x5d6d7e, cable: 0x4b5a69, plank: 0x7d6a55 } };
+  return { type: 'poutre', opts: { steel: 0x6f7a84, cable: 0x6f7a84, plank: 0x8d7a64 } };
+}
+
+function buildOne(ctx, mats, c, type, opts, nom, id) {
+  const ground = (x, z) => Math.max(0, ctx.terrainHeight?.(x, z) ?? 0);
+  // u vers l'est (ou le sud quand la passerelle traverse un bras est-ouest)
+  if (c.ax < -0.2 || (Math.abs(c.ax) <= 0.2 && c.az < 0)) c = { ...c, ax: -c.ax, az: -c.az };
+  const k = new Kit(ctx, c.cx, c.cz, 0, c.ax, c.az);
+  const [ax0, az0] = k.world(-c.half - OVER, 0);
+  const [ax1, az1] = k.world(c.half + OVER, 0);
+  const yA = ground(ax0, az0) + DECK, yB = ground(ax1, az1) + DECK;
+  const o = { ...opts, lanterns: true };
+  if (type === 'haubans') cableStayed(k, c, yA, yB, o);
+  else if (type === 'poutre') girder(k, c, yA, yB, o);
+  else suspension(k, c, yA, yB, o);
+  k.build(mats, nom);
+  ctx.pois?.push({ id, nom, emoji: '🌉', x: c.cx, z: c.cz });
+}
+
 export function buildPasserelles(ctx, data) {
   const scale = data.scale ?? 0.5;
   const mask = ctx.waterMask;
@@ -284,8 +329,21 @@ export function buildPasserelles(ctx, data) {
     lamp: new THREE.MeshLambertMaterial({ color: 0x3a3428, emissive: 0xffd28a, emissiveIntensity: 0 }),
   };
   ctx.updatables.push(() => { mats.lamp.emissiveIntensity = 0.15 + (ctx.env?.night ?? 0) * 1.4; });
-  const ground = (x, z) => Math.max(0, ctx.terrainHeight?.(x, z) ?? 0);
 
+  // Vraies passerelles OSM (data.bridges, world/realBridges.js) : à leur
+  // place exacte, style d'après leur nom ou leur structure
+  const foot = (ctx.bridgeSpans ?? []).filter((sp) => sp.kind === 'foot');
+  if (foot.length) {
+    foot.forEach((sp, i) => {
+      const { type, opts } = styleOf(sp.n, sp.s);
+      const nom = sp.n ?? 'Passerelle';
+      buildOne(ctx, mats, { cx: sp.cx, cz: sp.cz, ax: sp.ax, az: sp.az, half: sp.half }, type, opts, nom,
+        'passerelle-' + (sp.n ? nom.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\W+/g, '-') : i));
+    });
+    return;
+  }
+
+  // Ancien JSON (sans data.bridges) : positions repérées à la main
   for (const [id, nom, lat, lon, type, opts] of DEFS) {
     let x, z;
     if (lat == null) {
@@ -298,14 +356,6 @@ export function buildPasserelles(ctx, data) {
       [x, z] = lyonXZ(lat, lon, scale);
     }
     const c = crossing(mask, data.waterPolys, x, z);
-    if (!c) continue;
-    const k = new Kit(ctx, c.cx, c.cz, 0, c.ax, c.az);
-    const [ax0, az0] = k.world(-c.half - OVER, 0);
-    const [ax1, az1] = k.world(c.half + OVER, 0);
-    const yA = ground(ax0, az0) + DECK, yB = ground(ax1, az1) + DECK;
-    if (type === 'haubans') cableStayed(k, c, yA, yB, { ...opts, lanterns: true });
-    else suspension(k, c, yA, yB, { ...opts, lanterns: true });
-    k.build(mats, nom);
-    ctx.pois?.push({ id, nom, emoji: '🌉', x: c.cx, z: c.cz });
+    if (c) buildOne(ctx, mats, c, type, opts, nom, id);
   }
 }

@@ -91,7 +91,14 @@ npm start          # serveur de prod (sert client/dist)
     couloir (`ctx.ficelle`) est réservé avant la plantation des arbres.
   - `src/world/bridge.js` : ponts de pierre de la ville OSM (arches
     surbaissées, piles à becs, balustres instanciés au palier Élevé,
-    lampadaires versés dans `buildLamps` via `ctx.bridgeLamps`).
+    dos d'âne `hump`, lampadaires versés dans `buildLamps` via
+    `ctx.bridgeLamps`). `realBridges.js` les pose sur les VRAIS
+    franchissements : `data.bridges` (ways bridge=* exportées par
+    `tools/fetch-osm.mjs` : kind road|foot, n = nom, s = structure) + rues
+    qui coupent l'eau (anciens JSON). Le tablier devient `ctx.terrainHeight`,
+    `ctx.onBridge` masque le ruban de rue sur l'eau ; plus de ponts
+    génériques à z fixes. Les passerelles OSM (kind foot) passent par
+    `passerelles.js` (style d'après le nom ou la structure).
   - `src/world/terraces.js` : terrasses de café devant les devantures
     « café »/« bouchon » (mobilier instancié par quartier, clients assis
     recyclés autour du joueur — `buildHuman({ seated: true })` ajoute des

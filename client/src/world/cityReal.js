@@ -29,6 +29,7 @@ import { buildPlacesLyon } from './squares.js';
 import { buildMonuments } from './monuments.js';
 import { buildFuniculaire } from './funicular.js';
 import { buildPasserelles } from './passerelles.js';
+import { collectBridgeSpans, buildRealBridges } from './realBridges.js';
 import { createParkedCars } from './parked.js';
 import { buildStreetSigns } from './streetsigns.js';
 
@@ -993,6 +994,10 @@ export function buildRealCity(ctx, data) {
     // le placement aval (arbres, teintes…) se décale d'une version à l'autre
     buildCountryside(ctx, bound, makeRand(4217));
     buildAlps(ctx, bound, makeRand(74));
+    // Les VRAIS ponts, à leur place (data.bridges ou rues qui franchissent
+    // l'eau) : APRÈS le maillage du sol, le tablier devient le terrain
+    ctx.bridgeSpans = collectBridgeSpans(ctx, data);
+    buildRealBridges(ctx, ctx.bridgeSpans);
   } else {
     // --- ANCIEN JSON : colline synthétique collée à l'ouest de la Saône --
     EXTRA_RECTS = [CONF_RECT];
@@ -1733,7 +1738,8 @@ function buildWater(ctx, bands, bound, zConf = null) {
     const zMax = band.zMax != null ? band.zMax : (zConf != null ? zConf : bound + 100);
     const zLo = band.zMin != null ? band.zMin : -bound - 100;
     // Ponts répartis dans l'emprise du fleuve (jamais au-delà)
-    const bridgesZ = [0, 170, -170, 340, -340].filter(
+    // (ponts génériques seulement si la carte n'a pas de vrais ponts)
+    const bridgesZ = (ctx.realBridges?.length ? [] : [0, 170, -170, 340, -340]).filter(
       (z) => z > zLo + 40 && z < zMax - 40 && Math.abs(z) < bound - 30
     );
     // Quand l'eau vient des polygones OSM (ctx.waterMask), le ruban centerline
@@ -2519,6 +2525,10 @@ function buildOsmRoads(ctx, data, full = false) {
       const x2 = road.p[i + 2], z2 = road.p[i + 3];
       // Allées du site antique : le théâtre a ses propres dallages
       if (ctx.theatre?.covers(x1, z1) || ctx.theatre?.covers(x2, z2)) continue;
+      // Sur l'eau d'un vrai pont (ou d'une passerelle) : il a sa propre
+      // chaussée. Seul un pont effectivement bâti masque le ruban : jamais
+      // de trou dans la rue si un franchissement n'a pas pu être construit
+      if (ctx.onBridge?.((x1 + x2) / 2, (z1 + z2) / 2)) continue;
       // Ruelles et rues piétonnes (Vieux Lyon, pentes de la Croix-Rousse,
       // Presqu'île) : PAVÉS d'un mur à l'autre, sans trottoir
       if (road.w < 5.5) {
