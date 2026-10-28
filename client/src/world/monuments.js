@@ -18,6 +18,7 @@ import { detail } from '../render/detail.js';
 //     d'ardoise, beffroi à dôme et horloge face aux Terreaux ;
 //   - Opéra : socle néoclassique à arcades, huit Muses sur l'attique, voûte
 //     de verre noir de Jean Nouvel qui rougeoie la nuit ;
+//   - Palais de Justice : péristyle des 24 colonnes face à la Saône ;
 //   - Hôtel-Dieu : avant-corps et grand dôme de Soufflot côté Rhône (ajouté
 //     sur l'immeuble OSM, gardé tel quel).
 // Tout est fusionné par matériau : ~5 draw calls par monument, zéro asset.
@@ -427,8 +428,9 @@ function ringArea(p) {
 }
 
 // Repère orienté d'une empreinte : direction des murs, puis étendue
-// [u0,u1] × [v0,v1] le long de cet axe (u = la plus grande dimension).
-function frameOf(p) {
+// [u0,u1] × [v0,v1] le long de cet axe (u = la plus grande dimension, ou
+// l'axe le plus proche de `prefer` quand la façade est connue).
+function frameOf(p, prefer = null) {
   let cx = 0, cz = 0, L = 0;
   for (let i = 0, j = p.length - 2; i < p.length; j = i, i += 2) {
     const l = Math.hypot(p[i] - p[j], p[i + 1] - p[j + 1]);
@@ -463,7 +465,12 @@ function frameOf(p) {
   };
   let e = ext();
   // u = la plus grande dimension
-  if (e.v1 - e.v0 > e.u1 - e.u0) { [ax, az] = [-az, ax]; e = ext(); }
+  if (prefer) {
+    // u = l'axe de mur le plus proche de la direction voulue (façade connue)
+    if (Math.abs(-az * prefer[0] + ax * prefer[1]) > Math.abs(ax * prefer[0] + az * prefer[1])) {
+      [ax, az] = [-az, ax]; e = ext();
+    }
+  } else if (e.v1 - e.v0 > e.u1 - e.u0) { [ax, az] = [-az, ax]; e = ext(); }
   return { cx, cz, ax, az, ...e };
 }
 
@@ -514,6 +521,7 @@ function makeMaterials(ctx) {
       emissive: 0xffffff, emissiveMap: louverTexture(), emissiveIntensity: 0, side: THREE.DoubleSide,
     }),
     muse: new THREE.MeshLambertMaterial({ vertexColors: true }),
+    inscription: new THREE.MeshLambertMaterial({ map: inscriptionTexture('PALAIS DE JUSTICE') }),
   };
   ctx.updatables.push(() => {
     const night = ctx.env?.night ?? 0;
@@ -857,6 +865,81 @@ function buildHotelDieuDome(k, h) {
   k.add('gold', new THREE.BoxGeometry(0.14, 1.4, 0.14), { u: 0, y: y + 20, v: dv });
 }
 
+// Inscription gravée de l'attique (lettres sombres sur la pierre)
+function inscriptionTexture(text) {
+  const c = document.createElement('canvas');
+  c.width = 1024; c.height = 96;
+  const g = c.getContext('2d');
+  g.fillStyle = '#e6dfcf';
+  g.fillRect(0, 0, c.width, c.height);
+  g.font = 'bold 62px Georgia, "Times New Roman", serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillStyle = 'rgba(255,255,255,0.6)';
+  g.fillText(text, c.width / 2 + 2, c.height / 2 + 3);
+  g.fillStyle = '#4a4236';
+  g.fillText(text, c.width / 2, c.height / 2 + 1);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+// Palais de Justice historique, « les 24 colonnes » : bloc néoclassique
+// sur le quai Romain-Rolland, péristyle de 24 colonnes corinthiennes face
+// à la Saône (u positif = est), perron sur toute la largeur, attique
+// gravé, et la rangée de coupoles de la salle des pas perdus sur le toit.
+function buildPalaisJustice(k, fr) {
+  const L = Math.min(fr.L, 46), W = Math.min(fr.W, 46);
+  const C = 0xeee7d6;
+  const uFront = L / 2;           // bord du perron, sur le nu de l'empreinte
+  const uCol = uFront - 3.4;      // axe des colonnes
+  const uWall = uFront - 6.2;     // mur du fond du péristyle
+  const H = 14;
+  // corps du palais
+  k.box('facade', -L / 2, uWall, -3, H + 1.5, -W / 2, W / 2, 0xffffff, { collide: true, uvScale: FAC });
+  // perron : sept marches sur toute la largeur du péristyle
+  const SW = W / 2 - 1;
+  for (let i = 0; i < 7; i++) {
+    k.box('stone', uWall, uFront - i * 0.42, -1, 0.22 * (i + 1), -SW, SW, 0xd9d1bf, { collide: true });
+  }
+  const ys = 0.22 * 7; // stylobate
+  // portes du fond du péristyle
+  for (let i = -2; i <= 2; i++) {
+    k.add('plain', new THREE.ShapeGeometry(roundShape(2.2, 4.6), 8), {
+      u: uWall + 0.05, y: ys, v: i * 6.5, ry: Math.PI / 2, color: 0x2a221c,
+    });
+  }
+  // les 24 colonnes, fût, base, chapiteau évasé
+  const colH = 10.6;
+  const n = 24;
+  for (let i = 0; i < n; i++) {
+    const v = -SW + 0.8 + (i / (n - 1)) * (2 * SW - 1.6);
+    k.add('stone', new THREE.CylinderGeometry(0.42, 0.5, colH, 12), { u: uCol, y: ys + 0.3 + colH / 2, v, color: C });
+    k.box('stone', uCol - 0.62, uCol + 0.62, ys, ys + 0.3, v - 0.62, v + 0.62, C);
+    k.add('stone', new THREE.CylinderGeometry(0.68, 0.44, 0.75, 12), { u: uCol, y: ys + 0.3 + colH + 0.37, v, color: 0xf4eee0 });
+    k.solid(uCol - 0.5, uCol + 0.5, ys, ys + colH, v - 0.5, v + 0.5);
+  }
+  // entablement, corniche, attique avec l'inscription
+  const ye = ys + 0.3 + colH + 0.75;
+  k.box('stone', uWall, uCol + 0.9, ye, ye + 1.7, -SW - 0.4, SW + 0.4, C, { collide: true });
+  k.box('stone', uWall, uCol + 1.4, ye + 1.7, ye + 2.2, -SW - 0.9, SW + 0.9, 0xf4eee0);
+  k.box('stone', uWall - 2, uCol, ye + 2.2, ye + 4.4, -SW + 1, SW - 1, C, { collide: true });
+  k.add('inscription', new THREE.PlaneGeometry(SW * 1.4, 1.3), { u: uCol + 0.02, y: ye + 3.3, ry: Math.PI / 2, keepUV: true });
+  // toit : terrasse et rangée de coupoles d'ardoise (salle des pas perdus)
+  for (let i = 0; i < 6; i++) {
+    const v = -W / 2 + W * ((i + 0.5) / 6);
+    k.add('stone', new THREE.CylinderGeometry(2.3, 2.3, 1.2, 12), { u: -L * 0.08, y: H + 2.1, v, color: C });
+    const d = new THREE.SphereGeometry(2.4, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.7, 1);
+    k.add('slate', d, { u: -L * 0.08, y: H + 2.7, v, color: 0x55606b });
+    k.add('stone', new THREE.CylinderGeometry(0.35, 0.4, 0.8, 8), { u: -L * 0.08, y: H + 4.7, v, color: C });
+  }
+  // la Justice et sa balance, dorées, au-dessus de l'inscription
+  k.add('gold', new THREE.ConeGeometry(0.5, 2.2, 8), { u: uCol - 0.8, y: ye + 5.5 });
+  k.add('gold', new THREE.SphereGeometry(0.28, 8, 6), { u: uCol - 0.8, y: ye + 6.85 });
+  k.add('gold', new THREE.BoxGeometry(0.08, 0.08, 1.6), { u: uCol - 0.8, y: ye + 6.4 });
+}
+
 // ------------------------------------------------------------- entrée
 
 // [id, nom, lat, lon (point DANS l'empreinte), aire min. (m² à l'échelle)]
@@ -866,6 +949,7 @@ const DEFS = [
   ['hotel-de-ville', 'Hôtel de Ville', 45.76765, 4.83518, 800],
   ['opera', 'Opéra de Lyon', 45.76781, 4.83651, 300],
   ['hotel-dieu', 'Grand Hôtel-Dieu', 45.75874, 4.83643, 3000],
+  ['palais-justice', 'Palais de Justice (les 24 colonnes)', 45.76172, 4.82814, 800],
 ];
 
 // Repère les empreintes, les retire de la ville extrudée et bâtit les
@@ -887,7 +971,8 @@ export function buildMonuments(ctx, data) {
   const mats = makeMaterials(ctx);
 
   for (const { id, nom, b } of found) {
-    const f = frameOf(b.p);
+    // le péristyle des 24 colonnes regarde la Saône, à l'est
+    const f = frameOf(b.p, id === 'palais-justice' ? [1, 0] : null);
     if (id === 'hotel-dieu') {
       // u le long de l'immeuble, v (perpendiculaire) tourné vers le Rhône
       let { ax, az } = f;
@@ -934,6 +1019,7 @@ export function buildMonuments(ctx, data) {
     else if (id === 'saint-nizier') buildSaintNizier(k, fr);
     else if (id === 'hotel-de-ville') { buildHotelDeVille(k, fr); emoji = '🏛️'; }
     else if (id === 'opera') { buildOpera(k, fr, mats, ctx, nom); emoji = '🎭'; }
+    else if (id === 'palais-justice') { buildPalaisJustice(k, fr); emoji = '⚖️'; }
     k.build(mats, nom);
     ctx.pois?.push({ id, nom, emoji, x: fr.x, z: fr.z });
     if (id === 'saint-jean') {

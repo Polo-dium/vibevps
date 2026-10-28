@@ -27,6 +27,7 @@ import { createPassersby } from './passersby.js';
 import { createTerraces } from './terraces.js';
 import { buildPlacesLyon } from './squares.js';
 import { buildMonuments } from './monuments.js';
+import { buildFuniculaire } from './funicular.js';
 import { createParkedCars } from './parked.js';
 import { buildStreetSigns } from './streetsigns.js';
 
@@ -924,6 +925,9 @@ export function buildRealCity(ctx, data) {
     // verre : sa zone doit être réservée avant la construction des bâtiments.
     EXTRA_RECTS = [ESPL, PARC, MUSEUM_RECT];
     ctx.parkRects = [PARC];
+    // Tracé de la ficelle à travers le parc (gare Saint-Jean → esplanade,
+    // au sud-est de la basilique) : réservé AVANT la plantation des arbres
+    ctx.ficelle = { A: { x: -222, z: -150 }, B: { x: basX + 34, z: basZ + 22 } };
     const mask = buildWaterMask(data.waterPolys, bound);
     // Les polygones Overpass peuvent finir quelques dizaines de mètres avant
     // le bord sud. On renforce les deux lits réels et prolonge le Rhône après
@@ -1065,6 +1069,9 @@ export function buildRealCity(ctx, data) {
     const basY = Math.max(0, ctx.terrainHeight(bX, bZ));
     buildBasilica(ctx, bX, bZ, basY);
     buildParcRosaire(ctx, bX + 42, bZ, -215, -152);
+    // La ficelle : gare Saint-Jean (au pied du parc, près de la cathédrale)
+    // → esplanade de la basilique
+    buildFuniculaire(ctx, ctx.ficelle.A, ctx.ficelle.B);
     // Grandes places dallées (Terreaux, Jacobins…), fontaines, tour métallique
     buildPlacesLyon(ctx, data.scale ?? 0.5);
     // Le théâtre et son concert permanent (un morceau de l'album par jour)
@@ -2750,11 +2757,19 @@ function buildGreenery(ctx, data, rand, full = false) {
   }
   // Parcs (jardin du Rosaire…) : plantés dru, sans passer par le filtre des
   // zones réservées (le parc EST une zone réservée aux bâtiments)
+  // couloir de la ficelle (voie double + gares) : pas d'arbre dessus
+  const F = ctx.ficelle;
+  const onFicelle = (x, z) => {
+    if (!F) return false;
+    const dx = F.B.x - F.A.x, dz = F.B.z - F.A.z;
+    const t = Math.max(-0.08, Math.min(1.08, ((x - F.A.x) * dx + (z - F.A.z) * dz) / (dx * dx + dz * dz)));
+    return Math.hypot(F.A.x + dx * t - x, F.A.z + dz * t - z) < 9;
+  };
   for (const r of ctx.parkRects ?? []) {
     for (let i = 0; i < 120; i++) {
       const x = r.minX + rand() * (r.maxX - r.minX);
       const z = r.minZ + rand() * (r.maxZ - r.minZ);
-      if (inWater(x, z)) continue;
+      if (inWater(x, z) || onFicelle(x, z)) continue;
       const ty = ctx.terrainHeight?.(x, z) ?? 0;
       if (ty < -0.5) continue;
       valid.push([x, z, 0.8 + rand() * 0.6, Math.max(0, ty)]);

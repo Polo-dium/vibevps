@@ -73,12 +73,17 @@ npm start          # serveur de prod (sert client/dist)
     pour les grandes rues reconnues à leur tracé réel (jamais de faux nom).
     `parked.js` : voitures garées en créneau (InstancedMesh par quartier).
   - `src/world/monuments.js` : cathédrale Saint-Jean, Saint-Nizier, Hôtel de
-    Ville, Opéra (voûte rouge la nuit), dôme de l'Hôtel-Dieu. Empreinte OSM
+    Ville, Opéra (voûte rouge la nuit), Palais de Justice (24 colonnes),
+    dôme de l'Hôtel-Dieu. Empreinte OSM
     repérée par un point GPS, marquée `b.monument` (sautée par
     `buildOsmBuildings` APRÈS ses rand()), profil rebâti dans un repère
     orienté sur les murs (`Kit` : géométrie fusionnée par matériau,
     colliders en cellules). La place Saint-Jean se recale devant la façade
     (`ctx.placeOverrides`).
+  - `src/world/funicular.js` : la ficelle Saint-Jean → Fourvière (ville OSM)
+    à travers le parc du Rosaire, deux cabines contrepoids calées sur
+    `Date.now()` (même horaire chez tous), embarquement par E à quai. Le
+    couloir (`ctx.ficelle`) est réservé avant la plantation des arbres.
   - `src/world/bridge.js` : ponts de pierre de la ville OSM (arches
     surbaissées, piles à becs, balustres instanciés au palier Élevé,
     lampadaires versés dans `buildLamps` via `ctx.bridgeLamps`).
