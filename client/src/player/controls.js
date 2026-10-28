@@ -75,6 +75,11 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   const slideDir = new THREE.Vector3();
   let slideCrouch = 0; // abaissement de caméra lissé
   let airTime = 0;
+  // Sensation de marche : balancement de tête calé sur les pas, amorti à
+  // l'atterrissage, marches lissées (localStorage lyon_bob = '0' pour couper)
+  let bobPhase = 0, bobAmt = 0, landDip = 0, eyeY = null;
+  let bobOn = true;
+  try { bobOn = localStorage.getItem('lyon_bob') !== '0'; } catch { /* stockage indisponible */ }
 
   if (!IS_TOUCH) {
     domElement.addEventListener('click', () => {
@@ -569,6 +574,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     vel.y -= GRAVITY * dt;
 
     const wasGrounded = onGround;
+    const vyBefore = vel.y;
     onGround = false;
     resolveAxis('y', vel.y * dt);
     // Sol : terrain (colline de Fourvière, lit des fleuves en contrebas) ou 0
@@ -583,6 +589,8 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         slide = SLIDE_TIME;
         slideDir.set(vel.x, 0, vel.z).normalize();
       }
+      // Amorti d'atterrissage, selon la vitesse de chute
+      if (!wasGrounded && airTime > 0.15) landDip = Math.min(0.24, -vyBefore * 0.016);
       airTime = 0;
     }
     resolveAxis('x', vel.x * dt);
@@ -592,9 +600,27 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     // qu'elle ne descend, pour enchaîner la course sans flottement
     slideCrouch += (((slide > 0) ? 0.72 : 0) - slideCrouch) *
       (1 - Math.exp(-(slide > 0 ? 10 : 16) * dt));
-    camera.position.set(pos.x, pos.y + EYE_HEIGHT - slideCrouch, pos.z);
+    // Œil : suit en douceur les petites montées (marches, trottoirs,
+    // gradins), immédiat sinon (sauts, chutes, téléportations)
+    const eyeTarget = pos.y + EYE_HEIGHT - slideCrouch;
+    if (eyeY === null || !onGround || Math.abs(eyeTarget - eyeY) > 0.75) eyeY = eyeTarget;
+    else {
+      eyeY += (eyeTarget - eyeY) * (1 - Math.exp(-26 * dt));
+      // jamais plus de 12 cm de retard (montée rapide d'un escalier)
+      eyeY = Math.min(Math.max(eyeY, eyeTarget - 0.12), eyeTarget + 0.12);
+    }
+    // Balancement : une demi-oscillation par pas (même cadence que les
+    // bruits de pas de main.js : un pas toutes les 3,3 m/vitesse s)
+    const hs = Math.hypot(vel.x, vel.z);
+    bobAmt += ((onGround && bobOn && slide <= 0 ? Math.min(1, hs / 10) : 0) - bobAmt) * (1 - Math.exp(-8 * dt));
+    if (hs > 0.5) bobPhase += dt * (hs / 3.3) * Math.PI;
+    landDip *= Math.exp(-9 * dt);
+    const s1 = Math.sin(bobPhase);
+    const up = (Math.abs(s1) - 0.6) * 0.05 * bobAmt - landDip;
+    const side = s1 * 0.022 * bobAmt;
+    camera.position.set(pos.x + Math.cos(yaw) * side, eyeY + up, pos.z - Math.sin(yaw) * side);
     camera.rotation.order = 'YXZ';
-    camera.rotation.set(pitch, yaw, 0);
+    camera.rotation.set(pitch, yaw, -s1 * 0.006 * bobAmt);
   }
 
   return {
