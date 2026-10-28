@@ -1999,13 +1999,22 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       if (len < 0.05) continue;
       // Nombres ENTIERS de fenêtres : plus jamais de dernier étage coupé
       // (la cellule s'étire légèrement au lieu d'être tronquée)
-      const u = Math.max(1, Math.round(len / FLOOR_M));
-      const v = Math.max(1, Math.round((y1 - y0) / FLOOR_M));
+      // Étages comptés DEPUIS LE TROTTOIR (yBase), pas depuis le bas de la
+      // jupe enterrée : le rez-de-chaussée (rangée v ∈ [0;1[) est au niveau
+      // de la rue — portes cochères et fenêtres basses (render/facade.js)
+      // au lieu de fenêtres d'étage à moitié sous terre
+      const vTop = Math.max(1, Math.round((y1 - yBase) / FLOOR_M));
+      const vBot = -(yBase - y0) / ((y1 - yBase) / vTop);
+      // Mur trop étroit pour une fenêtre, ou tout petit édicule : pierre
+      // pleine (u < 0 = « mur aveugle » pour le shader)
+      const blind = len < 2.2 || (maxX - minX) * (maxZ - minZ) < 20;
+      const u0 = blind ? -0.9 : 0;
+      const u = blind ? -0.6 : Math.max(1, Math.round(len / FLOOR_M));
       tile.wp.push(
         x1, y0, z1, x2, y0, z2, x2, y1, z2,
         x1, y0, z1, x2, y1, z2, x1, y1, z1
       );
-      tile.wuv.push(0, 0, u, 0, u, v, 0, 0, u, v, 0, v);
+      tile.wuv.push(u0, vBot, u, vBot, u, vTop, u0, vBot, u, vTop, u0, vTop);
       for (let k = 0; k < 6; k++) tile.wc.push(wallColor.r, wallColor.g, wallColor.b);
 
       // Façade candidate pour la Fresque des Lyonnais (voir buildMurPeint)

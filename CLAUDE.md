@@ -54,7 +54,10 @@ npm start          # serveur de prod (sert client/dist)
     d'empiler des primitives.
   - `src/render/facade.js` : patch de shader des murs OSM — chaque fenêtre
     de la cellule répétée se décline (vitres en retrait par parallaxe,
-    persiennes, voilages, balcons filants),
+    persiennes, voilages, balcons filants ; rez-de-chaussée v ∈ [0;1[ à
+    bossages avec portes cochères et fenêtres à barreaux ; u < 0 = mur
+    aveugle). Les étages se comptent depuis le trottoir (yBase), pas depuis
+    la jupe enterrée.
     hasard tiré de floor(uv) + teinte de l'immeuble. `enhance.js` reprend
     `material.userData.shaderPatch` au palier Élevé.
   - `src/render/road.js` : chaussée et pavés qui se mouillent après l'averse

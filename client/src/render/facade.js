@@ -34,14 +34,23 @@ float facadeBarW = fwidth(vMapUv.x * 25.0); // finesse des barreaux à l'écran
   float vn = min(dot(Vv, Nv), -0.08);
   facadeOff = vec2(dot(Vv, Tv), dot(Vv, Uv)) / -vn * 0.1; // 0,3 m = 0,1 cellule
 }
-{
+if (vMapUv.x < -0.05) {
+  // Mur aveugle (trop étroit pour une fenêtre) : pierre pleine
+  diffuseColor.rgb = diffuse * vColor.rgb * textureGrad(map, vec2(0.04, vMapUv.y), facadeDx, facadeDy).rgb;
+  facadeFlat = 1.0;
+  facadeEmi = 0.0;
+} else {
   vec2 wc = floor(vMapUv);
   vec2 f = fract(vMapUv);
-  float bseed = dot(vColor.rgb, vec3(12.9898, 78.233, 37.719)) * 7.0;
+  // graine de l'immeuble : sa teinte arrondie sur 8 bits (l'interpolation
+  // des couleurs de sommet varie d'un pixel à l'autre — sans arrondi, le
+  // tirage changeait d'une colonne de pixels à la suivante)
+  vec3 c8 = floor(vColor.rgb * 255.0 + 0.5);
+  float bseed = mod(dot(c8, vec3(1.0, 7.31, 53.17)), 997.0) * 0.731;
   float hb = fract(sin(bseed) * 43758.5453);
   float hb2 = fract(sin(bseed * 1.37 + 4.1) * 24634.6345);
-  float hw = fract(sin(dot(wc, vec2(127.1, 311.7)) + bseed) * 43758.5453);
-  float hw2 = fract(sin(dot(wc, vec2(269.5, 183.3)) + bseed) * 24634.6345);
+  float hw = fract(sin(dot(mod(wc, 97.0), vec2(12.71, 31.17)) + bseed) * 43758.5453);
+  float hw2 = fract(sin(dot(mod(wc, 97.0), vec2(26.95, 18.33)) + bseed * 1.7) * 24634.6345);
   bool glassZ = f.x > 0.27 && f.x < 0.73 && f.y > 0.28 && f.y < 0.88;
   bool upper = wc.y >= 1.0; // pas au rez-de-chaussée (devantures, portes)
 
@@ -49,7 +58,75 @@ float facadeBarW = fwidth(vMapUv.x * 25.0); // finesse des barreaux à l'écran
   // pris à côté, hors garde-corps), ou balcon FILANT sur tout l'étage
   bool railZ = f.y > 0.105 && f.y < 0.24;
   bool filant = upper && hb > 0.35 && (wc.y == 2.0 || (wc.y == 5.0 && hb2 > 0.4));
-  if (railZ && !filant && hw2 < 0.4) {
+  bool rdc = wc.y == 0.0; // rez-de-chaussée
+  bool skirt = wc.y < 0.0; // jupe enterrée (visible si le sol descend)
+  if (skirt) {
+    diffuseColor.rgb = diffuse * vColor.rgb * textureGrad(map, vec2(0.04, vMapUv.y), facadeDx, facadeDy).rgb * 0.85;
+    facadeFlat = 1.0;
+    facadeEmi = 0.0;
+  }
+  // Porte cochère : une travée de rez-de-chaussée sur quatre environ, plus
+  // la 2e travée de certains murs (au moins une entrée par immeuble ou presque)
+  bool door = rdc && (hw < 0.22 || (wc.x == 1.0 && hb2 > 0.4));
+  if (rdc) {
+    // soubassement : pierre à bossages (joints horizontaux creusés)
+    vec3 plain = diffuse * vColor.rgb * textureGrad(map, vec2(0.04, vMapUv.y), facadeDx, facadeDy).rgb;
+    bool frameW = f.x > 0.225 && f.x < 0.775 && f.y > 0.235 && f.y < 0.93;
+    if (door || !frameW || (f.y < 0.3 && !glassZ)) {
+      float groove = smoothstep(0.012, 0.0, abs(fract(f.y * 7.0) - 0.5) - 0.47);
+      diffuseColor.rgb = plain * (1.0 - groove * 0.35);
+      facadeFlat = 1.0; // pas le relief (coulures, appui) de la fenêtre d'origine
+    }
+  }
+  if (door) {
+    const float AY = 0.6;  // naissance de l'arc
+    vec2 dc = f - vec2(0.5, AY);
+    bool frame = (f.x > 0.17 && f.x < 0.83 && f.y < AY) || (f.y >= AY && length(dc) < 0.335);
+    if (frame) {
+      // encadrement de pierre claire + clé de voûte
+      diffuseColor.rgb = diffuse * vColor.rgb * vec3(1.06, 1.04, 1.0);
+      if (abs(f.x - 0.5) < 0.035 && f.y > AY + 0.27) diffuseColor.rgb *= 1.08;
+      facadeFlat = 1.0;
+      facadeEmi = 0.0;
+      // vantaux en retrait de 25 cm (même parallaxe que les vitres)
+      vec2 h = f + facadeOff * 0.85;
+      vec2 hc = h - vec2(0.5, AY);
+      bool open = (h.x > 0.22 && h.x < 0.78 && h.y > 0.0 && h.y < AY) || (h.y >= AY && length(hc) < 0.28);
+      bool inner = (f.x > 0.22 && f.x < 0.78 && f.y < AY) || (f.y >= AY && length(dc) < 0.28);
+      if (inner) {
+        facadeFlat = 1.0;
+        if (open) {
+          vec3 wood = hb < 0.3 ? vec3(0.1, 0.2, 0.14)   // vert bouteille
+                    : hb < 0.55 ? vec3(0.3, 0.08, 0.07) // sang-de-bœuf
+                    : hb < 0.8 ? vec3(0.27, 0.16, 0.08) // chêne
+                    : vec3(0.08, 0.1, 0.15);            // bleu nuit
+          if (h.y < AY) {
+            // deux vantaux à panneaux moulurés, poignées de laiton
+            float lx = fract((h.x - 0.22) / 0.28);
+            float py = h.y / AY;
+            bool panel = lx > 0.14 && lx < 0.86 && ((py > 0.06 && py < 0.44) || (py > 0.52 && py < 0.92));
+            vec3 c = wood * (panel ? 1.18 : 0.92);
+            c *= 1.0 - smoothstep(0.006, 0.0, abs(h.x - 0.5)) * 0.6;            // joint central
+            c = mix(c, vec3(0.75, 0.6, 0.28), step(length((h - vec2(0.5, 0.3)) * vec2(1.0, 1.6)), 0.018) * step(0.006, abs(h.x - 0.5)));
+            diffuseColor.rgb = c;
+          } else {
+            // imposte vitrée en éventail
+            float ang = atan(hc.y, hc.x);
+            float bar = step(fract(ang * 6.0 / 3.14159), 0.1) + step(abs(length(hc) - 0.14), 0.008);
+            diffuseColor.rgb = mix(vec3(0.07, 0.09, 0.12), vec3(0.06, 0.06, 0.07), clamp(bar, 0.0, 1.0));
+            facadeEmi = 0.5;
+          }
+          // ombre portée de l'embrasure sur la porte
+          float e = min(min(h.x - 0.22, 0.78 - h.x), (h.y >= AY) ? 0.28 - length(hc) : 1.0);
+          diffuseColor.rgb *= mix(0.55, 1.0, smoothstep(0.0, 0.05, e));
+        } else {
+          // tableau de l'embrasure
+          diffuseColor.rgb = diffuse * vColor.rgb * (h.y <= 0.0 ? 0.9 : 0.6);
+        }
+      }
+    }
+  }
+  if (railZ && !filant && !door && !skirt && (hw2 < 0.4 || rdc)) {
     vec4 wall = texture2D(map, vec2(wc.x + 0.1, vMapUv.y));
     diffuseColor.rgb = diffuse * vColor.rgb * wall.rgb;
   }
@@ -73,7 +150,7 @@ float facadeBarW = fwidth(vMapUv.x * 25.0); // finesse des barreaux à l'écran
   // plan du mur jusqu'à la vitre ; s'il sort de la baie avant, on voit
   // l'embrasure (tableau, appui éclairé, dessous de linteau dans l'ombre).
   // Repère tangent tiré des dérivées écran (mur vertical : u horizontal).
-  if (glassZ) {
+  if (glassZ && !door && !skirt) {
     vec2 h = f + facadeOff;
     bool inside = h.x > 0.27 && h.x < 0.73 && h.y > 0.28 && h.y < 0.88;
     if (inside) {
@@ -95,6 +172,12 @@ float facadeBarW = fwidth(vMapUv.x * 25.0); // finesse des barreaux à l'écran
       facadeFlat = 1.0;
       facadeEmi = 0.0;
     }
+  }
+
+  // Fenêtres basses : barreaux de fer forgé devant la vitre
+  if (rdc && !door && glassZ) {
+    float bars = smoothstep(0.012, 0.004, abs(fract((f.x - 0.27) / 0.065) - 0.5) * 0.065);
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.06, 0.065, 0.07), bars * 0.9);
   }
 
   // --- Persiennes (70 % des immeubles, jamais au rez-de-chaussée)
