@@ -229,3 +229,228 @@ export function buildSinger() {
   group.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   return { group, head, mouth, armL, armR, spot };
 }
+
+// --- Modèle 3D réaliste (Rodin, image → 3D, squelette humanoïde) ----------
+// EXCEPTION au « zéro asset » validée par Polo : public/models/chanteuse.glb
+// (~4 Mo, 30 k triangles, textures WebP). Chargé à l'approche du théâtre ;
+// la chanteuse sculptée ci-dessus reste en secours (échec, palier Bas).
+//
+// Pas d'animation fournie : on pilote les os directement (balancement,
+// hochements, bras au micro, bras levé au refrain), comme la version
+// sculptée. Chaque rotation est exprimée dans le repère du MODÈLE puis
+// ramenée dans celui du parent (pose de repos), d'où des réglages lisibles :
+// « bras vers le bas », « vers l'avant », indépendants des axes de Rodin.
+// Rig automatique : des sommets des doigts « collés » à la cuisse voisine
+// (et inversement) s'étirent en longs fils dès que la main bouge. On coupe
+// les influences entre chaînes qui ne se touchent pas : bras ↔ jambes,
+// bras gauche ↔ bras droit, et le tronc pour l'avant-bras et la main.
+function chainOf(name) {
+  const side = name.startsWith('Left') ? 'G' : name.startsWith('Right') ? 'D' : '';
+  if (/Hand|ForeArm/.test(name)) return 'bras-bas' + side;
+  if (/Arm|Shoulder/.test(name)) return 'bras-haut' + side;
+  if (/UpLeg|Leg|Foot|Toe/.test(name)) return 'jambe' + side;
+  return 'tronc';
+}
+function compatible(a, b) {
+  if (a === b) return true;
+  const arm = (c) => c.startsWith('bras');
+  if (arm(a) && arm(b)) return a.slice(-1) === b.slice(-1); // même côté
+  if (a === 'tronc' || b === 'tronc') {
+    const other = a === 'tronc' ? b : a;
+    return !other.startsWith('bras-bas'); // le tronc ne tire pas la main
+  }
+  return false;
+}
+function cleanWeights(mesh) {
+  const idx = mesh.geometry.attributes.skinIndex, w = mesh.geometry.attributes.skinWeight;
+  const chains = mesh.skeleton.bones.map((b) => chainOf(b.name));
+  const dom = new Array(w.count);
+  for (let i = 0; i < w.count; i++) {
+    const ws = [w.getX(i), w.getY(i), w.getZ(i), w.getW(i)];
+    const js = [idx.getX(i), idx.getY(i), idx.getZ(i), idx.getW(i)];
+    let top = 0;
+    for (let k = 1; k < 4; k++) if (ws[k] > ws[top]) top = k;
+    const main = chains[js[top]];
+    let sum = 0;
+    for (let k = 0; k < 4; k++) {
+      if (!compatible(main, chains[js[k]])) ws[k] = 0;
+      sum += ws[k];
+    }
+    if (sum > 0) w.setXYZW(i, ws[0] / sum, ws[1] / sum, ws[2] / sum, ws[3] / sum);
+    dom[i] = main;
+  }
+  w.needsUpdate = true;
+  // Triangles « pont » entre deux chaînes qui ne se touchent pas (main ↔
+  // cuisse…) : invisibles au repos, ils deviennent de longues lames dès que
+  // le bras bouge. On les retire de l'index.
+  const index = mesh.geometry.index;
+  if (index) {
+    const keep = [];
+    for (let t = 0; t < index.count; t += 3) {
+      const a = dom[index.getX(t)], b = dom[index.getX(t + 1)], c = dom[index.getX(t + 2)];
+      if (compatible(a, b) && compatible(b, c) && compatible(a, c)) keep.push(index.getX(t), index.getX(t + 1), index.getX(t + 2));
+    }
+    mesh.geometry.setIndex(keep);
+  }
+}
+
+export async function loadSingerModel(url) {
+  const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+  const gltf = await new GLTFLoader().loadAsync(url);
+  const model = gltf.scene;
+  model.updateMatrixWorld(true);
+  const spot = { value: 0 };
+  const bones = {};
+  const meshes = [];
+  model.traverse((o) => {
+    if (o.isBone) bones[o.name] = o;
+    if (o.isMesh) {
+      meshes.push(o);
+      o.castShadow = true;
+      o.receiveShadow = true;
+      o.frustumCulled = false; // boîte du maillage skinné peu fiable
+      if (o.isSkinnedMesh) cleanWeights(o);
+      const m = o.material;
+      // La carte métal/rugosité de Rodin rend la peau grise : tissu et peau
+      // ne sont pas métalliques
+      m.metalness = 0;
+      // « Poursuite » : apport émissif proportionnel à la texture (voir spot)
+      m.emissive = new THREE.Color(1, 1, 1);
+      m.emissiveMap = m.map;
+      m.emissiveIntensity = 0;
+    }
+  });
+  const need = ['Hips', 'Spine1', 'Neck', 'Head', 'LeftArm', 'RightArm', 'LeftForeArm', 'RightForeArm', 'RightHand'];
+  if (need.some((n) => !bones[n])) throw new Error('squelette inattendu');
+
+  // Pose de repos + repère (modèle) des parents
+  const inv = new THREE.Quaternion();
+  const rest = new Map();
+  const restParent = new Map();
+  for (const b of Object.values(bones)) {
+    rest.set(b, b.quaternion.clone());
+    const pq = new THREE.Quaternion();
+    b.parent.getWorldQuaternion(pq);
+    restParent.set(b, pq);
+  }
+  const side = (b) => Math.sign(b.getWorldPosition(new THREE.Vector3()).x) || 1;
+  const R = new THREE.Quaternion();
+  const AX = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
+  // bone.q = Pp⁻¹ · (rotations modèle) · Pp · q_repos
+  function pose(b, rots) {
+    const pp = restParent.get(b);
+    const q = b.quaternion.copy(rest.get(b));
+    for (const [axis, ang] of rots) {
+      if (!ang) continue;
+      R.setFromAxisAngle(AX[axis], ang);
+      inv.copy(pp).invert();
+      q.premultiply(inv.clone().multiply(R).multiply(pp));
+    }
+  }
+
+  // Positions de repos (repère du modèle) pour la cinématique inverse du bras
+  // qui tient le micro
+  const wp = (b) => b.getWorldPosition(new THREE.Vector3());
+  const S0 = wp(bones.RightArm), E0 = wp(bones.RightForeArm), H0 = wp(bones.RightHand);
+  const LU = S0.distanceTo(E0), LF = E0.distanceTo(H0);
+  const head0 = wp(bones.Head);
+  // Bouche ≈ 6 cm au-dessus et 11 cm devant l'os de la tête (base du crâne)
+  const MOUTH = head0.clone().add(new THREE.Vector3(0, 0.055, 0.11));
+
+  // POING SERRÉ sur le micro : l'axe de flexion des doigts dépend du rig ;
+  // on essaie les quatre possibilités et on garde celle qui rapproche le
+  // plus le bout de l'index du poignet (fait une fois, au chargement)
+  const fingers = Object.values(bones).filter((b) => /^RightHand(Index|Middle|Ring|Pinky)[123]$/.test(b.name));
+  const thumb = Object.values(bones).filter((b) => /^RightHandThumb[23]$/.test(b.name));
+  const tip = bones.RightHandIndex3, wrist = bones.RightHand;
+  let curl = null;
+  if (tip && fingers.length) {
+    let best = Infinity;
+    for (const [ax, sg] of [['x', 1], ['x', -1], ['z', 1], ['z', -1]]) {
+      const qa = new THREE.Quaternion().setFromAxisAngle(AX[ax], sg * 1.2);
+      for (const f of fingers) f.quaternion.copy(rest.get(f)).multiply(qa);
+      model.updateMatrixWorld(true);
+      const dist = wp(tip).distanceTo(wp(wrist));
+      if (dist < best) { best = dist; curl = qa; }
+    }
+    for (const f of fingers) f.quaternion.copy(rest.get(f)).multiply(curl);
+    for (const t of thumb) t.quaternion.copy(rest.get(t)).multiply(new THREE.Quaternion().slerpQuaternions(new THREE.Quaternion(), curl, 0.5));
+    model.updateMatrixWorld(true);
+  }
+
+  // Micro dans la main droite
+  const mic = new THREE.Group();
+  const micBody = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.01, 0.16, 10), new THREE.MeshStandardMaterial({ color: 0x111114, roughness: 0.35, metalness: 0.5 }));
+  const grille = new THREE.Mesh(new THREE.SphereGeometry(0.026, 12, 10), new THREE.MeshStandardMaterial({ color: 0xa9adb3, roughness: 0.3, metalness: 0.9 }));
+  grille.position.y = 0.09;
+  mic.add(micBody, grille);
+  model.add(mic); // placé à chaque image (repère du modèle), tourné vers la bouche
+
+  // Côtés mesurés AVANT de retourner le modèle
+  const sL = side(bones.LeftArm), sR = side(bones.RightArm);
+  // Le modèle regarde +z (glTF) ; le jeu attend -z
+  const group = new THREE.Group();
+  model.rotation.y = Math.PI;
+  group.add(model);
+
+  // Interface identique à buildSinger() : concert.js anime ces champs
+  const head = { rotation: { x: 0, y: 0 } };
+  const armL = { rotation: { x: 0, z: 0 } };
+  const armR = { rotation: { x: 0 } };
+  const mouth = { scale: { y: 0.25 } };
+  const WRIST_OFF = new THREE.Vector3(-0.055 * -sR, -0.2, 0.09);
+  const tmpT = new THREE.Vector3();
+  const POLE = new THREE.Vector3(0.6 * sR, -1, -0.2).normalize(); // coude : bas, dehors
+  const qU = new THREE.Quaternion(), qF = new THREE.Quaternion(), qTmp = new THREE.Quaternion();
+  const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3(), vE = new THREE.Vector3();
+  const UP = new THREE.Vector3(0, 1, 0);
+  // Pose d'un os à partir d'une rotation EXPRIMÉE dans le repère modèle
+  function poseQ(b, Rq) {
+    const pp = restParent.get(b);
+    inv.copy(pp).invert();
+    b.quaternion.copy(rest.get(b)).premultiply(inv.clone().multiply(Rq).multiply(pp));
+  }
+  function ik(T) {
+    const d = Math.min(S0.distanceTo(T), LU + LF - 1e-3);
+    const u = vA.subVectors(T, S0).normalize();
+    const v = vB.copy(POLE).addScaledVector(u, -POLE.dot(u)).normalize();
+    const cosA = (LU * LU + d * d - LF * LF) / (2 * LU * d);
+    const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
+    const E = vE.copy(S0).addScaledVector(u, LU * cosA).addScaledVector(v, LU * sinA);
+    const T2 = vC.copy(S0).addScaledVector(u, d);
+    // Bras : direction de repos → nouvelle direction épaule-coude
+    qU.setFromUnitVectors(vA.subVectors(E0, S0).normalize(), vB.subVectors(E, S0).normalize());
+    poseQ(bones.RightArm, qU);
+    // Avant-bras : direction (déjà tournée par le bras) → coude-poignet
+    const fRest = vA.subVectors(H0, E0).normalize().applyQuaternion(qU);
+    qF.setFromUnitVectors(fRest, vB.subVectors(T2, E).normalize());
+    // rotation propre à l'avant-bras dans le repère de repos : qU⁻¹·qF·qU
+    qTmp.copy(qU).invert().multiply(qF).multiply(qU);
+    poseQ(bones.RightForeArm, qTmp);
+    // Micro : dans la paume, grille vers la bouche
+    const dir = vA.subVectors(MOUTH, T2).normalize();
+    mic.position.copy(T2).addScaledVector(dir, 0.07);
+    mic.quaternion.setFromUnitVectors(UP, dir);
+  }
+  return {
+    group, head, armL, armR, mouth, spot, meshes, mic,
+    // Appliqué à chaque image après que concert.js a réglé les champs
+    apply() {
+      for (const m of meshes) m.material.emissiveIntensity = spot.value * 0.9;
+      const sway = group.rotation.z;
+      pose(bones.Spine1, [['z', sway * 1.2]]);
+      pose(bones.Head, [['x', -head.rotation.x], ['y', head.rotation.y]]);
+      // Bras gauche : le long du corps, levé au refrain (armL.rotation.x < 0)
+      const up = Math.max(0, -armL.rotation.x);
+      // (au repos, les bras sont déjà à ~63° sous l'horizontale)
+      pose(bones.LeftArm, [['z', -sL * (0.38 - up * 1.1)], ['x', -up * 0.45]]);
+      pose(bones.LeftForeArm, [['x', -0.15 - up * 0.25]]);
+      // Bras droit : coude au corps, avant-bras relevé, micro à la bouche
+      // Cinématique inverse à deux os : poignet sous le menton, coude en bas
+      // et vers l'extérieur
+      const T = tmpT.copy(MOUTH).add(WRIST_OFF);
+      T.y += armR.rotation.x * 0.15; // petit mouvement du micro sur les temps
+      ik(T);
+    },
+  };
+}

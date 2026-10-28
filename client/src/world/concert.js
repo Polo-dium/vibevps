@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { ALBUM } from './album.js';
-import { buildSinger } from './singer.js';
+import { buildSinger, loadSingerModel } from './singer.js';
 import { buildHuman } from './human.js';
 import { makeRand } from './layout.js';
 import { getAudioGraph } from '../audio.js';
@@ -416,6 +416,25 @@ export function buildConcert(ctx, P) {
   const CLOSE = 3;
   singer.group.traverse((o) => o.layers.enable(CLOSE));
   ctx.scene.traverse((o) => { if (o.isLight) o.layers.enable(CLOSE); });
+  // Le VRAI modèle (public/models/chanteuse.glb, ~4 Mo) remplace la
+  // version sculptée à l'approche du théâtre — pas au palier Bas (mémoire
+  // des téléphones). En cas d'échec, la sculptée reste en scène.
+  let rig = singer;
+  let rigState = detail.level === 'bas' ? 'off' : 'idle';
+  function loadRig() {
+    rigState = 'loading';
+    loadSingerModel('/models/chanteuse.glb').then((m) => {
+      m.group.position.copy(singer.group.position);
+      m.group.traverse((o) => o.layers.enable(CLOSE));
+      root.add(m.group);
+      singer.group.visible = false;
+      rig = m;
+      rigState = 'ok';
+    }).catch((err) => {
+      console.warn('🎤 Modèle de la chanteuse indisponible, version sculptée gardée :', err.message);
+      rigState = 'off';
+    });
+  }
 
   // LE PUBLIC : une fosse de fans dans l'orchestre, face à la scène
   const fans = [];
@@ -561,7 +580,8 @@ export function buildConcert(ctx, P) {
     // LA CHANTEUSE
     const night = ctx.env?.night ?? 0;
     const sway = (beatCount % 2 ? 1 : -1) * (1 - pulse);
-    const s = singer;
+    if (rigState === 'idle' && d < 320) loadRig();
+    const s = rig;
     s.group.position.y = SY + pulse * 0.02 * (st.playing ? 1 : 0);
     s.group.rotation.z = sway * 0.035;
     s.group.rotation.y = Math.sin(time * 0.23) * 0.38;
@@ -573,14 +593,36 @@ export function buildConcert(ctx, P) {
     s.armL.rotation.z = -0.12 - raise * 0.5;
     s.armR.rotation.x = -0.04 * pulse;
     s.spot.value = 0.08 + 0.5 * night;
+    s.apply?.(); // modèle à squelette : les os suivent ces réglages
 
     // FANS : sautillent sur les temps, bras en l'air au refrain
+    // (épaule : rotation.x POSITIVE = bras vers l'avant puis en l'air ;
+    // rotation.y = vers l'intérieur, ordre YXZ pour que les mains se
+    // rejoignent devant la poitrine)
     for (const f of fans) {
+      const L = f.h.armL.rotation, R = f.h.armR.rotation;
+      L.order = R.order = 'YXZ';
       const hop = st.playing ? Math.max(0, Math.sin(time * 6.8 + f.phase)) * 0.06 * (0.4 + energy) : 0;
       f.h.group.position.y = hop;
-      const up = st.playing ? (energy > 0.6 || f.wild > 0.7 ? 2.6 + Math.sin(time * 3 + f.phase) * 0.3 : 0.2 + pulse * 0.3) : 1.2 + Math.sin(time * 14 + f.phase) * 0.6;
-      f.h.armL.rotation.x = -up;
-      f.h.armR.rotation.x = -(f.wild > 0.4 ? up : 0.3);
+      const tg = st.t - st.track.duration;
+      const clapping = !st.playing || (f.wild > 0.55 && energy > 0.75 && Math.sin(time * 0.7 + f.phase) > 0.3);
+      if (clapping) {
+        // Applaudissements : avant-bras devant la poitrine, mains qui se
+        // rejoignent ~4 fois par seconde (au début de la pause, plus vite)
+        const rate = !st.playing && tg < 9 ? 26 : 16;
+        const c = 0.5 + 0.5 * Math.sin(time * rate + f.phase);
+        const raise = !st.playing && f.wild > 0.6 ? 2.2 : 1.25;
+        L.set(raise, -(0.18 + 0.17 * c), 0);
+        R.set(raise, 0.18 + 0.17 * c, 0);
+      } else if (energy > 0.6 || f.wild > 0.7) {
+        // Bras en l'air au refrain, qui ondulent sur le tempo
+        L.set(2.7 + Math.sin(time * 3 + f.phase) * 0.25, -0.15, 0);
+        R.set(f.wild > 0.4 ? 2.7 + Math.cos(time * 3 + f.phase) * 0.25 : 0.25 + pulse * 0.3, f.wild > 0.4 ? 0.15 : 0, 0);
+      } else {
+        // Au couplet : bras le long du corps qui marquent le temps
+        L.set(0.15 + pulse * 0.35, 0, 0);
+        R.set(0.15 + pulse * 0.35, 0, 0);
+      }
     }
 
     // FAISCEAUX : balayages lents + couleur au fil des mesures, plus
