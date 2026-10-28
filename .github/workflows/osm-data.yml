@@ -8,8 +8,10 @@ name: Données OSM de Lyon
 
 on:
   workflow_dispatch:
+  # régénère dès que le script change sur la branche de prod (ou l'ancienne
+  # branche de travail) : la carte suit les améliorations de fetch-osm.mjs
   push:
-    branches: [ccr-10d2d3e3-8jvu9z]
+    branches: [claude/3d-arcade-map-vps-5v3opg, ccr-10d2d3e3-8jvu9z]
     paths: [tools/fetch-osm.mjs, .github/workflows/osm-data.yml]
 
 permissions:
