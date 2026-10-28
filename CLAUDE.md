@@ -47,6 +47,14 @@ npm start          # serveur de prod (sert client/dist)
     en pente continue vers l'eau (`waterDistanceFn`), les rues sont
     redécoupées tous les 6 m sur les pentes, les balmes se boisent
     (`buildGreenery`, rand dédié). JSON `version: 3` = relief.
+  - `src/world/pentes.js` (vrai relief) : escaliers de pierre drapés sur la
+    pente pour chaque `highway=steps` OSM (`data.steps` : p, w, n, inc ;
+    repli : voies piétonnes à plus de 18 %), jardin en terrasses et balcon-
+    panorama de la montée de la Grande-Côte (`planGrandeCote`, emprise
+    réservée avant les bâtiments), murs de soutènement le long des rues
+    taillées dans les pentes en ville. Marches et terrasses deviennent le
+    sol (`ctx.terrainHeight`, index spatial), `ctx.pentesCovers` écarte les
+    arbres.
   - `src/render/` — rendu « ciné » au palier Élevé (`post.js` : bloom HDR,
     étalonnage, MSAA), reflets d'environnement procéduraux (`envmap.js`),
     matériaux PBR et profils extrudés (`materials.js`), passe matière sur le

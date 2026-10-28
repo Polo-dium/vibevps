@@ -35,7 +35,7 @@ const FAC = [5.2, 8];
 
 // Pierre de taille : assises régulières, blocs de longueurs variées, joints
 // fins, coulures d'usure. Une tuile = 3 m. Teintée par couleur de sommet.
-function ashlarTexture() {
+export function ashlarTexture() {
   const S = 256;
   const c = document.createElement('canvas');
   c.width = c.height = S;

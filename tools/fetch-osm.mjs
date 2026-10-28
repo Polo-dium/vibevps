@@ -36,6 +36,7 @@ const QUERY = `
   relation["building"](${BBOX});
   way["highway"~"^(primary|secondary|tertiary|residential|pedestrian|living_street|unclassified|service)$"](${BBOX});
   way["highway"~"^(footway|path|cycleway|steps)$"]["bridge"](${BBOX});
+  way["highway"="steps"](${BBOX});
   way["waterway"="river"](${BBOX});
   way["natural"="water"](${BBOX});
   way["waterway"="riverbank"](${BBOX});
@@ -370,6 +371,10 @@ const roads = [];
 // kind : 'road' | 'foot' ; s : bridge:structure (suspension, cable-stayed,
 // arch, beam…) ; n : nom (bridge:name prioritaire, ex. « Pont Bonaparte »).
 const bridges = [];
+// ESCALIERS (highway=steps) : les montées des pentes de la Croix-Rousse et
+// du Vieux Lyon (Grande-Côte, Garillan, Saint-Barthélemy…). n = nom,
+// inc = incline (up/down : sens de la montée par rapport au tracé)
+const steps = [];
 const FOOT_RE = /^(footway|path|cycleway|steps|pedestrian)$/;
 const FOOT_ONLY_RE = /^(footway|path|cycleway|steps)$/; // pas des rues du jeu
 let bound = 200;
@@ -466,6 +471,11 @@ for (const el of data.elements) {
       crayonPoi = [r1(cx), r1(cz), h];
       console.log(`  Tour repérée pour « Le Crayon » : ${el.tags.name} (h=${h})`);
     }
+  } else if (el.tags?.highway === 'steps' && !(el.tags.bridge && el.tags.bridge !== 'no')) {
+    const st = { w: el.tags.width ? Math.min(8, parseFloat(el.tags.width) * SCALE || 2) : 2, p: pts.flat() };
+    if (el.tags.name) st.n = el.tags.name;
+    if (el.tags.incline === 'up' || el.tags.incline === 'down') st.inc = el.tags.incline;
+    steps.push(st);
   } else if (el.tags?.highway) {
     const isBridge = el.tags.bridge && el.tags.bridge !== 'no';
     const foot = FOOT_RE.test(el.tags.highway);
@@ -546,11 +556,12 @@ const out = {
   buildings,
   roads,
   bridges,
+  steps,
 };
 
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
 fs.writeFileSync(OUT, JSON.stringify(out));
 const sizeMb = (fs.statSync(OUT).size / 1e6).toFixed(1);
-console.log(`OK : ${buildings.length} bâtiments, ${roads.length} rues, ${bridges.length} ponts → ${OUT} (${sizeMb} Mo)`);
+console.log(`OK : ${buildings.length} bâtiments, ${roads.length} rues, ${bridges.length} ponts, ${steps.length} escaliers → ${OUT} (${sizeMb} Mo)`);
 console.log('Relance un build pour l’intégrer : npm run build && systemctl restart vibevps');
 console.log('(ou attends simplement le prochain déploiement automatique)');

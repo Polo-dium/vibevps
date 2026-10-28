@@ -30,6 +30,7 @@ import { buildMonuments } from './monuments.js';
 import { buildFuniculaire } from './funicular.js';
 import { buildPasserelles } from './passerelles.js';
 import { collectBridgeSpans, buildRealBridges } from './realBridges.js';
+import { buildPentes, planGrandeCote } from './pentes.js';
 import { createParkedCars } from './parked.js';
 import { buildStreetSigns } from './streetsigns.js';
 
@@ -1015,6 +1016,11 @@ export function buildRealCity(ctx, data) {
     // On remplace l'empreinte OSM générique du musée par le grand modèle en
     // verre : sa zone doit être réservée avant la construction des bâtiments.
     EXTRA_RECTS = [ESPL, PARC, MUSEUM_RECT];
+    // Jardin en terrasses de la montée de la Grande-Côte (world/pentes.js)
+    if (data.relief) {
+      ctx.grandeCote = planGrandeCote(data.scale ?? 0.5);
+      EXTRA_RECTS.push(ctx.grandeCote.reserve);
+    }
     ctx.parkRects = [PARC];
     // Tracé de la ficelle à travers le parc (gare Saint-Jean → esplanade,
     // au sud-est de la basilique) : réservé AVANT la plantation des arbres
@@ -1120,6 +1126,9 @@ export function buildRealCity(ctx, data) {
   if (full) buildMonuments(ctx, data);
   buildOsmBuildings(ctx, data, rand, full);
   buildOsmRoads(ctx, data, full);
+  // Escaliers des pentes, jardin de la Grande-Côte, murs de soutènement
+  // (vrai relief seulement) : après rues et bâtiments, avant les arbres
+  if (full) buildPentes(ctx, data);
   buildGreenery(ctx, data, rand, full);
   if (full) buildConfluenceMuseum(ctx, { x: museumX, z: museumZ, scale: 1.08 });
 
@@ -2980,7 +2989,7 @@ function buildGreenery(ctx, data, rand, full = false) {
         const slope = Math.hypot(H(x + 4, z) - H(x - 4, z), H(x, z + 4) - H(x, z - 4)) / 8;
         // dense sur les balmes, épars sur les replats des collines
         if (pick > (slope > 0.45 ? 0.75 : slope > 0.25 ? 0.4 : 0.06)) continue;
-        if (inWater(x, z) || inReserved(x, z) || onFic(x, z) || ctx.theatre?.covers(x, z)) continue;
+        if (inWater(x, z) || inReserved(x, z) || onFic(x, z) || ctx.theatre?.covers(x, z) || ctx.pentesCovers?.(x, z)) continue;
         if (roadCells.has(Math.floor(x / RC) + ',' + Math.floor(z / RC))) continue;
         let hit = false;
         for (const b of ctx.colliders.nearby ? ctx.colliders.nearby(x, z, 2) : []) {
