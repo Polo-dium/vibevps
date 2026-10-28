@@ -1477,6 +1477,47 @@ function makeGroundDetailTexture() {
 // Béton de trottoir distinct de la chaussée : petites plaques décalées,
 // joints fins et teintes chaudes. Les bords opposés utilisent la même base,
 // donc le raccord de tuile reste discret.
+// PAVÉS lyonnais : rangées de pierres arrondies (granit gris-beige, teintes
+// variées), joints sombres et un peu de mousse. Au palier Élevé, la passe
+// matière (render/enhance.js) en tire le relief et la brillance des joints.
+function makeCobbleTexture() {
+  const S = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = S;
+  const g = canvas.getContext('2d');
+  const rand = makeRand(1977);
+  g.fillStyle = '#3d3a35'; // joints
+  g.fillRect(0, 0, S, S);
+  const rows = 8, h = S / rows;
+  for (let r = 0; r < rows; r++) {
+    let x = r % 2 ? -h * 0.5 : 0;
+    while (x < S) {
+      const w = h * (0.8 + rand() * 0.45);
+      const v = 92 + rand() * 52, warm = rand() * 8;
+      const cx = x + w / 2, cy = r * h + h / 2;
+      // pierre bombée : centre plus clair que les bords
+      const grad = g.createRadialGradient(cx - w * 0.12, cy - h * 0.15, 1, cx, cy, Math.max(w, h) * 0.62);
+      grad.addColorStop(0, `rgb(${v + 20 + warm},${v + 19},${v + 15})`);
+      grad.addColorStop(1, `rgb(${v - 16 + warm},${v - 17},${v - 20})`);
+      g.fillStyle = grad;
+      g.beginPath();
+      g.roundRect(x + 1.8, r * h + 1.8, w - 3.6, h - 3.6, 6);
+      g.fill();
+      // Dans le joint de quelques pavés, un peu de mousse
+      if (rand() < 0.08) {
+        g.fillStyle = 'rgba(70,90,45,0.5)';
+        g.fillRect(x, r * h + h - 3, w * 0.6, 2);
+      }
+      x += w;
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  return tex;
+}
+
 function makeSidewalkTexture() {
   const S = 128;
   const canvas = document.createElement('canvas');
@@ -2243,6 +2284,7 @@ function buildOsmRoads(ctx, data, full = false) {
     ? (x, z) => Math.max(0, ctx.terrainHeight?.(x, z) ?? 0) + 0.06
     : () => 0.045;
   const roadUv = []; // UV de la chaussée : u en travers, v le long (asphalte)
+  const cobble = [], cobbleUv = []; // ruelles pavées
   const ribbon = (arr, x1, z1, x2, z2, half, dy, v0 = null, uvTarget = null) => {
     const dx = x2 - x1, dz = z2 - z1;
     const len = Math.hypot(dx, dz);
@@ -2304,6 +2346,14 @@ function buildOsmRoads(ctx, data, full = false) {
       const x2 = road.p[i + 2], z2 = road.p[i + 3];
       // Allées du site antique : le théâtre a ses propres dallages
       if (ctx.theatre?.covers(x1, z1) || ctx.theatre?.covers(x2, z2)) continue;
+      // Ruelles et rues piétonnes (Vieux Lyon, pentes de la Croix-Rousse,
+      // Presqu'île) : PAVÉS d'un mur à l'autre, sans trottoir
+      if (road.w < 5.5) {
+        // (UV posées plus bas, en coordonnées MONDE : deux ruelles qui se
+        // chevauchent montrent exactement les mêmes pavés, sans raccord)
+        uvAcc += ribbon(cobble, x1, z1, x2, z2, half + 1.0, -0.012, null, null); // sous l'asphalte des carrefours
+        continue;
+      }
       // Trottoir un peu plus large et 2 cm plus bas, chaussée par-dessus
       ribbon(walk, x1, z1, x2, z2, half + 1.6, -0.02, uvAcc, walkUv);
       const len = ribbon(pos, x1, z1, x2, z2, half, 0, uvAcc, roadUv);
@@ -2352,9 +2402,18 @@ function buildOsmRoads(ctx, data, full = false) {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.userData.noShadow = true;
     ctx.scene.add(mesh);
+    return mesh;
   };
   const sidewalkTex = makeSidewalkTexture();
   addMesh(walk, new THREE.MeshLambertMaterial({ map: sidewalkTex }), walkUv);
+  if (cobble.length) {
+    for (let i = 0; i < cobble.length; i += 3) cobbleUv.push(cobble[i] / 2.4, cobble[i + 2] / 2.4);
+    const pv = addMesh(cobble, new THREE.MeshLambertMaterial({
+      map: makeCobbleTexture(),
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+    }), cobbleUv);
+    pv.name = 'pavés';
+  }
   const asphaltTex = makeAsphaltTexture();
   addMesh(pos, new THREE.MeshLambertMaterial({
     map: asphaltTex,
