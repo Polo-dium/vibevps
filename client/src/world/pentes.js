@@ -91,8 +91,15 @@ function stairway(ground, pts, width, parts, idx, { minClimb = 0.8, cheeks = tru
   if (y[0] > y[y.length - 1]) { S.reverse(); y.reverse(); }
   const climb = y[y.length - 1] - y[0];
   if (climb < minClimb) return null;
-  // profil lissé et monotone
+  // profil lissé et monotone, jamais SOUS le sol (le lissage creusait les
+  // bosses : les marches disparaissaient dans l'herbe) — marge de 15 cm
+  // pour le maillage du terrain, plus grossier que la fonction de hauteur
+  const raw = y.slice();
   for (let pass = 0; pass < 4; pass++) for (let i = 1; i + 1 < y.length; i++) y[i] = (y[i - 1] + y[i] * 2 + y[i + 1]) / 4;
+  for (let i = 0; i < y.length; i++) {
+    const [x, z] = S[i];
+    y[i] = Math.max(y[i], raw[i], ground(x - 1, z), ground(x + 1, z), ground(x, z - 1), ground(x, z + 1)) + 0.15;
+  }
   for (let i = 1; i < y.length; i++) y[i] = Math.max(y[i], y[i - 1]);
   // marches : une contremarche dès que le profil dépasse le niveau courant
   const half = width / 2;
@@ -122,11 +129,26 @@ function stairway(ground, pts, width, parts, idx, { minClimb = 0.8, cheeks = tru
     // bloc de la marche (+ nez de marche qui déborde de 3 cm)
     parts.step.push(slab(l + 0.06, width, gLow - 0.5, lv, cx, cz, ax, az));
     idx.add({ ax: xa, az: za, bx: xb, bz: zb, half, y: lv });
-    if (cheeks) {
-      // limons de pierre de part et d'autre, 45 cm au-dessus de la marche
+  }
+  // limons de pierre de part et d'autre : rampants continus (une pièce
+  // inclinée toutes les ~8 marches au lieu d'un bloc par marche)
+  if (cheeks) {
+    for (let t = 0; t < treads.length; t += 8) {
+      const a = treads[t], b = treads[Math.min(treads.length - 1, t + 8)];
+      const [xa, za] = S[a[0]], [xb, zb] = S[b === a ? a[1] : b[0]];
+      const ya = a[2] + 0.45, yb = (b === a ? a[2] : b[2]) + 0.45;
+      const l = Math.hypot(xb - xa, zb - za);
+      if (l < 0.2) continue;
+      const ax = (xb - xa) / l, az = (zb - za) / l;
+      const tilt = Math.atan2(yb - ya, l);
       for (const s of [-1, 1]) {
         const ox = -az * s * (half + 0.15), oz = ax * s * (half + 0.15);
-        parts.stone.push(slab(l + 0.02, 0.3, gLow - 0.5, lv + 0.45, cx + ox, cz + oz, ax, az));
+        const g = new THREE.BoxGeometry(Math.hypot(l, yb - ya) + 0.3, 1.6, 0.3);
+        g.translate(0, -0.8, 0);
+        g.rotateZ(tilt);
+        g.rotateY(-Math.atan2(az, ax));
+        g.translate((xa + xb) / 2 + ox, (ya + yb) / 2, (za + zb) / 2 + oz);
+        parts.stone.push(g);
       }
     }
   }
@@ -138,20 +160,22 @@ function stairway(ground, pts, width, parts, idx, { minClimb = 0.8, cheeks = tru
   }
   const [xe, ze] = S[S.length - 1];
   rail.push([xe, level + 1.0, ze]);
-  for (let i = 0; i + 1 < rail.length; i += 2) {
-    const a = rail[i], b = rail[Math.min(rail.length - 1, i + 2)];
+  for (let i = 0; i + 1 < rail.length; i += 3) {
+    const a = rail[i], b = rail[Math.min(rail.length - 1, i + 3)];
     const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
     const l = d.length();
     if (l < 0.1) continue;
     const ax = (b[0] - a[0]), az = (b[2] - a[2]), lh = Math.hypot(ax, az) || 1;
     const off = [-az / lh * (half - 0.1), ax / lh * (half - 0.1)];
-    const g = new THREE.CylinderGeometry(0.035, 0.035, l, 5, 1, true);
+    const g = new THREE.CylinderGeometry(0.035, 0.035, l, 4, 1, true);
     g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()));
     g.translate((a[0] + b[0]) / 2 + off[0], (a[1] + b[1]) / 2, (a[2] + b[2]) / 2 + off[1]);
     parts.iron.push(g);
-    const post = new THREE.CylinderGeometry(0.03, 0.03, 1.0, 4);
-    post.translate(a[0] + off[0], a[1] - 0.5, a[2] + off[1]);
-    parts.iron.push(post);
+    if (i % 6 === 0) {
+      const post = new THREE.CylinderGeometry(0.03, 0.03, 1.0, 4, 1, true);
+      post.translate(a[0] + off[0], a[1] - 0.5, a[2] + off[1]);
+      parts.iron.push(post);
+    }
   }
   return { climb, len, top: [xe, ze], bottom: S[0] };
 }
@@ -317,7 +341,9 @@ export function buildPentes(ctx, data) {
       const r = stairway(ground, run, st.w, parts, idx, { minClimb: st.steepOnly ? 1.2 : 0.5 });
       if (!r) continue;
       nStairs++;
-      if (st.n && !named.has(st.n)) {
+      // sur la carte : les montées et traboules seulement (une notification
+      // par escalier nommé noyait l'écran en traversant les pentes)
+      if (st.n && !named.has(st.n) && /^(mont[ée]e|.*traboule)/i.test(st.n) && r.climb > 2) {
         named.add(st.n);
         ctx.pois?.push({ id: 'escalier-' + st.n.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\W+/g, '-'), nom: st.n, emoji: '🪜', x: r.bottom[0], z: r.bottom[1] });
       }
