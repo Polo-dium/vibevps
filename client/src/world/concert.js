@@ -21,10 +21,12 @@ const DAY_MS = 86400000;
 const PARIS = 3600000; // la journée change à minuit à Lyon (heure d'hiver)
 const HEAR = 175; // portée du son (m)
 const FULL = 38; // dans la cavea : plein volume
-const SHOW = 420; // au-delà, tout le plateau est masqué (zéro coût)
+const SHOW = 420;
+const ALBUM_DAY0 = 20754; // au-delà, tout le plateau est masqué (zéro coût)
 
 export function concertState(now = Date.now()) {
-  const day = Math.floor((now + PARIS) / DAY_MS);
+  // Rotation ancrée au 28/10/2026 : ce jour-là, le premier titre (le clip)
+  const day = Math.floor((now + PARIS) / DAY_MS) - ALBUM_DAY0;
   const track = ALBUM[((day % ALBUM.length) + ALBUM.length) % ALBUM.length];
   const tomorrow = ALBUM[(((day + 1) % ALBUM.length) + ALBUM.length) % ALBUM.length];
   const cycle = track.duration + GAP;
@@ -249,6 +251,81 @@ export function buildConcert(ctx, P) {
   lyricTex.colorSpace = THREE.SRGBColorSpace;
   const lyricMat = new THREE.MeshBasicMaterial({ map: lyricTex, color: new THREE.Color(1.3, 1.3, 1.3) });
   if (!closeEvery) screenMat.map = lyricTex;
+
+  // LE VRAI CLIP (si le morceau en a un) : <video> muette calée sur la même
+  // horloge que le son, chargée seulement à l'approche
+  let video = null, videoTex = null, videoFile = null, lastVideoSync = 0;
+  function syncVideo(st, near, now) {
+    const clip = st.track.clip;
+    if (!clip || !near) {
+      if (video && !video.paused) video.pause();
+      return false;
+    }
+    if (!video) {
+      video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      videoTex = new THREE.VideoTexture(video);
+      videoTex.colorSpace = THREE.SRGBColorSpace;
+    }
+    if (videoFile !== clip) {
+      videoFile = clip;
+      // H.264 (plus léger) si le navigateur le lit, sinon VP9 (Chromium
+      // libre, certains Linux)
+      const h264 = video.canPlayType('video/mp4; codecs="avc1.4D401E"');
+      video.src = `/clips/${clip}.${h264 ? 'mp4' : 'webm'}`;
+    }
+    if (!st.playing) { if (!video.paused) video.pause(); return video.readyState >= 2; }
+    if (video.paused || (now - lastVideoSync > 1000 && video.readyState >= 2 && Math.abs(video.currentTime - st.t) > 0.3)) {
+      if (now - lastVideoSync > 1000) {
+        lastVideoSync = now;
+        video.currentTime = st.t;
+        video.play().catch(() => {});
+      }
+    }
+    return video.readyState >= 2;
+  }
+  // Titres sans clip : visuels géométriques sur le tempo (canvas léger)
+  const geoCanvas = document.createElement('canvas');
+  geoCanvas.width = 384;
+  geoCanvas.height = 216;
+  const geoTex = new THREE.CanvasTexture(geoCanvas);
+  geoTex.colorSpace = THREE.SRGBColorSpace;
+  function drawGeo(st, t, pulse, energy, lvBass) {
+    const g = geoCanvas.getContext('2d');
+    const W = geoCanvas.width, H = geoCanvas.height;
+    g.fillStyle = 'rgba(6,5,12,0.35)'; // traînées
+    g.fillRect(0, 0, W, H);
+    g.save();
+    g.translate(W / 2, H / 2);
+    const n = 6 + Math.floor(energy * 6);
+    for (let i = 0; i < n; i++) {
+      const r = 18 + i * 14 + pulse * 10;
+      g.rotate(t * 0.15 * (i % 2 ? 1 : -1) + i * 0.4);
+      g.strokeStyle = i % 3 === 0 ? '#ff7a1a' : i % 3 === 1 ? '#f4efe6' : '#7ef0ff';
+      g.lineWidth = 2 + pulse * 3;
+      g.beginPath();
+      const sides = 3 + (i % 4);
+      for (let k = 0; k <= sides; k++) {
+        const a = (k / sides) * Math.PI * 2;
+        g[k ? 'lineTo' : 'moveTo'](Math.cos(a) * r, Math.sin(a) * r);
+      }
+      g.stroke();
+    }
+    g.restore();
+    // barres au sol, façon spectre
+    for (let i = 0; i < 24; i++) {
+      const h = (0.15 + 0.85 * Math.abs(Math.sin(t * 3 + i * 0.7)) * (0.3 + lvBass)) * H * 0.35;
+      g.fillStyle = i % 2 ? '#ff7a1a' : '#f4efe6';
+      g.fillRect(8 + i * 15.6, H - h, 9, h);
+    }
+    g.fillStyle = '#ffffff';
+    g.font = 'bold 20px sans-serif';
+    g.textAlign = 'left';
+    g.fillText(st.track.titre.toUpperCase(), 12, 28);
+    geoTex.needsUpdate = true;
+  }
   for (const s of [-1, 1]) {
     const scr = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 4.8), lyricMat);
     scr.position.copy(L(8.0, s * 7.6, SY + 4.6));
@@ -381,7 +458,7 @@ export function buildConcert(ctx, P) {
 
   // --- Animation -------------------------------------------------------------
   const audio = createConcertAudio();
-  ctx.concert = { audio, state: concertState, levels: () => ({ ...lv, pulse, mouth, energy, beatCount }) };
+  ctx.concert = { audio, state: concertState, get video() { return video; }, levels: () => ({ ...lv, pulse, mouth, energy, beatCount }) };
   const lv = { bass: 0, voice: 0, all: 0 };
   let bassAvg = 0.3, voiceMax = 0.3, allMax = 0.3;
   let pulse = 0, beatCount = 0, lastBeat = 0, mouth = 0, energy = 0;
@@ -521,7 +598,14 @@ export function buildConcert(ctx, P) {
 
     // ÉCRANS (pas à chaque image)
     if (frame % 6 === 1) drawLyrics(st);
-    if (closeEvery && ctx.renderer && d < 180 && frame % closeEvery === 0) {
+    // Écran géant : le clip s'il existe ; sinon gros plans de la chanteuse
+    // (2/3 du temps) et visuels géométriques, en alternance toutes les 8 s
+    const hasClip = syncVideo(st, d < 320, nowMs);
+    const mode = hasClip ? 'clip' : (!closeEvery || Math.floor(st.t / 8) % 3 === 2 ? 'geo' : 'close');
+    const wanted = mode === 'clip' ? videoTex : mode === 'geo' ? geoTex : rt.texture;
+    if (screenMat.map !== wanted) { screenMat.map = wanted; screenMat.needsUpdate = true; }
+    if (mode === 'geo' && d < 180 && frame % 2 === 0) drawGeo(st, time, pulse, energy, lv.bass);
+    if (mode === 'close' && ctx.renderer && d < 180 && frame % closeEvery === 0) {
       // Gros plan qui glisse doucement devant le visage
       s.head.getWorldPosition(headPos);
       headPos.y += 0.12;

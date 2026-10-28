@@ -45,9 +45,12 @@ Télécharge le fichier, renomme-le `clair-de-lune.mp3` (ou adapte le nom dans
 
 ## L'album (concert du théâtre de Fourvière)
 
-`call-me-it.mp3` (« Call Me I, Call Me It ») est le morceau du clip, extrait
-du montage HQ (dépôt videotest). Il est joué en boucle au théâtre
-gallo-romain ; avec plusieurs titres, un par jour (voir `client/src/world/album.js` et
+L'album de la chanteuse : `call-me-it.mp3` (« Call Me I, Call Me It », son
+clip est dans `client/public/clips/` en .mp4 H.264 + .webm VP9, projeté en
+synchro sur l'écran géant) puis Small Hands, Accept All 2,
+Sing-Sing-Singularity, Same Wi-Fi Same Sky, What Do You Do, Hello Human et
+Mind the Gap (MP3 128 kb/s : lisibles par tous les navigateurs). Un titre
+par jour au théâtre gallo-romain (voir `client/src/world/album.js` et
 `client/src/world/concert.js`). Pour ajouter un titre de l'album : déposer
 le MP3 ici et ajouter son entrée (durée, paroles par section) dans
 `album.js` — la rotation quotidienne le prend en compte automatiquement.
