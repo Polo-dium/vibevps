@@ -66,6 +66,12 @@ npm start          # serveur de prod (sert client/dist)
   - `src/world/pigeons.js` : pigeons sculptés en InstancedMesh (corps + 2
     ailes = 3 draw calls), deux volées recyclées vers les coins proches du
     joueur (places, terrasses), envol si on approche (`ctx.scareBirds`).
+  - `src/world/squares.js` : grandes places dallées à leur vraie position GPS
+    (`lyonXZ(lat, lon)` = même projection que `tools/fetch-osm.mjs`),
+    fontaines (Bartholdi aux Terreaux, Jacobins, Saint-Jean), tour
+    métallique de Fourvière. `streetsigns.js` : plaques de rue émaillées
+    pour les grandes rues reconnues à leur tracé réel (jamais de faux nom).
+    `parked.js` : voitures garées en créneau (InstancedMesh par quartier).
   - `src/world/bridge.js` : ponts de pierre de la ville OSM (arches
     surbaissées, piles à becs, balustres instanciés au palier Élevé,
     lampadaires versés dans `buildLamps` via `ctx.bridgeLamps`).

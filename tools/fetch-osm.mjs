@@ -412,7 +412,8 @@ function pointInPoly([x, z], poly) {
 // restent corrects) ; sa position sert juste à poser par-dessus l'habillage
 // cylindrique pointu et cuivré caractéristique (voir buildCrayonLandmark
 // dans cityReal.js).
-const CRAYON_NAME_RE = /part.?dieu|crayon/i;
+// (« Tour Part-Dieu » seulement : « Centre commercial Part-Dieu » passait)
+const CRAYON_NAME_RE = /^tour part.?dieu|crayon/i;
 let crayonPoi = null;
 
 for (const el of data.elements) {

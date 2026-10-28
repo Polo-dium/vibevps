@@ -25,6 +25,9 @@ import { buildConcert } from './concert.js';
 import { riverWaterMaterial } from '../render/water.js';
 import { createPassersby } from './passersby.js';
 import { createTerraces } from './terraces.js';
+import { buildPlacesLyon } from './squares.js';
+import { createParkedCars } from './parked.js';
+import { buildStreetSigns } from './streetsigns.js';
 
 // Construit le vrai Lyon à partir des empreintes OpenStreetMap
 // (client/public/lyon-osm.json, généré par tools/fetch-osm.mjs).
@@ -1033,6 +1036,10 @@ export function buildRealCity(ctx, data) {
     console.info(`🚶 Passants : trottoirs préparés en ${Math.round(performance.now() - t0)} ms`);
     // Terrasses de café devant les devantures « café » et « bouchon »
     ctx.terraces = createTerraces(ctx, ctx.terraceSpots ?? [], data.roads);
+    // Plaques de rue émaillées aux carrefours des grandes rues reconnues
+    buildStreetSigns(ctx, data.roads, data.scale ?? 0.5);
+    // Voitures garées en créneau le long des rues à trottoir
+    createParkedCars(ctx, data.roads);
     // Bars à terrasse sur les quais du fleuve le plus large (le Rhône) :
     // musique, parasols et PNJ installés — chacun son ambiance
     if (widest?.cx) {
@@ -1054,12 +1061,36 @@ export function buildRealCity(ctx, data) {
     const basY = Math.max(0, ctx.terrainHeight(bX, bZ));
     buildBasilica(ctx, bX, bZ, basY);
     buildParcRosaire(ctx, bX + 42, bZ, -215, -152);
+    // Grandes places dallées (Terreaux, Jacobins…), fontaines, tour métallique
+    buildPlacesLyon(ctx, data.scale ?? 0.5);
     // Le théâtre et son concert permanent (un morceau de l'album par jour)
     buildTheatre(ctx, ctx.theatre);
     buildConcert(ctx, ctx.theatre);
     // Le Crayon : repéré par nom dans les données OSM, sinon position
     // approximative (calculée avec la même projection que fetch-osm.mjs)
-    const [crX, crZ, crH] = data.poi?.crayon ?? [1045, -150, 99];
+    let [crX, crZ, crH] = data.poi?.crayon ?? [1045, -150, 99];
+    // Les anciens JSON repéraient « part-dieu » dans N'IMPORTE QUEL nom : ils
+    // ont pu retenir le centre commercial (14 m) à ~250 m de la tour. Si la
+    // hauteur ne colle pas, on prend la vraie : la tour arrondie (contour
+    // détaillé) de plus de 70 m la plus proche
+    if (!(crH > 50)) {
+      let best = null;
+      for (const b of data.buildings) {
+        if (b.h < 70 || b.p.length < 40) continue;
+        let x = 0, z = 0;
+        for (let i = 0; i < b.p.length; i += 2) { x += b.p[i]; z += b.p[i + 1]; }
+        x /= b.p.length / 2; z /= b.p.length / 2;
+        const d = Math.hypot(x - crX, z - crZ);
+        if (d < 400 && (!best || d < best.d)) best = { d, x, z };
+      }
+      if (best) {
+        let top = 0;
+        for (const b of data.buildings) {
+          if (Math.hypot(b.p[0] - best.x, b.p[1] - best.z) < 25) top = Math.max(top, b.h);
+        }
+        [crX, crZ, crH] = [best.x, best.z, Math.max(top, 90)];
+      }
+    }
     buildCrayonLandmark(ctx, crX, crZ, crH, Math.max(0, ctx.terrainHeight(crX, crZ)));
   } else {
     buildFourviere(ctx, legacyHill);
@@ -2016,6 +2047,9 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       );
       tile.wuv.push(u0, vBot, u, vBot, u, vTop, u0, vBot, u, vTop, u0, vTop);
       for (let k = 0; k < 6; k++) tile.wc.push(wallColor.r, wallColor.g, wallColor.b);
+
+      // Murs extérieurs : supports des plaques de rue (streetsigns.js)
+      if (ring === pts && len > 2.5 && h > 5) (ctx.wallSegs ??= []).push([x1, z1, x2, z2, yBase, cx, cz]);
 
       // Façade candidate pour la Fresque des Lyonnais (voir buildMurPeint)
       const FT = ctx.fresqueTarget;
