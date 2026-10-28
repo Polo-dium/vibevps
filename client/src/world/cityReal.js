@@ -1077,7 +1077,7 @@ export function buildRealCity(ctx, data) {
     buildPlacesLyon(ctx, data.scale ?? 0.5);
     // Passerelles piétonnes de la Saône (Palais de Justice, Saint-Georges,
     // Saint-Vincent) — absentes des rues OSM du jeu
-    buildPasserelles(ctx, data.scale ?? 0.5);
+    buildPasserelles(ctx, data);
     // Le théâtre et son concert permanent (un morceau de l'album par jour)
     buildTheatre(ctx, ctx.theatre);
     buildConcert(ctx, ctx.theatre);
