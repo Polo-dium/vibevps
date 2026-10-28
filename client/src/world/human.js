@@ -9,8 +9,8 @@ import { sculpt, withDetails, paint } from '../render/sculpt.js';
 // les autres. Petits détails du visage (yeux, sourcils, bouche) ajoutés en
 // pièces fines dans le même mesh.
 //
-// PERF : 5 meshes par humain (un corps + quatre membres articulés), comme
-// avant. Les formes ne sont calculées qu'UNE fois par modèle (cache) : tous
+// PERF : 7 meshes par humain (un corps, deux jambes, deux bras et deux
+// avant-bras articulés au coude). Les formes ne sont calculées qu'UNE fois par modèle (cache) : tous
 // les humains partagent positions, normales et index sur le GPU, seules
 // leurs couleurs de sommets diffèrent (voir paint()). Grille plus fine au
 // palier Élevé, plus grossière (moins de triangles) ailleurs.
@@ -134,7 +134,18 @@ function faceDetails() {
 }
 
 const legGeo = () => cached(`jambe|${cellSize()}`, () => sculpt(legShape(), { cell: cellSize() }));
-const armGeo = (s) => cached(`bras${s}|${cellSize()}`, () => sculpt(armShape(s), { cell: cellSize() }));
+// Bras en DEUX pièces articulées au coude (ELBOW, repère de l'épaule) :
+// le bras (épaule → coude) et l'avant-bras (coude → main), qui partagent
+// la boule du coude pour que la jointure reste pleine quand il se plie
+const ELBOW = [0, -0.285, 0.006];
+function shiftPrim(p, d) {
+  const q = { ...p };
+  for (const k of ['c', 'a', 'b']) if (q[k]) q[k] = [q[k][0] - d[0], q[k][1] - d[1], q[k][2] - d[2]];
+  return q;
+}
+const armGeo = (s) => cached(`bras${s}|${cellSize()}`, () => sculpt(armShape(s).slice(0, 4), { cell: cellSize() }));
+const foreGeo = (s) => cached(`avantbras${s}|${cellSize()}`,
+  () => sculpt(armShape(s).slice(3).map((p) => shiftPrim(p, ELBOW)), { cell: cellSize() }));
 const bodyGeo = (look) => cached(`corps|${look}|${cellSize()}`,
   () => withDetails(sculpt(bodyShape(look), { cell: cellSize() }), faceDetails()));
 
@@ -178,6 +189,17 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
   const legR = limb(legGeo(), 0.105, 0.86);
   const armL = limb(armGeo(-1), -0.255, 1.41);
   const armR = limb(armGeo(1), 0.255, 1.41);
+  // Avant-bras : pivot au coude, enfant du bras (rotation.x > 0 = plie
+  // le coude vers l'avant)
+  const fore = (arm, s) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(...ELBOW);
+    pivot.add(new THREE.Mesh(paint(foreGeo(s), palette), bodyMat));
+    arm.add(pivot);
+    return pivot;
+  };
+  const foreL = fore(armL, -1);
+  const foreR = fore(armR, 1);
   // Tronc, tête, coiffure : rien ne bouge l'un par rapport à l'autre
   const body = new THREE.Mesh(paint(bodyGeo(look), palette), bodyMat);
   group.add(body);
@@ -190,6 +212,10 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
     legR.rotation.x = -s * swing;
     armL.rotation.x = -s * swing * 0.8;
     armR.rotation.x = s * swing * 0.8;
+    // Coudes souples, plus pliés quand le bras part vers l'avant ; avant-bras
+    // droit tendu s'il tient une arme (accrochée au bras, voir remotes.js)
+    foreL.rotation.x = 0.12 + Math.max(0, -s) * swing * 0.6;
+    foreR.rotation.x = armR.children.length > 2 ? 0 : 0.12 + Math.max(0, s) * swing * 0.6;
     // Léger rebond du corps
     group.position.y = group.userData.baseY ?? 0;
     if (speed > 0.5) {
@@ -224,5 +250,6 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
     // main (voir player/remotes.js), suit le balancement de marche.
     armR,
     armL, // pivot de l'épaule gauche (fans du concert : bras en l'air)
+    foreL, foreR, // pivots des coudes
   };
 }

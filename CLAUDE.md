@@ -55,7 +55,7 @@ npm start          # serveur de prod (sert client/dist)
   - `src/world/bridge.js` : ponts de pierre de la ville OSM (arches
     surbaissées, piles à becs, balustres instanciés au palier Élevé,
     lampadaires versés dans `buildLamps` via `ctx.bridgeLamps`).
-  - `src/world/human.js` (humains sculptés, 5 meshes/humain, géométrie
+  - `src/world/human.js` (humains sculptés, 7 meshes/humain (coudes articulés), géométrie
     partagée, couleurs par sommet) et `src/world/statue.js` (Louis XIV,
     Saint-Exupéry et le Petit Prince).
   - Théâtre gallo-romain de Fourvière (ville OSM) : `theatre.js` (gradins
@@ -64,7 +64,8 @@ npm start          # serveur de prod (sert client/dist)
     `concert.js` (concert permanent : morceau du jour + position de lecture
     déduits de `Date.now()`, son spatial chargé à l'approche, écran géant en
     gros plan via un calque de caméra, faisceaux additifs), `singer.js`
-    (la chanteuse des clips, sculptée), `album.js` (titres, paroles par
+    (la chanteuse des clips : modèle .glb riggé + os de mâchoire ajouté au
+    chargement pour chanter, repli sculpté), `album.js` (titres, paroles par
     section). Ajouter un morceau : MP3 dans `client/public/music/` + une
     entrée dans `album.js`.
   - `src/player/` — contrôles FPS + tactile, arme (modèles détaillés dans

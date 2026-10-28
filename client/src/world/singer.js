@@ -294,6 +294,108 @@ function cleanWeights(mesh) {
   }
 }
 
+// MÂCHOIRE : le modèle Rodin n'a pas d'os de mâchoire. On en ajoute un
+// (enfant de la tête, charnière sous les oreilles) et on lui confie, en
+// fondu, la lèvre inférieure et le menton. La fente des lèvres s'ouvre donc
+// vraiment ; un petit « intérieur de bouche » (dents du haut, ombre, langue)
+// posé sur la commissure en masque l'étirement. Mesures faites sur le profil
+// du visage : commissure 6,2 cm au-dessus de l'os Head et 12,7 cm devant.
+const MOUTH_DY = 0.062, LIPS_DZ = 0.127;
+function mouthTexture() {
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 32;
+  const g = c.getContext('2d');
+  g.fillStyle = '#2a0c0e';
+  g.beginPath(); g.ellipse(32, 16, 31, 15, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#7a2b2e'; // langue
+  g.beginPath(); g.ellipse(32, 30, 18, 9, 0, 0, Math.PI * 2); g.fill();
+  g.save();
+  g.beginPath(); g.ellipse(32, 16, 31, 15, 0, 0, Math.PI * 2); g.clip();
+  g.fillStyle = '#e9e1d4'; // dents du haut
+  g.fillRect(10, 0, 44, 8);
+  g.fillStyle = 'rgba(80,60,50,.35)';
+  for (let x = 16; x < 54; x += 6) g.fillRect(x, 0, 1, 8);
+  g.restore();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function addJaw(bones, meshes) {
+  const sk = meshes.find((m) => m.isSkinnedMesh);
+  if (!sk) return null;
+  const skel = sk.skeleton;
+  const hi = skel.bones.indexOf(bones.Head);
+  if (hi < 0) return null;
+  const headInv = skel.boneInverses[hi];
+  const hp = new THREE.Vector3().setFromMatrixPosition(headInv.clone().invert());
+  const mouthY = hp.y + MOUTH_DY;
+  // Charnière : à hauteur de la bouche, au niveau des oreilles
+  const jawBind = new THREE.Matrix4().makeTranslation(hp.x, mouthY - 0.002, hp.z + 0.005);
+  const jaw = new THREE.Bone();
+  jaw.name = 'Jaw';
+  headInv.clone().multiply(jawBind).decompose(jaw.position, jaw.quaternion, jaw.scale);
+  bones.Head.add(jaw);
+  const jawRest = jaw.quaternion.clone();
+  const ji = skel.bones.length;
+
+  // Poids : lèvre inférieure + menton, fondus vers les joues et le cou
+  const pos = sk.geometry.attributes.position;
+  const si = sk.geometry.attributes.skinIndex, sw = sk.geometry.attributes.skinWeight;
+  const v = new THREE.Vector3();
+  const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  let zLips = hp.z + LIPS_DZ;
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).applyMatrix4(sk.bindMatrix);
+    const dx = Math.abs(v.x - hp.x);
+    if (dx < 0.006 && Math.abs(v.y - mouthY) < 0.006 && v.z > zLips - 0.01) zLips = Math.max(zLips, v.z);
+    const w = ss(mouthY + 0.001, mouthY - 0.007, v.y) // sous la fente des lèvres
+      * ss(hp.y - 0.045, hp.y - 0.005, v.y)         // pas le cou
+      * ss(hp.z + 0.04, hp.z + 0.085, v.z)          // l'avant du visage
+      * (1 - ss(0.035, 0.062, dx));                  // ni les joues
+    if (w <= 0.01) continue;
+    let hs = -1, free = -1;
+    for (let k = 0; k < 4; k++) {
+      if (si.getComponent(i, k) === hi && sw.getComponent(i, k) > 0) hs = k;
+      else if (sw.getComponent(i, k) === 0) free = k;
+    }
+    if (hs < 0) continue;
+    const h = sw.getComponent(i, hs);
+    if (h < 0.3) continue;
+    if (free >= 0) {
+      sw.setComponent(i, hs, h * (1 - w));
+      si.setComponent(i, free, ji);
+      sw.setComponent(i, free, h * w);
+    } else if (w > 0.5) si.setComponent(i, hs, ji);
+  }
+  si.needsUpdate = sw.needsUpdate = true;
+  sk.bind(new THREE.Skeleton([...skel.bones, jaw], [...skel.boneInverses, jawBind.clone().invert()]), sk.bindMatrix);
+
+  // Intérieur de la bouche, posé sur la commissure (repère tête)
+  const holder = new THREE.Group();
+  headInv.clone().multiply(new THREE.Matrix4().makeTranslation(hp.x, mouthY + 0.001, zLips + 0.0015))
+    .decompose(holder.position, holder.quaternion, holder.scale);
+  bones.Head.add(holder);
+  const geo = new THREE.PlaneGeometry(0.04, 1, 8, 1);
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) p.setZ(i, -(p.getX(i) ** 2) / (2 * 0.045)); // épouse l'arrondi des lèvres
+  geo.translate(0, -0.5, 0); // le bord haut reste sur la lèvre supérieure
+  const inside = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    map: mouthTexture(), alphaTest: 0.5, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+  }));
+  inside.visible = false;
+  holder.add(inside);
+  const R = new THREE.Quaternion(), X = new THREE.Vector3(1, 0, 0);
+  return {
+    set(open) {
+      const a = open * 0.14;
+      jaw.quaternion.copy(jawRest).multiply(R.setFromAxisAngle(X, a));
+      const gap = LIPS_DZ * Math.sin(a) * 0.95;
+      inside.visible = gap > 0.0012;
+      inside.scale.y = Math.max(gap, 1e-4);
+    },
+  };
+}
+
 export async function loadSingerModel(url) {
   const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
   const gltf = await new GLTFLoader().loadAsync(url);
@@ -322,6 +424,7 @@ export async function loadSingerModel(url) {
   });
   const need = ['Hips', 'Spine1', 'Neck', 'Head', 'LeftArm', 'RightArm', 'LeftForeArm', 'RightForeArm', 'RightHand'];
   if (need.some((n) => !bones[n])) throw new Error('squelette inattendu');
+  const jaw = addJaw(bones, meshes);
 
   // Pose de repos + repère (modèle) des parents
   const inv = new THREE.Quaternion();
@@ -434,9 +537,11 @@ export async function loadSingerModel(url) {
   }
   return {
     group, head, armL, armR, mouth, spot, meshes, mic,
+    headBone: bones.Head, // vrai Object3D (gros plan de l'écran géant)
     // Appliqué à chaque image après que concert.js a réglé les champs
     apply() {
       for (const m of meshes) m.material.emissiveIntensity = spot.value * 0.9;
+      jaw?.set(Math.min(1, Math.max(0, (mouth.scale.y - 0.25) / 1.3)));
       const sway = group.rotation.z;
       pose(bones.Spine1, [['z', sway * 1.2]]);
       pose(bones.Head, [['x', -head.rotation.x], ['y', head.rotation.y]]);

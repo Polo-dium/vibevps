@@ -606,22 +606,44 @@ export function buildConcert(ctx, P) {
       f.h.group.position.y = hop;
       const tg = st.t - st.track.duration;
       const clapping = !st.playing || (f.wild > 0.55 && energy > 0.75 && Math.sin(time * 0.7 + f.phase) > 0.3);
+      const FL = f.h.foreL.rotation, FR = f.h.foreR.rotation;
       if (clapping) {
-        // Applaudissements : avant-bras devant la poitrine, mains qui se
-        // rejoignent ~4 fois par seconde (au début de la pause, plus vite)
+        // Applaudissements : coudes au corps, avant-bras relevés devant la
+        // poitrine ; les épaules pivotent vers l'intérieur et les paumes se
+        // rejoignent (~3–4 claps/s, plus vite au tout début de la pause).
+        // Les plus fougueux applaudissent au-dessus de la tête.
         const rate = !st.playing && tg < 9 ? 26 : 16;
-        const c = 0.5 + 0.5 * Math.sin(time * rate + f.phase);
-        const raise = !st.playing && f.wild > 0.6 ? 2.2 : 1.25;
-        L.set(raise, -(0.18 + 0.17 * c), 0);
-        R.set(raise, 0.18 + 0.17 * c, 0);
+        const c = 0.5 + 0.5 * Math.sin(time * rate + f.phase); // 0 = mains jointes
+        const high = !st.playing && f.wild > 0.6;
+        if (high) {
+          // bras levés : ils se rejoignent par l'épaule (axe z)
+          const k = 0.36 - 0.18 * c;
+          L.set(2.5, 0, k);
+          R.set(2.5, 0, -k);
+          FL.x = FR.x = 0.3;
+        } else {
+          const yaw = 0.47 - 0.2 * c;
+          L.set(0.45, -yaw, 0);
+          R.set(0.45, yaw, 0);
+          FL.x = FR.x = 1.45;
+        }
       } else if (energy > 0.6 || f.wild > 0.7) {
         // Bras en l'air au refrain, qui ondulent sur le tempo
         L.set(2.7 + Math.sin(time * 3 + f.phase) * 0.25, -0.15, 0);
-        R.set(f.wild > 0.4 ? 2.7 + Math.cos(time * 3 + f.phase) * 0.25 : 0.25 + pulse * 0.3, f.wild > 0.4 ? 0.15 : 0, 0);
+        FL.x = 0.2 + Math.max(0, Math.sin(time * 3 + f.phase)) * 0.3;
+        if (f.wild > 0.4) {
+          R.set(2.7 + Math.cos(time * 3 + f.phase) * 0.25, 0.15, 0);
+          FR.x = 0.2 + Math.max(0, Math.cos(time * 3 + f.phase)) * 0.3;
+        } else {
+          // poing qui bat la mesure
+          R.set(0.35 + pulse * 0.35, 0.1, 0);
+          FR.x = 1.3 + pulse * 0.6;
+        }
       } else {
-        // Au couplet : bras le long du corps qui marquent le temps
-        L.set(0.15 + pulse * 0.35, 0, 0);
-        R.set(0.15 + pulse * 0.35, 0, 0);
+        // Au couplet : bras le long du corps, avant-bras qui marquent le temps
+        L.set(0.12 + pulse * 0.2, 0, 0);
+        R.set(0.12 + pulse * 0.2, 0, 0);
+        FL.x = FR.x = 0.25 + pulse * 0.45;
       }
     }
 
@@ -649,7 +671,7 @@ export function buildConcert(ctx, P) {
     if (mode === 'geo' && d < 180 && frame % 2 === 0) drawGeo(st, time, pulse, energy, lv.bass);
     if (mode === 'close' && ctx.renderer && d < 180 && frame % closeEvery === 0) {
       // Gros plan qui glisse doucement devant le visage
-      s.head.getWorldPosition(headPos);
+      (s.headBone ?? s.head).getWorldPosition(headPos); // os Head du modèle riggé
       headPos.y += 0.12;
       tmp.set(Math.sin(time * 0.17) * 0.6, 0.05, -1.7).applyQuaternion(s.group.getWorldQuaternion(new THREE.Quaternion()));
       closeCam.position.copy(headPos).add(tmp);
