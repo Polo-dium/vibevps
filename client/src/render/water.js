@@ -67,6 +67,7 @@ export function riverWaterMaterial() {
   if (shared) return shared;
   const waveMap = waveNormalTexture();
   const time = { value: 0 };
+  const night = { value: 0 };
   const mat = new THREE.MeshStandardMaterial({
     color: 0x1f3a3c,
     roughness: 0.06,
@@ -76,6 +77,7 @@ export function riverWaterMaterial() {
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.waveMap = { value: waveMap };
     shader.uniforms.waveTime = time;
+    shader.uniforms.waterNight = night;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vWaterPos;')
       .replace('#include <project_vertex>', `#include <project_vertex>
@@ -85,6 +87,7 @@ export function riverWaterMaterial() {
         uniform sampler2D waveMap;
         uniform float waveTime;
         varying vec3 vWaterPos;
+        uniform float waterNight;
         vec3 wWaterN = vec3(0.0, 1.0, 0.0);`)
       // Rugosité qui monte avec la distance (anti-scintillement)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
@@ -116,10 +119,29 @@ export function riverWaterMaterial() {
         float sky = smoothstep(0.03, 0.2, rdir.y);
         vec3 bank = vec3(0.16, 0.15, 0.12) * dot(reflectedLight.indirectSpecular, vec3(0.33)) * 2.2;
         reflectedLight.indirectSpecular = mix(bank, reflectedLight.indirectSpecular, sky);
+        // NUIT : fenêtres éclairées et lampadaires des quais se reflètent en
+        // colonnes dorées, étirées et brisées par les rides (le rayon
+        // réfléchi tremble avec la normale). Colonnes indexées par l'azimut
+        // du reflet : une silhouette de ville lointaine, sans rendu en plus.
+        if (waterNight > 0.01) {
+          float az = atan(rdir.z, rdir.x);
+          float band = smoothstep(-0.01, 0.025, rdir.y) * smoothstep(0.17, 0.06, rdir.y);
+          float c1 = az * 160.0;
+          float h1 = fract(sin(floor(c1) * 91.7) * 43758.5453);
+          float win = step(0.58, h1) * (0.4 + 0.6 * fract(h1 * 13.1)) * smoothstep(0.5, 0.15, abs(fract(c1) - 0.5));
+          float c2 = az * 34.0;
+          float h2 = fract(sin(floor(c2) * 47.3) * 24634.6345);
+          float lamp = step(0.55, h2) * smoothstep(0.5, 0.08, abs(fract(c2) - 0.5))
+            * smoothstep(-0.01, 0.02, rdir.y) * smoothstep(0.32, 0.08, rdir.y);
+          // seulement sur l'eau éloignée (on y voit vraiment les quais en
+          // reflet), atténué par l'angle : pas de zébrures sous les pieds
+          float far = smoothstep(4.0, 26.0, wDist) * (1.0 - sky * 0.7);
+          reflectedLight.indirectSpecular += (vec3(1.0, 0.66, 0.32) * win * band * 0.4 + vec3(1.0, 0.78, 0.5) * lamp * 1.1) * waterNight * far;
+        }
       }`);
   };
   mat.customProgramCacheKey = () => 'eau-fleuve';
-  mat.userData.tick = (dt) => { time.value += dt; };
+  mat.userData.tick = (dt, n = 0) => { time.value += dt; night.value = globalThis.__forceNight ?? n; }; // (__forceNight : débogage)
   shared = mat;
   return mat;
 }

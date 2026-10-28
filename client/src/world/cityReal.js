@@ -506,7 +506,7 @@ function buildWaterSurfaces(ctx, polys) {
     mesh.position.y = WATER_Y + (i % 3) * 0.02;
     ctx.scene.add(mesh);
   });
-  ctx.updatables.push((dt) => mat.userData.tick(dt));
+  ctx.updatables.push((dt) => mat.userData.tick(dt, ctx.env?.night ?? 0));
 }
 
 // Ruban aval du Rhône : prolonge visuellement et physiquement le fleuve au

@@ -60,6 +60,9 @@ npm start          # serveur de prod (sert client/dist)
   - `src/render/road.js` : chaussée et pavés qui se mouillent après l'averse
     partagée (`rainAmount`), flaques le long des caniveaux (miroirs au palier
     Élevé, reflets rasants assombris = façades d'en face).
+  - `src/world/pigeons.js` : pigeons sculptés en InstancedMesh (corps + 2
+    ailes = 3 draw calls), deux volées recyclées vers les coins proches du
+    joueur (places, terrasses), envol si on approche (`ctx.scareBirds`).
   - `src/world/bridge.js` : ponts de pierre de la ville OSM (arches
     surbaissées, piles à becs, balustres instanciés au palier Élevé,
     lampadaires versés dans `buildLamps` via `ctx.bridgeLamps`).
