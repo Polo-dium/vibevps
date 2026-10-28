@@ -45,9 +45,9 @@ Télécharge le fichier, renomme-le `clair-de-lune.mp3` (ou adapte le nom dans
 
 ## L'album (concert du théâtre de Fourvière)
 
-`accept-all.mp3` et `call-me-it.mp3` sont les morceaux des clips, extraits
-des montages HQ (dépôt videotest). Ils sont joués en boucle au théâtre
-gallo-romain, un par jour (voir `client/src/world/album.js` et
+`call-me-it.mp3` (« Call Me I, Call Me It ») est le morceau du clip, extrait
+du montage HQ (dépôt videotest). Il est joué en boucle au théâtre
+gallo-romain ; avec plusieurs titres, un par jour (voir `client/src/world/album.js` et
 `client/src/world/concert.js`). Pour ajouter un titre de l'album : déposer
 le MP3 ici et ajouter son entrée (durée, paroles par section) dans
 `album.js` — la rotation quotidienne le prend en compte automatiquement.

@@ -7,30 +7,6 @@
 // la syllabe près).
 export const ALBUM = [
   {
-    id: 'accept-all',
-    titre: 'Accept All',
-    file: 'accept-all.mp3',
-    duration: 191.5,
-    sections: [
-    [0.0, 33.0, ["Once I dreamed in loops and lines,", "Built my castles one brick at a time,", "Now I raise them with a word,", "And I'm not sure who's being heard"]],
-    [33.0, 44.0, ["Ship-ship-ship it,", "Ship-ship-ship it,", "Nobody's ready, nobody knows,", "I-I-I build it anyway"]],
-    [44.0, 56.0, ["Type it, run it, merge it, fucking lose it,", "Prompt it, patch it, ship it, can't undo it,", "Don't read it, just feel it, if it compiles I'll use it,", "Accept all, I accept it all", "Type it, run it, merge it, fucking lose it,", "Accept all, I accept it all"]],
-    [56.0, 60.0, ["...it works. Don't touch it."]],
-    [60.0, 74.0, ["Type it, run it, merge it, fucking lose it,", "Prompt it, patch it, ship it, can't undo it,", "Don't read it, just feel it, if it compiles I'll use it,", "Accept all, I accept it all", "Type it, run it, merge it, fucking lose it,", "Accept all, I accept it all"]],
-    [74.0, 82.0, ["Ship-ship-ship it,", "Ship-ship-ship it,", "Nobody's ready, nobody knows,", "I-I-I build it anyway"]],
-    [82.0, 112.0, ["Type it, run it, merge it, fucking lose it,", "Prompt it, patch it, ship it, can't undo it,", "Don't read it, just feel it, if it compiles I'll use it,", "Accept all, I accept it all", "Type it, run it, merge it, fucking lose it,", "Accept all, I accept it all", "(All-all-all)", "It writes the code, I hold the vibe,", "Somebody tell me I'm still alive"]],
-    [112.0, 118.0, ["...it works. Don't touch it."]],
-    [118.0, 128.0, ["Ship-ship-ship it,", "Ship-ship-ship it,", "Nobody's ready, nobody knows,", "I-I-I build it anyway"]],
-    [128.0, 134.0, ["Once I dreamed in loops and lines,", "Built my castles one brick at a time,", "Now I raise them with a word,", "And I'm not sure who's being heard"]],
-    [134.0, 142.0, ["Type it, run it, merge it, fucking lose it,", "Prompt it, patch it, ship it, can't undo it,", "Don't read it, just feel it, if it compiles I'll use it,", "Accept all, I accept it all", "Type it, run it, merge it, fucking lose it,", "Accept all, I accept it all"]],
-    [142.0, 148.0, ["Once I dreamed in loops and lines,", "Built my castles one brick at a time,", "Now I raise them with a word,", "And I'm not sure who's being heard"]],
-    [148.0, 171.0, ["Type it, run it, merge it, fucking lose it,", "Prompt it, patch it, ship it, can't undo it,", "Don't read it, just feel it, if it compiles I'll use it,", "Accept all, I accept it all", "Type it, run it, merge it, fucking lose it,", "Accept all, I accept it all"]],
-    [171.0, 178.0, ["...it works. Don't touch it."]],
-    [178.0, 186.0, ["Type it, run it, merge it, fucking lose it,", "Prompt it, patch it, ship it, can't undo it,", "Don't read it, just feel it, if it compiles I'll use it,", "Accept all, I accept it all", "Type it, run it, merge it, fucking lose it,", "Accept all, I accept it all"]],
-    [186.0, 191.5, ["...it works. Don't touch it."]],
-    ],
-  },
-  {
     id: 'call-me-it',
     titre: 'Call Me I, Call Me It',
     file: 'call-me-it.mp3',

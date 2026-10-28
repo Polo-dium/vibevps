@@ -373,7 +373,9 @@ export function buildConcert(ctx, P) {
     label: 'E — Programme du concert',
     action: () => {
       const st = concertState();
-      ctx.notify?.(`🎤 Ce soir à Fourvière : « ${st.track.titre} » en boucle. Demain : « ${st.tomorrow.titre} ».`);
+      ctx.notify?.(st.tomorrow === st.track
+        ? `🎤 À Fourvière : « ${st.track.titre} » en boucle, tous les jours.`
+        : `🎤 Ce soir à Fourvière : « ${st.track.titre} » en boucle. Demain : « ${st.tomorrow.titre} ».`);
     },
   });
 
