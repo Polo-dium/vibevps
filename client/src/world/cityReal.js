@@ -2012,11 +2012,18 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
         const ys0 = yBase + 0.08;
         const ys1 = Math.min(yBase + 3.15, y1 - 0.15);
         const units = Math.max(1, Math.round(len / 4.5));
-        shopPos.push(
-          x1, ys0, z1, x2, ys0, z2, x2, ys1, z2,
-          x1, ys0, z1, x2, ys1, z2, x1, ys1, z1
-        );
-        shopUv.push(0, 0, units, 0, units, 1, 0, 0, units, 1, 0, 1);
+        // Un quad par module : chacun son commerce (case de l'atlas)
+        for (let k = 0; k < units; k++) {
+          const ta = k / units, tb = (k + 1) / units;
+          const ax = x1 + (x2 - x1) * ta, az = z1 + (z2 - z1) * ta;
+          const bx = x1 + (x2 - x1) * tb, bz = z1 + (z2 - z1) * tb;
+          shopPos.push(
+            ax, ys0, az, bx, ys0, bz, bx, ys1, bz,
+            ax, ys0, az, bx, ys1, bz, ax, ys1, az
+          );
+          const [u0, u1, v0, v1] = shopCellUv(hash2(bi * 131 + i * 17 + k * 7) % SHOPS.length);
+          shopUv.push(u0, v0, u1, v0, u1, v1, u0, v0, u1, v1, u0, v1);
+        }
       }
     }
 
@@ -2714,44 +2721,67 @@ function makeTreeBillboardTexture() {
 // la carte ÉMISSIVE assortie : la nuit, seuls la vitrine, la porte et les
 // lettres de l'enseigne s'allument (avant, tout le rez-de-chaussée luisait
 // comme un bloc orange uni).
-function makeShopfrontTexture() {
+// HUIT COMMERCES dans un atlas (2 × 4 cases de 192 × 128) : un seul
+// maillage, une seule texture pour tous les rez-de-chaussée de la ville,
+// mais chaque module de vitrine (4,5 m) pioche son commerce. Carte émissive
+// assortie : la nuit, seules l'enseigne, la vitrine et la porte s'allument.
+const SHOPS = [
+  { nom: 'BOULANGERIE', band: '#5a3a22', ink: '#f2d28a', awn: ['#c98b3a', '#f3e6c8'], goods: ['#d9a35a', '#c27b3a', '#f0d79a', '#a8662c'] },
+  { nom: 'PHARMACIE', band: '#e9efe9', ink: '#1f8a4c', awn: ['#2e9e5b', '#eef3ee'], goods: ['#e8eef2', '#9fc7d8', '#d64b4b', '#ffffff'], cross: true },
+  { nom: 'TABAC PRESSE', band: '#262b36', ink: '#f2f2f2', awn: ['#c43c35', '#262b36'], goods: ['#3a6db0', '#e0b04a', '#c43c35', '#eaeaea'], carotte: true },
+  { nom: 'LIBRAIRIE', band: '#2c3b2c', ink: '#e8dcb8', awn: ['#4b6b3e', '#e8dcb8'], goods: ['#7a3b2e', '#2e4a6b', '#c9a548', '#4b6b3e', '#e8e0d0'] },
+  { nom: 'BOUCHON LYONNAIS', band: '#5c1d1d', ink: '#f0d9a0', awn: ['#b22b2b', '#f2ead8'], goods: ['#f2ead8', '#b22b2b', '#3a2a20'], vichy: true },
+  { nom: 'FLEURISTE', band: '#3f5a3a', ink: '#f7e9f0', awn: ['#d86a9a', '#f7eef2'], goods: ['#e04b7a', '#f2c94c', '#ffffff', '#9b59b6', '#5aa05a'] },
+  { nom: 'CAFÉ DES GONES', band: '#1f3242', ink: '#f2cf72', awn: ['#1f5a7a', '#efe5d1'], goods: ['#6b4a2f', '#e8e0d0', '#c0533f', '#d9a35a'] },
+  { nom: 'MODE', band: '#141414', ink: '#ffffff', awn: ['#141414', '#e9e4dc'], goods: ['#c0c0c8', '#8a2f45', '#2f4a8a', '#e9e4dc'] },
+];
+function drawShop(g, e, ox, oy, S) {
   const W = 192, H = 128;
-  const canvas = document.createElement('canvas');
-  canvas.width = W; canvas.height = H;
-  const g = canvas.getContext('2d');
-  const emi = document.createElement('canvas');
-  emi.width = W; emi.height = H;
-  const e = emi.getContext('2d');
+  g.save(); e.save();
+  g.translate(ox, oy); e.translate(ox, oy);
+  g.beginPath(); g.rect(0, 0, W, H); g.clip();
+  e.beginPath(); e.rect(0, 0, W, H); e.clip();
   e.fillStyle = '#000'; e.fillRect(0, 0, W, H);
   // Pierre de taille + joints
   g.fillStyle = '#8a857a'; g.fillRect(0, 0, W, H);
   g.fillStyle = 'rgba(40,38,34,.35)';
   for (let y = 8; y < H; y += 16) g.fillRect(0, y, 6, 1.5);
-  // Bandeau d'enseigne et lettres dorées
-  g.fillStyle = '#1f3242'; g.fillRect(6, 5, W - 12, 25);
-  g.fillStyle = '#c9a548'; g.fillRect(6, 5, W - 12, 2); g.fillRect(6, 28, W - 12, 2);
-  g.fillStyle = '#f2cf72'; e.fillStyle = '#ffd98a';
-  for (let x = 22; x < W - 22; x += 15) {
-    const hgt = 7 + ((x * 7) % 5);
-    g.fillRect(x, 17 - hgt / 2, 9, hgt);
-    e.fillRect(x, 17 - hgt / 2, 9, hgt);
-  }
+  // Bandeau d'enseigne + vrai nom du commerce
+  g.fillStyle = S.band; g.fillRect(6, 5, W - 12, 25);
+  g.fillStyle = 'rgba(201,165,72,.9)'; g.fillRect(6, 5, W - 12, 2); g.fillRect(6, 28, W - 12, 2);
+  let px = 17;
+  g.font = `bold ${px}px Georgia, serif`;
+  while (px > 9 && g.measureText(S.nom).width > W - 30) { px -= 1; g.font = `bold ${px}px Georgia, serif`; }
+  e.font = g.font;
+  g.textAlign = e.textAlign = 'center';
+  g.textBaseline = e.textBaseline = 'middle';
+  g.fillStyle = S.ink; g.fillText(S.nom, W / 2, 18);
+  e.fillStyle = S.ink; e.fillText(S.nom, W / 2, 18);
   // Store rayé avec lambrequin festonné et ombre portée
   for (let x = 6; x < W - 6; x += 14) {
-    g.fillStyle = (x / 14) % 2 < 1 ? '#b8443b' : '#efe5d1';
+    g.fillStyle = S.awn[Math.floor((x - 6) / 14) % 2];
     g.fillRect(x, 31, 14, 12);
     g.beginPath(); g.arc(x + 7, 43, 7, 0, Math.PI); g.fill();
   }
   g.fillStyle = 'rgba(0,0,0,.28)'; g.fillRect(6, 50, W - 12, 6);
-  // Vitrine : intérieur chaud, étagères et silhouettes de produits
+  // Vitrine : intérieur chaud, étagères et produits du commerce
   g.fillStyle = '#2b2620'; g.fillRect(10, 52, 112, 66);
   e.fillStyle = '#5a4630'; e.fillRect(10, 52, 112, 66);
+  if (S.vichy) {
+    // rideaux bistrot à carreaux rouges, à mi-hauteur
+    for (let y = 86; y < 118; y += 6) for (let x = 10; x < 122; x += 6) {
+      g.fillStyle = ((x + y) / 6) % 2 < 1 ? '#b22b2b' : '#f2ead8';
+      g.fillRect(x, y, 6, 6);
+    }
+  }
   for (const y of [72, 92, 112]) {
+    if (S.vichy && y > 80) continue;
     g.fillStyle = '#6b5640'; g.fillRect(12, y, 108, 3);
     for (let x = 16; x < 116; x += 9 + ((x * 3) % 6)) {
       const hh = 6 + ((x * 13 + y) % 9);
-      g.fillStyle = ['#c0533f', '#e0b04a', '#5f8fb0', '#e8e0d0', '#6e9a54'][(x + y) % 5];
-      g.fillRect(x, y - hh, 6, hh);
+      g.fillStyle = S.goods[(x + y) % S.goods.length];
+      if (S === SHOPS[5]) { g.beginPath(); g.arc(x + 3, y - hh / 2, 4, 0, Math.PI * 2); g.fill(); } // bouquets
+      else g.fillRect(x, y - hh, 6, hh);
       e.fillStyle = '#a8865a'; e.fillRect(x, y - hh, 6, hh);
     }
   }
@@ -2770,17 +2800,46 @@ function makeShopfrontTexture() {
   g.fillStyle = 'rgba(170,205,225,.35)'; g.fillRect(140, 52, 38, 26);
   e.fillStyle = '#6a5236'; e.fillRect(140, 52, 38, 52);
   g.fillStyle = '#d6b45c'; g.fillRect(170, 82, 4, 10);
+  // Croix verte de pharmacie, carotte de tabac : sur la vitre de la porte
+  if (S.cross) {
+    for (const ctx2 of [g, e]) {
+      ctx2.fillStyle = '#2ecc71';
+      ctx2.fillRect(150, 62, 18, 6); ctx2.fillRect(156, 56, 6, 18);
+    }
+  }
+  if (S.carotte) {
+    for (const ctx2 of [g, e]) {
+      ctx2.fillStyle = '#e03a2f';
+      ctx2.beginPath(); ctx2.moveTo(159, 54); ctx2.lineTo(167, 65); ctx2.lineTo(159, 76); ctx2.lineTo(151, 65); ctx2.closePath(); ctx2.fill();
+    }
+  }
   // Soubassement + seuil
   g.fillStyle = '#5c584f'; g.fillRect(0, 118, W, 4);
   g.fillStyle = '#343331'; g.fillRect(0, 122, W, 6);
+  g.restore(); e.restore();
+}
+function makeShopfrontTexture() {
+  const W = 192 * 2, H = 128 * 4;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const emi = document.createElement('canvas');
+  emi.width = W; emi.height = H;
+  const g = canvas.getContext('2d'), e = emi.getContext('2d');
+  SHOPS.forEach((S, k) => drawShop(g, e, (k % 2) * 192, Math.floor(k / 2) * 128, S));
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   const emiTex = new THREE.CanvasTexture(emi);
   emiTex.colorSpace = THREE.SRGBColorSpace;
-  emiTex.wrapS = emiTex.wrapT = THREE.RepeatWrapping;
   tex.userData.emissive = emiTex;
   return tex;
+}
+// UV de la case k de l'atlas (avec une marge d'un demi-texel)
+function shopCellUv(k) {
+  const col = k % 2, row = Math.floor(k / 2);
+  const u0 = col / 2 + 0.002, u1 = (col + 1) / 2 - 0.002;
+  // CanvasTexture : flipY, la ligne 0 du canvas est en HAUT (v = 1)
+  const v1 = 1 - row / 4 - 0.002, v0 = 1 - (row + 1) / 4 + 0.002;
+  return [u0, u1, v0, v1];
 }
 
 // Cellule de fenêtre unique, répétée tous les 3 m. Quasi blanche : elle est
