@@ -26,6 +26,7 @@ import { riverWaterMaterial } from '../render/water.js';
 import { createPassersby } from './passersby.js';
 import { createTerraces } from './terraces.js';
 import { buildPlacesLyon } from './squares.js';
+import { buildMonuments } from './monuments.js';
 import { createParkedCars } from './parked.js';
 import { buildStreetSigns } from './streetsigns.js';
 
@@ -1003,6 +1004,9 @@ export function buildRealCity(ctx, data) {
   }
 
   buildWater(ctx, data.water, bound, zConf);
+  // Cathédrale Saint-Jean, Hôtel de Ville, Opéra… : leur empreinte OSM est
+  // marquée b.monument (sautée ci-dessous) et le vrai profil bâti à la place
+  if (full) buildMonuments(ctx, data);
   buildOsmBuildings(ctx, data, rand, full);
   buildOsmRoads(ctx, data, full);
   buildGreenery(ctx, data, rand, full);
@@ -2015,6 +2019,9 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       roofColor.set(ROOF_TINTS[hash2(bi * 7 + 3) % ROOF_TINTS.length])
         .offsetHSL(0, 0, (rand() - 0.5) * 0.05);
     }
+    // Monument bâti à part (world/monuments.js) : sauté APRÈS les rand() de
+    // teinte, la séquence des immeubles suivants reste identique
+    if (b.monument) continue;
 
     // Sur la ville complète, le bâtiment est posé sur le terrain (pentes de
     // la Croix-Rousse, flanc de Fourvière) avec une jupe enterrée de 2 m

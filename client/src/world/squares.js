@@ -234,9 +234,12 @@ export function buildPlacesLyon(ctx, scale = 0.5) {
   const geos = [];
   const jets = [];
   for (const [nom, lat, lon, w, d, rot, kind] of PLACES) {
-    const [x, z] = lyonXZ(lat, lon, scale);
+    // Place recalée sur son monument (Saint-Jean : devant la façade de la
+    // cathédrale, voir world/monuments.js) : [x, z, angle]
+    const ov = ctx.placeOverrides?.[nom];
+    const [x, z] = ov ?? lyonXZ(lat, lon, scale);
     if (ctx.waterMask?.isWater(x, z)) continue;
-    geos.push(paving(ctx, x, z, w * scale, d * scale, (rot * Math.PI) / 180));
+    geos.push(paving(ctx, x, z, w * scale, d * scale, ov ? ov[2] : (rot * Math.PI) / 180));
     if (kind) {
       // Bartholdi : côté nord de la place, face à l'Hôtel de Ville
       const fz = kind === 'bartholdi' ? z - d * scale * 0.18 : z;
