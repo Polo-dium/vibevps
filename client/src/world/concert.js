@@ -226,9 +226,9 @@ export function buildConcert(ctx, P) {
   // ÉCRAN GÉANT (gros plan en direct) + cadre
   const SCREEN = { w: 9.2, h: 5.18, a: 8.5, y: SY + 2.4 + 2.59 };
   const rt = new THREE.WebGLRenderTarget(512, 288, { type: THREE.HalfFloatType });
-  // Gros plan : un petit rendu de plus toutes les 2 images (Élevé), 4
+  // Gros plan : un petit rendu de plus toutes les 3 images (Élevé), 6
   // (Moyen) ; au palier Bas, aucun rendu en plus — l'écran montre les paroles
-  const closeEvery = detail.level === 'eleve' ? 2 : detail.level === 'moyen' ? 4 : 0;
+  const closeEvery = detail.level === 'eleve' ? 3 : detail.level === 'moyen' ? 6 : 0;
   const screenMat = new THREE.MeshBasicMaterial({ map: rt.texture, color: new THREE.Color(0.95, 0.95, 0.95) });
   const screen = new THREE.Mesh(new THREE.PlaneGeometry(SCREEN.w, SCREEN.h), screenMat);
   screen.position.copy(L(SCREEN.a - 0.02, 0, SCREEN.y));
@@ -386,7 +386,7 @@ export function buildConcert(ctx, P) {
     beam.userData.noShadow = true;
     pivot.add(beam);
     root.add(pivot);
-    heads.push({ pivot, mat, k });
+    heads.push({ pivot, mat, k, beam });
   }
   // Rond de poursuite sur le plancher, sous la chanteuse
   const spotTex = (() => {
@@ -412,10 +412,6 @@ export function buildConcert(ctx, P) {
   const singer = buildSinger();
   singer.group.position.copy(L(4.2, 0, SY));
   root.add(singer.group);
-  // Calque réservé au gros plan de l'écran géant
-  const CLOSE = 3;
-  singer.group.traverse((o) => o.layers.enable(CLOSE));
-  ctx.scene.traverse((o) => { if (o.isLight) o.layers.enable(CLOSE); });
   // Le VRAI modèle (public/models/chanteuse.glb, ~4 Mo) remplace la
   // version sculptée à l'approche du théâtre — pas au palier Bas (mémoire
   // des téléphones). En cas d'échec, la sculptée reste en scène.
@@ -425,7 +421,6 @@ export function buildConcert(ctx, P) {
     rigState = 'loading';
     loadSingerModel('/models/chanteuse.glb').then((m) => {
       m.group.position.copy(singer.group.position);
-      m.group.traverse((o) => o.layers.enable(CLOSE));
       root.add(m.group);
       singer.group.visible = false;
       rig = m;
@@ -454,10 +449,21 @@ export function buildConcert(ctx, P) {
     fans.push({ h, phase: rand() * Math.PI * 2, wild: rand() });
   }
 
-  // Gros plan : petite caméra qui filme la chanteuse (calque CLOSE seul)
+  // Gros plan : petite caméra qui filme la chanteuse dans une SCÈNE À PART
+  // (elle y est déplacée le temps du rendu) : avant, chaque gros plan
+  // reparcourait les ~4 400 objets de la ville pour n'en dessiner qu'un.
+  // La petite scène porte la transformation du théâtre (même place exacte)
+  // et ses propres projecteurs.
   const closeCam = new THREE.PerspectiveCamera(26, 16 / 9, 0.05, 30);
-  closeCam.layers.set(CLOSE);
+  closeCam.layers.enableAll();
   const closeBg = new THREE.Color(0x07070c);
+  const closeScene = new THREE.Scene();
+  closeScene.background = closeBg;
+  closeScene.matrixAutoUpdate = false;
+  closeScene.add(new THREE.HemisphereLight(0xfff4ea, 0x2a2438, 0.75));
+  const closeKey = new THREE.DirectionalLight(0xfff1e0, 0.95);
+  closeScene.add(closeKey);
+  ctx.concertClose = { closeScene, closeCam, rt, root }; // lu par les tests (?debug)
   const headPos = new THREE.Vector3();
   const tmp = new THREE.Vector3();
 
@@ -650,7 +656,11 @@ export function buildConcert(ctx, P) {
     // FAISCEAUX : balayages lents + couleur au fil des mesures, plus
     // visibles la nuit (le jour, à peine un voile)
     const hue = (Math.floor(beatCount / 8) * 0.13) % 1;
+    // De jour, les faisceaux ne sont qu'un voile à peine visible mais
+    // couvrent beaucoup de pixels en additif : on ne les dessine que le soir
+    const beamsOn = night > 0.12;
     for (const h of heads) {
+      h.beam.visible = beamsOn;
       const ph = time * 0.7 + h.k * 0.8;
       h.pivot.rotation.x = 0.55 + Math.sin(ph) * 0.3; // vers le public
       h.pivot.rotation.z = Math.sin(ph * 0.6 + h.k) * 0.5;
@@ -668,7 +678,7 @@ export function buildConcert(ctx, P) {
     const mode = hasClip ? 'clip' : (!closeEvery || Math.floor(st.t / 8) % 3 === 2 ? 'geo' : 'close');
     const wanted = mode === 'clip' ? videoTex : mode === 'geo' ? geoTex : rt.texture;
     if (screenMat.map !== wanted) { screenMat.map = wanted; screenMat.needsUpdate = true; }
-    if (mode === 'geo' && d < 180 && frame % 2 === 0) drawGeo(st, time, pulse, energy, lv.bass);
+    if (mode === 'geo' && d < 180 && frame % 3 === 0) drawGeo(st, time, pulse, energy, lv.bass);
     if (mode === 'close' && ctx.renderer && d < 180 && frame % closeEvery === 0) {
       // Gros plan qui glisse doucement devant le visage
       (s.headBone ?? s.head).getWorldPosition(headPos); // os Head du modèle riggé
@@ -677,16 +687,23 @@ export function buildConcert(ctx, P) {
       closeCam.position.copy(headPos).add(tmp);
       closeCam.lookAt(headPos.x, headPos.y - 0.05, headPos.z);
       const r = ctx.renderer;
-      // (brume gardée : à 1,7 m elle est nulle, et l'enlever changerait de
-      // shader à chaque image)
-      const prevBg = ctx.scene.background, prevAuto = r.shadowMap.autoUpdate;
-      ctx.scene.background = closeBg;
+      // projecteur face à la chanteuse, côté caméra (repère du théâtre)
+      closeKey.position.copy(closeCam.position);
+      root.worldToLocal(closeKey.position);
+      closeKey.target = s.group;
+      closeScene.matrix.copy(root.matrixWorld);
+      closeScene.matrixWorldNeedsUpdate = true;
+      // (même brume et mêmes reflets que la ville : mêmes shaders)
+      closeScene.fog = ctx.scene.fog;
+      closeScene.environment = ctx.scene.environment;
+      const prevAuto = r.shadowMap.autoUpdate;
       r.shadowMap.autoUpdate = false; // les ombres de l'image principale suffisent
+      closeScene.add(s.group); // le temps du rendu
       r.setRenderTarget(rt);
-      r.render(ctx.scene, closeCam);
+      r.render(closeScene, closeCam);
       r.setRenderTarget(null);
+      root.add(s.group);
       r.shadowMap.autoUpdate = prevAuto;
-      ctx.scene.background = prevBg;
     }
   });
 }

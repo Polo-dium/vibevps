@@ -189,7 +189,10 @@ npm start          # serveur de prod (sert client/dist)
     `ctx.terrainMeshHeight` garde le maillage du sol sous la pierre),
     `concert.js` (concert permanent : morceau du jour + position de lecture
     déduits de `Date.now()`, son spatial chargé à l'approche, écran géant en
-    gros plan via un calque de caméra, faisceaux additifs), `singer.js`
+    gros plan : la chanteuse est déplacée le temps du rendu dans une petite
+    scène à part `closeScene` (même transformation que le théâtre, projecteurs
+    propres) — jamais un 2e rendu de toute la ville ; faisceaux additifs
+    dessinés le soir seulement), `singer.js`
     (la chanteuse des clips : modèle .glb riggé + os de mâchoire ajouté au
     chargement pour chanter, repli sculpté), `album.js` (titres, paroles par
     section). Ajouter un morceau : MP3 dans `client/public/music/` + une
