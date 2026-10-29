@@ -1602,7 +1602,7 @@ function buildAlps(ctx, bound, rand) {
   // couronne de collines. Hauteur modeste : à 150 km les Alpes ne sont
   // qu'une frange sur l'horizon, et le Mont Blanc la domine.
   const R = bound * 2.2;
-  const HGT = bound * 0.2;
+  const HGT = bound * 0.14;
   const arc = 3.45;
   const geo = new THREE.CylinderGeometry(R, R, HGT, 48, 1, true, Math.PI / 2 - arc / 2, arc);
   const mesh = new THREE.Mesh(geo, mat);
@@ -1617,6 +1617,75 @@ function buildAlps(ctx, bound, rand) {
 
 // Texture d'asphalte des chaussées : enrobé sombre, granulats, traces de
 // roulement plus claires sur les deux bandes de circulation, fissures.
+// Toits-terrasses et acrotères : la géométrie n'a pas d'UV (triangulée par
+// tuile), on projette donc une matière en coordonnées MONDE dans le shader
+// (sol → xz, faces verticales → xy/zy) : gravillons, lés d'étanchéité aux
+// joints soudés, taches d'humidité. Multipliée par la teinte du toit (vertex
+// colors) — les aplats bleu-gris uniformes vus du ciel prennent du grain.
+function makeFlatRoofMaterial() {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  const rand = makeRand(6121);
+  g.fillStyle = '#bdbdbd';
+  g.fillRect(0, 0, S, S);
+  // gravillons
+  for (let i = 0; i < 9000; i++) {
+    const v = 150 + Math.floor(rand() * 90);
+    g.fillStyle = `rgb(${v},${v},${v - 4})`;
+    g.fillRect(rand() * S, rand() * S, 1 + rand() * 1.6, 1 + rand() * 1.6);
+  }
+  // lés d'étanchéité (bandes de 1 m sur une tuile de 6 m) et leurs soudures
+  for (let k = 0; k < 6; k++) {
+    const y = (k * S) / 6;
+    g.fillStyle = 'rgba(40,40,45,0.22)';
+    g.fillRect(0, y, S, 2);
+    g.fillStyle = 'rgba(255,255,255,0.08)';
+    g.fillRect(0, y + 2, S, 1);
+  }
+  // taches d'humidité et de mousse, sans bord net
+  for (let i = 0; i < 10; i++) {
+    const x = rand() * S, y = rand() * S, r = 14 + rand() * 40;
+    const grd = g.createRadialGradient(x, y, 0, x, y, r);
+    grd.addColorStop(0, rand() < 0.3 ? 'rgba(70,85,55,0.22)' : 'rgba(40,40,40,0.18)');
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grd;
+    for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) {
+      g.save(); g.translate(ox, oy); g.fillRect(x - r, y - r, r * 2, r * 2); g.restore();
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const patch = (sh) => {
+    sh.uniforms.roofTex = { value: tex };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vRoofW;\nvarying vec3 vRoofN;')
+      .replace('#include <project_vertex>', `#include <project_vertex>
+        vRoofW = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        vRoofN = normalize(mat3(modelMatrix) * objectNormal);`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform sampler2D roofTex;\nvarying vec3 vRoofW;\nvarying vec3 vRoofN;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        {
+          vec3 an = abs(vRoofN);
+          vec2 ruv = an.y > 0.6 ? vRoofW.xz : (an.x > an.z ? vRoofW.zy : vRoofW.xy);
+          vec3 t = texture2D(roofTex, ruv / 6.0).rgb;
+          // grain fort de près, fondu à l'aplat au loin (pas de moiré)
+          float far = smoothstep(120.0, 600.0, length(vViewPosition));
+          diffuseColor.rgb *= mix(t * 1.35, vec3(1.0), far * 0.7);
+        }`);
+  };
+  mat.onBeforeCompile = patch;
+  mat.userData.shaderPatch = patch;
+  mat.userData.shaderPatchKey = 'toit-plat';
+  mat.customProgramCacheKey = () => 'toit-plat';
+  return mat;
+}
+
 function makeAsphaltTexture() {
   const S = 128;
   const canvas = document.createElement('canvas');
@@ -2118,7 +2187,7 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
   ctx.updatables.push(() => {
     wallMat.emissiveIntensity = Math.max(0, (ctx.env?.night ?? 0) * 1.1 - 0.1) * 0.8;
   });
-  const roofMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const roofMat = makeFlatRoofMaterial();
   // Pans de toit (zinc à lucarnes / tuiles canal) : voir world/roofs.js
   const slopeMat = makeRoofSlopeMaterial(ctx.detail === 'eleve');
   // Corniches : de la géométrie en plus par façade, palier Élevé seulement
@@ -2451,6 +2520,9 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
         x: cx + (rand() - 0.5) * (maxX - minX) * 0.4,
         z: cz + (rand() - 0.5) * (maxZ - minZ) * 0.4,
         y: roof.yTop, s, red: rand() < 0.35,
+        // toit en pente : l'édicule traversait le brisis ; on n'y garde que
+        // la souche de cheminée (aucun rand() de plus consommé)
+        sloped: !!roof.inset,
       });
     }
 
@@ -2485,26 +2557,54 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
   );
   // Superstructures instanciées : 2 draw calls pour tous les toits
   if (props.length) {
-    const chimGeo = new THREE.BoxGeometry(1, 1, 1);
-    chimGeo.translate(0, 0.5, 0);
+    // Édicule de toit-terrasse (cage d'escalier / machinerie d'ascenseur) :
+    // corps enduit, dalle de couverture débordante, porte métallique,
+    // grille de ventilation et garde-corps tubulaire — au lieu d'un cube
+    // gris uni qui, vu d'en haut, faisait des « boîtes bleues » sur la ville
+    const ediGeo = (() => {
+      const part = (w, h, d, x, y, z, hex) => {
+        const g = new THREE.BoxGeometry(w, h, d).toNonIndexed();
+        g.translate(x, y, z);
+        const c = new THREE.Color(hex), n = g.attributes.position.count;
+        const a = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) { a[i * 3] = c.r; a[i * 3 + 1] = c.g; a[i * 3 + 2] = c.b; }
+        g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+        g.deleteAttribute('uv');
+        return g;
+      };
+      const parts = [
+        part(1, 0.84, 0.62, 0, 0.42, -0.19, 0xcfc6b6),         // corps (enduit)
+        part(1.08, 0.06, 0.7, 0, 0.87, -0.19, 0x8e8a82),       // dalle débordante
+        part(0.26, 0.56, 0.02, -0.22, 0.28, 0.125, 0x3d4650),  // porte
+        part(0.28, 0.1, 0.02, 0.24, 0.62, 0.125, 0x6b7078),    // grille de ventilation
+        part(0.95, 0.03, 0.03, 0, 0.42, 0.45, 0x5a5f66),       // garde-corps
+        part(0.03, 0.42, 0.03, -0.47, 0.21, 0.45, 0x5a5f66),
+        part(0.03, 0.42, 0.03, 0.47, 0.21, 0.45, 0x5a5f66),
+        part(0.18, 0.18, 0.18, 0.36, 0.99, -0.34, 0x9a968e),   // ventilation en toiture
+      ];
+      return mergeGeometries(parts);
+    })();
     const edicules = new THREE.InstancedMesh(
-      chimGeo, new THREE.MeshLambertMaterial({ color: 0x8a8f98 }), props.length
+      ediGeo, new THREE.MeshLambertMaterial({ vertexColors: true }), props.length
     );
     // (souches de cheminée : même modèle que sur les toits en pente)
     const chimneys = new THREE.InstancedMesh(
       chimneyGeometry(mergeGeometries), new THREE.MeshLambertMaterial({ vertexColors: true, color: 0xe9dcc8 }), props.length
     );
     const m = new THREE.Matrix4();
+    const _eq = new THREE.Quaternion(), _eY = new THREE.Vector3(0, 1, 0), _ev = new THREE.Vector3(), _es = new THREE.Vector3();
     let ne = 0, nc = 0;
     for (const p of props) {
-      if (p.red) {
+      if (p.red || p.sloped) {
         const cs = Math.min(1.5, 0.7 + p.s * 0.3);
         m.makeScale(cs, cs, cs);
         m.setPosition(p.x, p.y, p.z);
         chimneys.setMatrixAt(nc++, m);
       } else {
-        m.makeScale(2 * p.s, 1.2 * p.s, 2 * p.s);
-        m.setPosition(p.x, p.y, p.z);
+        // taille plafonnée (≈ 4 × 2,6 m) et orientation par hash
+        const e = Math.min(p.s, 2);
+        _eq.setFromAxisAngle(_eY, (Math.round(p.x * 3 + p.z * 7) % 4) * Math.PI / 2);
+        m.compose(_ev.set(p.x, p.y, p.z), _eq, _es.set(2 * e, 1.3 * e, 2 * e));
         edicules.setMatrixAt(ne++, m);
       }
     }
