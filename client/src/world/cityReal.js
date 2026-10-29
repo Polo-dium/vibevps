@@ -25,6 +25,7 @@ import { planTheatre, buildTheatre } from './theatre.js';
 import { buildConcert } from './concert.js';
 import { riverWaterMaterial, setShoreMap } from '../render/water.js';
 import { createPassersby } from './passersby.js';
+import { createCyclistes } from './cyclistes.js';
 import { createTerraces } from './terraces.js';
 import { buildPlacesLyon } from './squares.js';
 import { buildMonuments } from './monuments.js';
@@ -1215,6 +1216,8 @@ export function buildRealCity(ctx, data) {
     // Passants sur les trottoirs, recyclés autour du joueur
     const t0 = performance.now();
     createPassersby(ctx, data);
+    // Cyclistes à Vélo'v sur les vraies rues, autour du joueur
+    createCyclistes(ctx, data);
     console.info(`🚶 Passants : trottoirs préparés en ${Math.round(performance.now() - t0)} ms`);
     // Terrasses de café devant les devantures « café » et « bouchon »
     ctx.terraces = createTerraces(ctx, ctx.terraceSpots ?? [], data.roads);
