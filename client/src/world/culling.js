@@ -13,24 +13,46 @@ import * as THREE from 'three';
 // ne regardent pas la visibilité — seul le RENDU est coupé.
 const BIG = 70; // au-delà, c'est du décor de fond (terrain, ville, ciel, collines)
 const HYST = 60; // marge anti-clignotement à la frontière
+// Taille apparente : au-delà de 100·r m, un objet de rayon r ne fait plus
+// qu'une dizaine de pixels dans la brume — un passant (1 m) disparaît à
+// 150 m, un kiosque (5 m) à 500 m. Un objet fait de beaucoup de pièces
+// (n draw calls) part plus tôt, en 1/√n : un stand de 46 pièces de 9 m à
+// ~375 m. En avion, c'était ~800 draw calls de petit décor jusqu'à 2 km.
+// Plancher à 150 m.
+const sizeView = (view, r, n = 1) =>
+  Math.min(view, Math.max(150, r * 100 * Math.max(0.35, Math.min(1, Math.sqrt(8 / Math.max(1, n))))));
 
 export function createDistanceCuller(scene, playerPos) {
   const items = [];
   const box = new THREE.Box3();
   const sphere = new THREE.Sphere();
 
-  // Une seule passe au démarrage : on mesure chaque enfant direct de la
-  // scène. On retient le décalage entre son origine et le centre de son
+  // On mesure chaque enfant direct de la scène (au démarrage, puis toutes
+  // les 2 s pour ceux ajoutés plus tard : stands, modèles chargés à la
+  // volée…). On retient le décalage entre son origine et le centre de son
   // volume englobant, pour que les objets qui BOUGENT (voitures, PNJ,
   // avions) restent correctement situés sans tout recalculer.
-  for (const o of scene.children) {
-    if (o.isLight || o.isCamera || o.userData?.noCull) continue;
+  const seen = new Set();
+  function track(o) {
+    if (o.isLight || o.isCamera || o.userData?.noCull) { seen.add(o); return; }
+    // Volumes recalculés : une géométrie partagée (humains sculptés) dont la
+    // boîte avait été mesurée VIDE avant d'être remplie restait invisible au
+    // masquage — ~120 personnages dessinés jusqu'à 2,4 km.
+    o.traverse((m) => {
+      if (!m.geometry || m.isInstancedMesh) return;
+      if (m.geometry.boundingBox?.isEmpty()) m.geometry.computeBoundingBox();
+      if (m.geometry.boundingSphere && !(m.geometry.boundingSphere.radius > 0)) m.geometry.computeBoundingSphere();
+    });
     box.setFromObject(o);
-    if (box.isEmpty()) continue;
+    if (box.isEmpty()) return; // pas encore rempli : on repassera
+    seen.add(o);
     box.getBoundingSphere(sphere);
-    if (sphere.radius > BIG || !Number.isFinite(sphere.radius)) continue;
+    if (sphere.radius > BIG || !Number.isFinite(sphere.radius)) return;
+    let n = 0;
+    o.traverse((m) => { if (m.isMesh || m.isPoints || m.isLine) n++; });
     items.push({
       o,
+      n,
       ox: sphere.center.x - o.position.x,
       oz: sphere.center.z - o.position.z,
       r: sphere.radius,
@@ -41,18 +63,25 @@ export function createDistanceCuller(scene, playerPos) {
       owned: false,
     });
   }
+  for (const o of scene.children) track(o);
 
-  let timer = 0;
+  let timer = 0, rescan = 2;
   function update(dt, viewDistance) {
     timer -= dt;
     if (timer > 0) return;
     timer = 0.25;
+    rescan -= 0.25;
+    if (rescan <= 0) {
+      rescan = 2;
+      for (const o of scene.children) if (!seen.has(o)) track(o);
+    }
     const p = playerPos();
     if (!p) return;
-    const view = viewDistance ?? 99999;
+    const view0 = viewDistance ?? 99999;
     for (const it of items) {
       const cx = it.o.position.x + it.ox, cz = it.o.position.z + it.oz;
       const d = Math.hypot(cx - p.x, cz - p.z) - it.r;
+      const view = sizeView(view0, it.r, it.n);
       if (d > view + HYST) {
         if (it.o.visible) { it.o.visible = false; it.owned = true; }
       } else if (d < view && it.owned) {
@@ -74,9 +103,10 @@ export function createDistanceCuller(scene, playerPos) {
       owned++;
       const cx = it.o.position.x + it.ox, cz = it.o.position.z + it.oz;
       const d = Math.hypot(cx - p.x, cz - p.z) - it.r;
-      if (d < view) {
+      const v = sizeView(view, it.r, it.n);
+      if (d < v) {
         faute++;
-        pireEcart = Math.max(pireEcart, view - d);
+        pireEcart = Math.max(pireEcart, v - d);
         if (ex.length < 5) {
           ex.push({
             type: it.o.type, nom: it.o.name || '(sans nom)', visible: it.o.visible,

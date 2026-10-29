@@ -21,6 +21,7 @@ import { buildRooftopBar } from './rooftops.js';
 import { addRoof, makeRoofSlopeMaterial, dormerGeometry, chimneyGeometry } from './roofs.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { landmarkFog } from '../render/atmosphere.js';
+import { lodInstances } from '../render/instlod.js';
 import { planTheatre, buildTheatre } from './theatre.js';
 import { buildConcert } from './concert.js';
 import { riverWaterMaterial, setShoreMap } from '../render/water.js';
@@ -2280,7 +2281,7 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
 
   // Accumulateurs par tuile spatiale (plus grandes sur la ville complète :
   // moins de draw calls pour une carte 4× plus vaste)
-  const TILE = full ? 120 : 80;
+  const TILE = full ? 200 : 80; // 200 m : ~3× moins de draw calls qu'à 120 m, vue d'avion comprise
   const tiles = new Map(); // key -> { wp, wuv, wc, rp, rc }
   const tileOf = (x, z) => {
     const key = Math.floor(x / TILE) + ',' + Math.floor(z / TILE);
@@ -2720,8 +2721,8 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     chimneys.count = nc;
     edicules.instanceMatrix.needsUpdate = true;
     chimneys.instanceMatrix.needsUpdate = true;
-    if (ne) ctx.scene.add(edicules);
-    if (nc) ctx.scene.add(chimneys);
+    if (ne) { ctx.scene.add(edicules); lodInstances(edicules, { maxD: 500 }); }
+    if (nc) { ctx.scene.add(chimneys); lodInstances(chimneys, { maxD: 500 }); }
   }
 
   // Chaque tuile retient son centre : c'est ce qui permet de ne dessiner que
@@ -2787,11 +2788,12 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       im.userData.cityTile = true;
       im.name = name;
       ctx.scene.add(im);
-      meshes.push(im);
+      props.push(im);
     };
+    const props = [];
     inst(t.dm, dormerGeometry(mergeGeometries), propMat, false, 'lucarnes');
     inst(t.ch, chimneyGeometry(mergeGeometries), propMat, true, 'cheminées');
-    if (meshes.length) tileCulling.push({ cx, cz, meshes, shown: true });
+    if (meshes.length || props.length) tileCulling.push({ cx, cz, meshes, props, shown: true, propsShown: true });
   }
 
   // Masquage par distance : une tuile hors de portée n'est plus dessinée.
@@ -2802,6 +2804,7 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
   // NB : les tuiles masquées restent taguables et gardent leurs colliders —
   // seul le RENDU est coupé, jamais la physique ni le gameplay.
   const HYST = TILE;
+  const PROPS_VIEW = 450;
   let cullTimer = 0;
   ctx.updatables.push((dt) => {
     cullTimer -= dt;
@@ -2811,6 +2814,10 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     if (!p) return;
     const view = ctx.viewDistance ?? 2400;
     const hide = (view + HYST) ** 2, show = view ** 2;
+    // Lucarnes et cheminées : quelques pixels au-delà de ~450 m (vue
+    // d'avion : 660 draw calls et 1,5 M triangles pour rien)
+    const pv = Math.min(view, PROPS_VIEW);
+    const pHide = (pv + HYST) ** 2, pShow = pv ** 2;
     for (const t of tileCulling) {
       const d2 = (t.cx - p.x) ** 2 + (t.cz - p.z) ** 2;
       if (t.shown && d2 > hide) {
@@ -2819,6 +2826,13 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       } else if (!t.shown && d2 < show) {
         t.shown = true;
         for (const m of t.meshes) m.visible = true;
+      }
+      if (t.propsShown && d2 > pHide) {
+        t.propsShown = false;
+        for (const m of t.props) m.visible = false;
+      } else if (!t.propsShown && d2 < pShow) {
+        t.propsShown = true;
+        for (const m of t.props) m.visible = true;
       }
     }
   });
@@ -3361,7 +3375,7 @@ function buildGreenery(ctx, data, rand, full = false) {
   // triangles chacun) cèdent la place à un impostor en croix (2 plans
   // texturés, 4 triangles) — l'essentiel du poids d'un arbre lointain à
   // l'écran est de toute façon dans son silhouette, pas son volume.
-  const LOD_DIST = 150, LOD_HYST = 20;
+  const LOD_DIST = 150;
   const billTex = makeTreeBillboardTexture();
   const billGeo = mergeGeometries([
     (() => { const p = new THREE.PlaneGeometry(3.2, 5.6); p.translate(0, 2.8, 0); return p; })(),
@@ -3381,9 +3395,7 @@ function buildGreenery(ctx, data, rand, full = false) {
   billboards.frustumCulled = false;
 
   const m = new THREE.Matrix4();
-  const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
   const col = new THREE.Color();
-  const treeLod = [];
   valid.forEach(([x, z, s, ty = 0], i) => {
     m.makeScale(s, s, s);
     m.setPosition(x, ty + 1.2 * s, z);
@@ -3391,58 +3403,21 @@ function buildGreenery(ctx, data, rand, full = false) {
     m.makeScale(s, s * 0.95, s);
     m.setPosition(x, ty + 3.6 * s, z);
     foliage.setMatrixAt(i, m);
-    billboards.setMatrixAt(i, ZERO);
+    m.makeScale(s, s, s);
+    m.setPosition(x, ty, z);
+    billboards.setMatrixAt(i, m);
     const rr = i < nBase ? rand : frand;
     col.setHSL(0.28 + rr() * 0.06, 0.45, 0.32 + rr() * 0.12);
     foliage.setColorAt(i, col);
     // un ton sous le houppier 3D : celui-ci a une occlusion cuite
     billboards.setColorAt(i, col.clone().multiplyScalar(0.5)); // matériau non éclairé : plus sombre
-    treeLod.push({ x, z, s, ty, far: false });
   });
-  trunks.instanceMatrix.needsUpdate = true;
-  foliage.instanceMatrix.needsUpdate = true;
-  if (foliage.instanceColor) foliage.instanceColor.needsUpdate = true;
-  if (billboards.instanceColor) billboards.instanceColor.needsUpdate = true;
   ctx.scene.add(trunks, foliage, billboards);
-
-  // Bascule périodique (pas chaque frame) selon la distance au joueur,
-  // avec hystérésis pour ne pas scintiller pile à la frontière des 150 m.
-  let lodTimer = 0;
-  ctx.updatables.push((dt) => {
-    lodTimer -= dt;
-    if (lodTimer > 0) return;
-    lodTimer = 0.4;
-    const p = ctx.playerPos?.();
-    if (!p) return;
-    let dirty = false;
-    treeLod.forEach((t, i) => {
-      const d2 = (t.x - p.x) ** 2 + (t.z - p.z) ** 2;
-      if (!t.far && d2 > (LOD_DIST + LOD_HYST) ** 2) {
-        t.far = true;
-        trunks.setMatrixAt(i, ZERO);
-        foliage.setMatrixAt(i, ZERO);
-        m.makeScale(t.s, t.s, t.s);
-        m.setPosition(t.x, t.ty, t.z);
-        billboards.setMatrixAt(i, m);
-        dirty = true;
-      } else if (t.far && d2 < (LOD_DIST - LOD_HYST) ** 2) {
-        t.far = false;
-        m.makeScale(t.s, t.s, t.s);
-        m.setPosition(t.x, t.ty + 1.2 * t.s, t.z);
-        trunks.setMatrixAt(i, m);
-        m.makeScale(t.s, t.s * 0.95, t.s);
-        m.setPosition(t.x, t.ty + 3.6 * t.s, t.z);
-        foliage.setMatrixAt(i, m);
-        billboards.setMatrixAt(i, ZERO);
-        dirty = true;
-      }
-    });
-    if (dirty) {
-      trunks.instanceMatrix.needsUpdate = true;
-      foliage.instanceMatrix.needsUpdate = true;
-      billboards.instanceMatrix.needsUpdate = true;
-    }
-  });
+  // Arbres en volume jusqu'à LOD_DIST, imposteurs au-delà (jusqu'à la portée
+  // de vue) : seules les instances à portée partent au GPU (render/instlod.js)
+  lodInstances(trunks, { maxD: LOD_DIST });
+  lodInstances(foliage, { maxD: LOD_DIST });
+  lodInstances(billboards, { minD: LOD_DIST, maxD: () => ctx.viewDistance ?? 2400 });
 }
 
 // Silhouette basse résolution d'un arbre (houppier + tronc), vue de côté :
@@ -3535,6 +3510,7 @@ function buildShopVolumes(ctx, spots) {
     mesh.castShadow = true;
     mesh.name = 'stores-bannes';
     ctx.scene.add(mesh);
+    lodInstances(mesh, { maxD: 450 }); // seules les devantures proches partent au GPU
   }
   if (flags.length) {
     // enseigne : potence de fer + caisson lumineux
@@ -3566,6 +3542,8 @@ function buildShopVolumes(ctx, spots) {
     armMesh.name = 'enseignes-potences';
     signMesh.name = 'enseignes-drapeau';
     ctx.scene.add(armMesh, signMesh);
+    lodInstances(armMesh, { maxD: 300 });
+    lodInstances(signMesh, { maxD: 650 }); // caissons lumineux : visibles de nuit un peu plus loin
   }
 }
 

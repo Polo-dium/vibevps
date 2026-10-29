@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { detail } from '../render/detail.js';
+import { lodInstances } from '../render/instlod.js';
 import { makeRand } from './layout.js';
 
 // PONTS DE PIERRE (ville OSM) : à la place de la dalle grise, un vrai pont
@@ -271,6 +272,8 @@ export function buildStoneBridge(ctx, { cx0, cz0, yaw, len, over, deckY, bedY, w
     inst.instanceMatrix.needsUpdate = true;
     inst.castShadow = true;
     ctx.scene.add(inst);
+    // 120 triangles par balustre, des milliers par pont : seulement de près
+    lodInstances(inst, { maxD: 320 });
   }
 
   // Lampadaires sur les deux trottoirs, en quinconce

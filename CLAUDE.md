@@ -143,7 +143,18 @@ npm start          # serveur de prod (sert client/dist)
     des quais et sillages des piles (`setShoreMap`, texture de distance à
     la rive cuite par `bakeShoreMap`, piles dans `ctx.bridgePiers`).
   - Ciel (`sky.js`) : 42 cumulus peints, seed fixe et dérive sur
-    `Date.now()` (même ciel pour tous).
+    `Date.now()` (même ciel pour tous) ; panneaux instanciés qui ne pivotent
+    qu'autour de la verticale (shader) : ils restent sur l'horizon quand
+    l'avion s'incline (4 draw calls).
+  - PERF (portées d'affichage) : `render/instlod.js` `lodInstances(im,
+    { minD, maxD })` range en tête les instances à portée et réduit
+    `im.count` (arbres 3D < 150 m / imposteurs au-delà, stores, enseignes,
+    édicules, balustres de ponts, mâts de lampadaires) — ne jamais masquer
+    une instance par une échelle zéro, le GPU la traite quand même.
+    `culling.js` : petit décor masqué selon sa taille apparente
+    (100·r m, plus tôt s'il a beaucoup de pièces, plancher 150 m), objets
+    ajoutés après le démarrage repris toutes les 2 s. Lucarnes/cheminées
+    des tuiles : 450 m. Tuiles de bâtiments de 200 m.
   - Quais de Saône : `bouquinistes.js` (boîtes vertes du quai de la Pêcherie,
     ouvertes le jour). Rues : `cyclistes.js` (Vélo'v recyclés autour du
     joueur, comme `passersby.js`). Devantures en volume : `buildShopVolumes`

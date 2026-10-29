@@ -86,33 +86,74 @@ export function buildSky(scene, radius = 470) {
   dome.userData.noShadow = true;
   scene.add(dome);
 
-  // Nuages : cumulus peints (sommets éclairés, base plate et grise) en
-  // sprites, répartis sur toute la carte. Placement par seed fixe et dérive
-  // calée sur Date.now() : le même ciel chez tous les joueurs, sans réseau.
+  // Nuages : cumulus peints (sommets éclairés, base plate et grise),
+  // répartis sur toute la carte. Placement par seed fixe et dérive calée
+  // sur Date.now() : le même ciel chez tous les joueurs, sans réseau.
+  // Panneaux qui ne pivotent QU'AUTOUR DE LA VERTICALE (calculé dans le
+  // shader) : en avion, quand on s'incline, les nuages restent posés sur
+  // l'horizon au lieu de tourner avec la caméra comme des sprites.
+  // Un InstancedMesh par texture : 4 draw calls pour 42 nuages.
   const R = Math.max(700, radius * 0.8);
   const crand = mulberry(9157);
   const texs = [0, 1, 2, 3].map((k) => makeCloudTexture(mulberry(311 + k * 97), k));
+  const cloudU = { uBright: { value: 1 }, uFade: { value: 1 } };
+  const plane = new THREE.PlaneGeometry(1, 1);
+  const packs = texs.map((map) => {
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { map: { value: map }, ...cloudU },
+      transparent: true,
+      depthWrite: false,
+      vertexShader: /* glsl */`
+        varying vec2 vUv;
+        varying float vA;
+        void main() {
+          vec3 c = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+          float sx = length(instanceMatrix[0].xyz), sy = length(instanceMatrix[1].xyz);
+          vec2 to = cameraPosition.xz - c.xz;
+          vec2 rt = normalize(vec2(to.y, -to.x) + vec2(1e-5, 0.0));
+          vec3 p = c + vec3(rt.x, 0.0, rt.y) * position.x * sx + vec3(0.0, position.y * sy, 0.0);
+          gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+          vUv = uv;
+          vA = instanceColor.r; // opacité propre au nuage
+        }`,
+      fragmentShader: /* glsl */`
+        uniform sampler2D map;
+        uniform float uBright;
+        uniform float uFade;
+        varying vec2 vUv;
+        varying float vA;
+        void main() {
+          vec4 t = texture2D(map, vUv);
+          gl_FragColor = vec4(t.rgb * vec3(uBright, uBright, uBright * 1.06), t.a * vA * uFade);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`,
+    });
+    const im = new THREE.InstancedMesh(plane, mat, 11);
+    im.count = 0;
+    im.frustumCulled = false; // positions recalculées dans le shader
+    im.renderOrder = -6;
+    im.userData.noCull = true;
+    im.userData.noShadow = true;
+    im.name = 'nuages';
+    scene.add(im);
+    return im;
+  });
   const clouds = [];
+  const _c = new THREE.Color();
   for (let i = 0; i < 42; i++) {
     const far = i % 3 === 0; // quelques nuages plus hauts et plus pâles
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: texs[i % 4],
-      transparent: true,
-      opacity: far ? 0.55 + crand() * 0.2 : 0.8 + crand() * 0.2,
-      depthWrite: false,
-      fog: false,
-    }));
+    const opacity = far ? 0.55 + crand() * 0.2 : 0.8 + crand() * 0.2;
     const sz = (far ? 260 : 170) + crand() * 220;
-    sprite.scale.set(sz, sz * 0.42, 1);
-    sprite.userData.x0 = (crand() - 0.5) * 2 * R;
-    sprite.position.set(sprite.userData.x0, (far ? 340 : 230) + crand() * 110, (crand() - 0.5) * 2 * R);
-    sprite.userData.speed = 2 + crand() * 2.5;
-    sprite.userData.baseOpacity = sprite.material.opacity;
-    sprite.renderOrder = -6;
-    sprite.userData.noCull = true;
-    scene.add(sprite);
-    clouds.push(sprite);
+    const x0 = (crand() - 0.5) * 2 * R;
+    const y = (far ? 340 : 230) + crand() * 110;
+    const z = (crand() - 0.5) * 2 * R;
+    const speed = 2 + crand() * 2.5;
+    const im = packs[i % 4], k = im.count++;
+    im.setColorAt(k, _c.setRGB(opacity, 0, 0));
+    clouds.push({ im, k, x0, y, z, speed, sx: sz, sy: sz * 0.42 });
   }
+  const _m = new THREE.Matrix4();
 
   // daylight ∈ [0,1] : les nuages s'estompent et s'assombrissent la nuit.
   // pos : le dôme suit le joueur (horizontalement) pour que son disque
@@ -120,14 +161,16 @@ export function buildSky(scene, radius = 470) {
   function update(dt, daylight = 1, pos = null) {
     if (pos) dome.position.set(pos.x, 0, pos.z);
     const t = Date.now() / 1000;
+    const span = 4 * R;
     for (const c of clouds) {
       // dérive d'ouest en est, bouclée sur la largeur du ciel
-      const span = 4 * R;
-      c.position.x = ((((c.userData.x0 + R * 2 + c.userData.speed * t) % span) + span) % span) - R * 2;
-      c.material.opacity = c.userData.baseOpacity * (0.2 + 0.8 * daylight);
-      const v = 0.28 + 0.72 * daylight;
-      c.material.color.setRGB(v, v, v * 1.06);
+      const x = ((((c.x0 + R * 2 + c.speed * t) % span) + span) % span) - R * 2;
+      _m.makeScale(c.sx, c.sy, 1).setPosition(x, c.y, c.z);
+      c.im.setMatrixAt(c.k, _m);
     }
+    for (const im of packs) im.instanceMatrix.needsUpdate = true;
+    cloudU.uFade.value = 0.2 + 0.8 * daylight;
+    cloudU.uBright.value = 0.28 + 0.72 * daylight;
   }
 
   return { update, uniforms };

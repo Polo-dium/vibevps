@@ -35,6 +35,7 @@ import { createPigeons } from './world/pigeons.js';
 import { createReflections } from './world/reflections.js';
 import { applySeason } from './world/seasons.js';
 import { createDistanceCuller } from './world/culling.js';
+import { updateInstanceLods } from './render/instlod.js';
 import { createKoth } from './world/koth.js';
 import { createHiFi } from './world/hifi.js';
 import { buildGuignol } from './world/guignol.js';
@@ -1141,6 +1142,8 @@ async function boot() {
   // (~700 sur ~950 mesurés au centre-ville) — voir world/culling.js.
   const culler = createDistanceCuller(scene, () => controls.position);
   ctx.updatables.push((dt) => culler.update(dt, ctx.viewDistance));
+  // arbres, stores, enseignes… : seules les instances à portée partent au GPU
+  ctx.updatables.push((dt) => updateInstanceLods(dt, controls.position));
   if (window.__game) window.__game.culler = culler; // hook de debug (?debug)
 
   // Score générique : les mini-jeux locaux poussent leur meilleur résultat

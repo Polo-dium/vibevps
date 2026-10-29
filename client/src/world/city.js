@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { lodInstances } from '../render/instlod.js';
 import { plantTrees } from './trees.js';
 import { addBox, addInvisibleWall, makeTextTexture } from './utils.js';
 import { buildTraffic } from './traffic.js';
@@ -2605,7 +2606,7 @@ export function buildLamps(ctx, spots) {
     n
   );
   const bulbs = new THREE.InstancedMesh(
-    new THREE.SphereGeometry(0.28, 8, 8),
+    new THREE.IcosahedronGeometry(0.28, 1), // 80 triangles (la sphère 8×8 en faisait 128, × des milliers)
     new THREE.MeshBasicMaterial({ color: 0xffe3a0 }),
     n
   );
@@ -2622,6 +2623,10 @@ export function buildLamps(ctx, spots) {
   poles.instanceMatrix.needsUpdate = true;
   bulbs.instanceMatrix.needsUpdate = true;
   ctx.scene.add(poles, bulbs);
+  // mâts : invisibles au loin ; globes : la nuit, les halos (Points) prennent
+  // le relais au-delà
+  lodInstances(poles, { maxD: 500 });
+  lodInstances(bulbs, { maxD: 700 });
 
   const haloGeo = new THREE.BufferGeometry();
   haloGeo.setAttribute('position', new THREE.Float32BufferAttribute(haloPos, 3));
