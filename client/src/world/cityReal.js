@@ -55,6 +55,14 @@ const ROOF_TINTS = ['#a8543c', '#b05a40', '#9c4e38', '#b46248', '#7e8696', '#6d7
 // Façades Renaissance du Vieux Lyon, rive droite de la Saône : ocres, roses,
 // safran — les couleurs de la carte postale
 const VIEUX_LYON_TINTS = ['#d99a5b', '#c96f4a', '#e2b04a', '#d4826a', '#c98d3f', '#b85c48', '#e0a26b', '#cc7a52'];
+// Palettes par quartier (ville complète) : le « plan couleur » lyonnais.
+// Presqu'île : crèmes mêlés d'ocre jaune, de rose saumon et d'orangé ;
+// pentes de la Croix-Rousse : les teintes chaudes des immeubles canuts ;
+// rive gauche (Brotteaux, Guillotière) : pierre blanche et grise, quelques
+// façades de brique. Tirées par hash : la séquence rand() est inchangée.
+const PRESQU_ILE_TINTS = ['#e8ddc8', '#e3d4ba', '#e8c48a', '#e0a98c', '#ebd3a8', '#d9b07a', '#efe6d4', '#e2b896', '#d8c2a0', '#e9cf9a'];
+const PENTES_TINTS = ['#e0a066', '#d98a5e', '#e8bf78', '#d6966f', '#e4b07a', '#c97f58', '#ecc98f', '#d8a47e'];
+const RIVE_GAUCHE_TINTS = ['#ece7dc', '#e4dfd4', '#dad5cb', '#efe9dd', '#d2ccc0', '#e8e1d2', '#b7684f', '#e1dbcf'];
 
 // Zones fixées par buildRealCity, consommées par reservedRects()
 let HILL_RECT = null;
@@ -2231,6 +2239,16 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     return d > (saone.w ?? 40) * 0.5 - 6 && d < (saone.w ?? 40) * 0.5 + 130;
   };
 
+  // Quartier d'un bâtiment (ville complète) → palette de façades
+  const rhoneBand = [...data.water].sort((a, b) => a.minX - b.minX).at(-1);
+  const districtTints = (x, z) => {
+    if (!full) return WALL_TINTS;
+    const xs = saone?.cx ? saone.cx(z) : -500, xr = rhoneBand?.cx ? rhoneBand.cx(z) : 300;
+    const hy = ctx.terrainHeight?.(x, z) ?? 0;
+    if (x > xr + 20) return RIVE_GAUCHE_TINTS;
+    if (x > xs && x < xr) return hy > 5 ? PENTES_TINTS : (z < -560 ? PENTES_TINTS : PRESQU_ILE_TINTS);
+    return WALL_TINTS;
+  };
   for (let bi = 0; bi < data.buildings.length; bi++) {
     const b = data.buildings[bi];
     let h = Math.max(3, b.h);
@@ -2311,7 +2329,8 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
         .offsetHSL(0, 0, (rand() - 0.5) * 0.05);
       roofColor.set(0xa8543c).offsetHSL(0, 0, (rand() - 0.5) * 0.05);
     } else {
-      wallColor.set(WALL_TINTS[hash2(bi) % WALL_TINTS.length])
+      const pal = districtTints(cx, cz);
+      wallColor.set(pal[hash2(bi) % pal.length])
         .offsetHSL(0, 0, (rand() - 0.5) * 0.06);
       roofColor.set(ROOF_TINTS[hash2(bi * 7 + 3) % ROOF_TINTS.length])
         .offsetHSL(0, 0, (rand() - 0.5) * 0.05);
