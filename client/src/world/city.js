@@ -2637,25 +2637,37 @@ export function buildLamps(ctx, spots) {
   // Flaques de lumière AU SOL sous chaque lampadaire : la nuit cesse d'être
   // un aplat noir entre les halos. Même texture radiale chaude, plan posé à
   // ras du sol, additif — zéro vraie lumière (règle perf).
+  // (décalage de profondeur plus fort que celui de la chaussée et des
+  // trottoirs — polygonOffset -2 — sinon les flaques passaient DESSOUS et ne
+  // se voyaient que sur les places)
   const poolMat = new THREE.MeshBasicMaterial({
     map: makeLampHaloTexture(), transparent: true, opacity: 0,
     blending: THREE.AdditiveBlending, depthWrite: false,
+    polygonOffset: true, polygonOffsetFactor: -8, polygonOffsetUnits: -8,
   });
   const pools = new THREE.InstancedMesh(
-    new THREE.PlaneGeometry(12, 12).rotateX(-Math.PI / 2), poolMat, n
+    new THREE.PlaneGeometry(14, 14).rotateX(-Math.PI / 2), poolMat, n
   );
+  // posées DANS la pente (normale du terrain) : sur les collines, une
+  // flaque horizontale se coupait dans le sol ou flottait
+  const H = (x, z) => Math.max(0, ctx.terrainHeight?.(x, z) ?? 0);
+  const nrm = new THREE.Vector3(), qq = new THREE.Quaternion(), UPV = new THREE.Vector3(0, 1, 0);
+  const pv = new THREE.Vector3(), ONE = new THREE.Vector3(1, 1, 1);
   spots.forEach(([x, z, gy = 0], i) => {
-    m.makeTranslation(x, gy + 0.07, z);
+    nrm.set(H(x - 2, z) - H(x + 2, z), 4, H(x, z - 2) - H(x, z + 2)).normalize();
+    qq.setFromUnitVectors(UPV, nrm);
+    m.compose(pv.set(x, gy + 0.12, z), qq, ONE);
     pools.setMatrixAt(i, m);
   });
   pools.instanceMatrix.needsUpdate = true;
   pools.userData.noShadow = true;
+  pools.renderOrder = 2; // après les sols
   ctx.scene.add(pools);
 
   ctx.updatables.push(() => {
     haloMat.opacity = Math.max(0, (ctx.env?.night ?? 0) * 1.2 - 0.2) * 0.6;
     halos.visible = haloMat.opacity > 0.01;
-    poolMat.opacity = haloMat.opacity * 0.9; // flaques franches : on voit où on marche
+    poolMat.opacity = haloMat.opacity * 1.1; // flaques franches : on voit où on marche
     pools.visible = halos.visible;
   });
 
@@ -2713,9 +2725,11 @@ function makeLampHaloTexture() {
   canvas.height = 128;
   const g = canvas.getContext('2d');
   const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  grad.addColorStop(0, 'rgba(255, 224, 150, 0.9)');
-  grad.addColorStop(0.3, 'rgba(255, 205, 120, 0.35)');
-  grad.addColorStop(1, 'rgba(255, 195, 100, 0)');
+  // ambre chaud (sodium/LED lyonnaise), cœur moins brûlé, chute douce
+  grad.addColorStop(0, 'rgba(255, 196, 120, 0.75)');
+  grad.addColorStop(0.22, 'rgba(255, 176, 96, 0.42)');
+  grad.addColorStop(0.55, 'rgba(255, 160, 80, 0.12)');
+  grad.addColorStop(1, 'rgba(255, 150, 70, 0)');
   g.fillStyle = grad;
   g.fillRect(0, 0, 128, 128);
   return new THREE.CanvasTexture(canvas);

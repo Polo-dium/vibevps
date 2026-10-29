@@ -1891,7 +1891,11 @@ function lampSpotsOsm(ctx, data, full = false, zConf = null) {
   // Rues : un lampadaire tous les ~26 m de tracé, au bord du trottoir,
   // PERPENDICULAIREMENT à la rue et en quinconce ; jamais dans un
   // bâtiment, l'eau ou le théâtre
-  const cap = full ? 1700 : 220;
+  // Plafond (perf) appliqué APRÈS la collecte : avant, il tombait dans
+  // l'ordre du fichier OSM et des quartiers entiers restaient dans le noir.
+  // On garde un lampadaire sur k, réparti sur toute la ville.
+  const cap = full ? 3000 : 220;
+  const streetSpots = [];
   const inBuilding = (x, z) => {
     for (const b of ctx.colliders.nearby ? ctx.colliders.nearby(x, z, 1) : []) {
       if (x > b.minX - 0.5 && x < b.maxX + 0.5 && z > b.minZ - 0.5 && z < b.maxZ + 0.5 && b.maxY > 2) return true;
@@ -1915,12 +1919,17 @@ function lampSpotsOsm(ctx, data, full = false, zConf = null) {
         if (inWater(x, z) || Math.abs(x) > ctx.worldBound - 6 || Math.abs(z) > ctx.worldBound - 6) continue;
         if (ctx.theatre?.covers(x, z) || inBuilding(x, z)) continue;
         const gy = full ? Math.max(0, ctx.terrainHeight?.(x, z) ?? 0) : 0;
-        spots.push([x, z, gy]);
-        if (spots.length > cap) { done = true; break; }
+        streetSpots.push([x, z, gy]);
       }
       acc = (acc + len) % 26;
       if (done) break;
     }
+  }
+  const keep = Math.min(1, cap / Math.max(1, streetSpots.length));
+  let accK = 0;
+  for (const s of streetSpots) {
+    accK += keep;
+    if (accK >= 1) { accK -= 1; spots.push(s); }
   }
   // Lampadaires des ponts de pierre (posés sur le trottoir du tablier)
   if (ctx.bridgeLamps) spots.push(...ctx.bridgeLamps);
