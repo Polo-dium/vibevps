@@ -36,6 +36,7 @@ import { buildPentes, planGrandeCote } from './pentes.js';
 import { buildJardins } from './jardins.js';
 import { buildBerges } from './berges.js';
 import { buildBouquinistes } from './bouquinistes.js';
+import { buildMarches } from './marches.js';
 import { createParkedCars } from './parked.js';
 import { buildStreetSigns } from './streetsigns.js';
 
@@ -1205,6 +1206,8 @@ export function buildRealCity(ctx, data) {
   if (full) ctx.bergesCount = buildBerges(ctx, data);
   // Bouquinistes du quai de la Pêcherie (rive Presqu'île de la Saône)
   if (full) ctx.bouquinCount = buildBouquinistes(ctx, data);
+  // Marchés du quai Saint-Antoine et du boulevard de la Croix-Rousse
+  if (full) ctx.marcheCount = buildMarches(ctx, data);
   // Le silure remonte le plus large des fleuves (le Rhône)
   const widest = [...data.water].sort((a, b) => (b.maxX - b.minX) - (a.maxX - a.minX))[0];
   if (widest) buildSilure(ctx, widest);
