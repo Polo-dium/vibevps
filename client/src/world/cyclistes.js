@@ -29,7 +29,7 @@ export function createCyclistes(ctx, data) {
       if (ctx.waterMask?.isWater((x1 + x2) / 2, (z1 + z2) / 2) && !ctx.onBridge?.((x1 + x2) / 2, (z1 + z2) / 2)) continue;
       for (const dir of [1, -1]) {
         const a = dir > 0 ? [x1, z1] : [x2, z2], b = dir > 0 ? [x2, z2] : [x1, z1];
-        const s = { a, b, len, lane: road.w * 0.3 };
+        const s = { a, b, len, lane: Math.min(road.w * 0.3, (road.rw ?? road.w) * 0.3) };
         const idx = segs.push(s) - 1;
         const k = key(Math.floor((a[0] + b[0]) / 2 / CELL), Math.floor((a[1] + b[1]) / 2 / CELL));
         if (!grid.has(k)) grid.set(k, []);

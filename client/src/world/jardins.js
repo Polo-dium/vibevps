@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { roadHalf } from './roadfit.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeRand } from './layout.js';
 import { ashlarTexture } from './monuments.js';
@@ -44,7 +45,7 @@ function occupancy(data, bound) {
     }
   }
   for (const road of data.roads) {
-    const r = road.w / 2 + SIDE - 0.2;
+    const r = roadHalf(road) + SIDE - 0.2;
     for (let i = 0; i + 3 < road.p.length; i += 2) {
       const x1 = road.p[i], z1 = road.p[i + 1], x2 = road.p[i + 2], z2 = road.p[i + 3];
       const len = Math.hypot(x2 - x1, z2 - z1), k = Math.max(1, Math.ceil(len / 1));
@@ -120,7 +121,7 @@ export function buildJardins(ctx, data) {
   // --- Clôtures le long des rues
   for (const road of data.roads) {
     if (road.w < 4.5) continue; // les ruelles pavées passent entre les murs déjà
-    const off = road.w / 2 + SIDE;
+    const off = roadHalf(road) + SIDE;
     let acc = 0;
     for (let i = 0; i + 3 < road.p.length; i += 2) {
       const x1 = road.p[i], z1 = road.p[i + 1], x2 = road.p[i + 2], z2 = road.p[i + 3];

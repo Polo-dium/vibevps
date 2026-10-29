@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { roadHalf } from './roadfit.js';
 import { lyonXZ } from './squares.js';
 
 // PLAQUES DE RUE (ville OSM) : les données OSM du jeu n'ont pas les noms
@@ -126,8 +127,8 @@ export function buildStreetSigns(ctx, roads, scale = 0.5) {
       const ux = ex / el, uz = ez / el;
       // angle d'immeuble : du côté droit, juste après le carrefour
       const side = placed.length % 2 ? 1 : -1;
-      const sx = x + ux * (r.w / 2 + 3) - uz * side * (r.w / 2 + 2.5);
-      const sz = z + uz * (r.w / 2 + 3) + ux * side * (r.w / 2 + 2.5);
+      const sx = x + ux * (roadHalf(r) + 3) - uz * side * (roadHalf(r) + 2.5);
+      const sz = z + uz * (roadHalf(r) + 3) + ux * side * (roadHalf(r) + 2.5);
       const W = nearestWall(sx, sz);
       if (!W || W.d > 7) continue;
       const [ax, az, bx, bz, yBase, bcx, bcz] = W.w;

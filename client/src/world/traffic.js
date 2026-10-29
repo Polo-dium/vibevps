@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { roadHalf } from './roadfit.js';
 import { audio } from '../audio.js';
 import { createMusicSource } from '../music.js';
 import { makeRand, riverCx, riverHalf } from './layout.js';
@@ -479,7 +480,7 @@ function buildRoadNet(ctx, roads) {
   const wet = (x, z) => ctx.waterMask?.isWater(x, z) && !ctx.onBridge?.(x, z);
   for (const road of roads) {
     if (road.w < 7) continue; // rues carrossables à deux voies
-    const lane = Math.min(1.45, road.w * 0.18);
+    const lane = Math.min(1.45, roadHalf(road) * 0.45); // chaussée ajustée aux façades
     for (let i = 0; i + 3 < road.p.length; i += 2) {
       const x1 = road.p[i], z1 = road.p[i + 1], x2 = road.p[i + 2], z2 = road.p[i + 3];
       const len = Math.hypot(x2 - x1, z2 - z1);
@@ -528,7 +529,7 @@ function buildRoadNet(ctx, roads) {
       const len = Math.hypot(x2 - x1, z2 - z1);
       if (len < 16) continue;
       const ux = (x2 - x1) / len, uz = (z2 - z1) / len, sd = (ri + i) % 4 < 2 ? 1 : -1;
-      const off = road.w / 2 - 1.1;
+      const off = roadHalf(road) - 1.1;
       cands.push({
         x: (x1 + x2) / 2 - uz * off * sd, z: (z1 + z2) / 2 + ux * off * sd,
         ry: Math.atan2(ux, uz) + (sd > 0 ? Math.PI : 0),

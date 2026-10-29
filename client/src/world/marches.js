@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { roadHalf } from './roadfit.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { riverCx, makeRand } from './layout.js';
 import { edgeDist, insidePoly } from './passerelles.js';
@@ -53,7 +54,7 @@ function boulevardCroixRousse(ctx, data) {
       const ax = (x2 - x1) / len, az = (z2 - z1) / len;
       let nx = -az, nz = ax;
       if (nz < 0) { nx = -nx; nz = -nz; } // côté sud (+z)
-      const off = r.w / 2 + 3.2;
+      const off = roadHalf(r) + 3.2;
       for (let t = 1; t < len - 1; t += SW + 0.8) {
         out.push({ x: x1 + ax * t + nx * off, z: z1 + az * t + nz * off, yaw: Math.atan2(nx, nz) + Math.PI });
       }

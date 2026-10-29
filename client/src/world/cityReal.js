@@ -41,6 +41,7 @@ import { buildTraboulesReelles } from './traboules.js';
 import { buildCafes } from './cafes.js';
 import { createParkedCars } from './parked.js';
 import { buildStreetSigns } from './streetsigns.js';
+import { fitRoadsToFacades, roadHalf } from './roadfit.js';
 
 // Construit le vrai Lyon à partir des empreintes OpenStreetMap
 // (client/public/lyon-osm.json, généré par tools/fetch-osm.mjs).
@@ -915,6 +916,12 @@ export function buildRealCity(ctx, data) {
   ctx.worldBound = bound;
   ctx.waterBands = data.water;
   ctx.osmScale = data.scale ?? 0.5;
+  // Rues ajustées aux façades réelles (largeur de chaussée, trottoirs)
+  {
+    const t0 = performance.now();
+    const fit = fitRoadsToFacades(data);
+    console.info(`🛣️ Rues ajustées aux façades : ${fit.roads} en ${Math.round(performance.now() - t0)} ms`);
+  }
 
   // ALIGNER L'EAU SUR LA VILLE. Tout est bâti sauf l'eau : on détecte les
   // couloirs vides plus larges qu'une avenue qui traversent la carte → ce sont
@@ -1968,7 +1975,7 @@ function lampSpotsOsm(ctx, data, full = false, zConf = null) {
       if (len < 0.01) continue;
       const ux = (x2 - x1) / len, uz = (z2 - z1) / len;
       for (let t = 26 - acc; t < len; t += 26) {
-        const off = road.w / 2 + 1.3;
+        const off = roadHalf(road) + 1.3;
         const x = x1 + ux * t - uz * off * side, z = z1 + uz * t + ux * off * side;
         side = -side;
         if (inWater(x, z) || Math.abs(x) > ctx.worldBound - 6 || Math.abs(z) > ctx.worldBound - 6) continue;
@@ -2221,7 +2228,7 @@ function makeRoadTest(roads) {
   const C = 20, grid = new Map();
   for (const r of roads) {
     for (let i = 0; i + 3 < r.p.length; i += 2) {
-      const s = [r.p[i], r.p[i + 1], r.p[i + 2], r.p[i + 3], r.w / 2];
+      const s = [r.p[i], r.p[i + 1], r.p[i + 2], r.p[i + 3], roadHalf(r)];
       for (let x = Math.floor(Math.min(s[0], s[2]) / C); x <= Math.floor(Math.max(s[0], s[2]) / C); x++) {
         for (let z = Math.floor(Math.min(s[1], s[3]) / C); z <= Math.floor(Math.max(s[1], s[3]) / C); z++) {
           const k = x + ',' + z;
@@ -2935,21 +2942,24 @@ function buildOsmRoads(ctx, data, full = false) {
   // Sur le relief, les tronçons OSM longs (jusqu'à 100 m entre deux
   // nœuds) coupaient à travers la colline ou flottaient au-dessus : on les
   // redécoupe tous les ~6 m là où le sol n'est pas plat
-  const dense = (p) => {
-    if (!full) return p;
+  // org[k] = tronçon OSM d'origine du k-ième sous-tronçon (trottoirs ajustés)
+  const dense = (p, org) => {
+    if (!full) { for (let i = 0; i + 3 < p.length; i += 2) org.push(i >> 1); return p; }
     const out = [p[0], p[1]];
     for (let i = 0; i + 3 < p.length; i += 2) {
       const x1 = p[i], z1 = p[i + 1], x2 = p[i + 2], z2 = p[i + 3];
       const ya = yAt(x1, z1), yb = yAt(x2, z2), ym = yAt((x1 + x2) / 2, (z1 + z2) / 2);
       const flat = Math.abs(ya - yb) < 0.15 && Math.abs((ya + yb) / 2 - ym) < 0.15;
       const k = flat ? 1 : Math.max(1, Math.ceil(Math.hypot(x2 - x1, z2 - z1) / 6));
-      for (let t = 1; t <= k; t++) out.push(x1 + ((x2 - x1) * t) / k, z1 + ((z2 - z1) * t) / k);
+      for (let t = 1; t <= k; t++) { out.push(x1 + ((x2 - x1) * t) / k, z1 + ((z2 - z1) * t) / k); org.push(i >> 1); }
     }
     return out;
   };
   for (const road0 of data.roads) {
-    const road = { ...road0, p: dense(road0.p) };
-    const half = road.w / 2;
+    const org = [];
+    const road = { ...road0, p: dense(road0.p, org) };
+    // largeur ajustée aux façades (roadfit.js) ; road.w reste la classe
+    const half = roadHalf(road0);
     if (road.w < 6) {
       let inside = 0, n = 0;
       for (let i = 0; i + 1 < road.p.length; i += 2) { n++; if (inPlace(road.p[i], road.p[i + 1])) inside++; }
@@ -2961,6 +2971,7 @@ function buildOsmRoads(ctx, data, full = false) {
     for (let i = 0; i + 3 < road.p.length; i += 2) {
       const x1 = road.p[i], z1 = road.p[i + 1];
       const x2 = road.p[i + 2], z2 = road.p[i + 3];
+      const [swL, swR] = road0.sw?.[org[i >> 1]] ?? (road.w < 5.5 ? [1.0, 1.0] : [1.6, 1.6]);
       // Allées du site antique : le théâtre a ses propres dallages
       if (ctx.theatre?.covers(x1, z1) || ctx.theatre?.covers(x2, z2)) continue;
       // Sur l'eau d'un vrai pont (ou d'une passerelle) : il a sa propre
@@ -2972,11 +2983,20 @@ function buildOsmRoads(ctx, data, full = false) {
       if (road.w < 5.5) {
         // (UV posées plus bas, en coordonnées MONDE : deux ruelles qui se
         // chevauchent montrent exactement les mêmes pavés, sans raccord)
-        uvAcc += ribbon(cobble, x1, z1, x2, z2, half + 1.0, -0.012, null, null); // sous l'asphalte des carrefours
+        // de mur à mur (roadfit.js), sous l'asphalte des carrefours
+        const cl = Math.hypot(x2 - x1, z2 - z1);
+        if (cl > 0.1) strip(cobble, x1, z1, x2, z2, -(half + swR), half + swL, -0.012);
+        uvAcc += cl;
         continue;
       }
       // Trottoir un peu plus large et 2 cm plus bas, chaussée par-dessus
-      ribbon(walk, x1, z1, x2, z2, half + 1.6, -0.02, uvAcc, walkUv);
+      // trottoirs jusqu'aux façades, chaque côté le sien (roadfit.js)
+      const wl = Math.hypot(x2 - x1, z2 - z1);
+      if (wl > 0.1) {
+        strip(walk, x1, z1, x2, z2, -(half + swR), half + swL, -0.02);
+        const va = uvAcc / 9, vb = (uvAcc + wl) / 9, uw = (2 * half + swL + swR) / 8.7;
+        walkUv.push(0, va, uw, vb, 0, vb, 0, va, uw, va, uw, vb);
+      }
       const len = ribbon(pos, x1, z1, x2, z2, half, 0, uvAcc, roadUv);
       uvAcc += len;
       // Bordure de granit (25 cm) + caniveau sombre côté chaussée, raccourcis
@@ -3198,7 +3218,7 @@ function buildGreenery(ctx, data, rand, full = false) {
         const x = road.p[i], z = road.p[i + 1];
         if (Math.abs(x) > ctx.worldBound - 8 || Math.abs(z) > ctx.worldBound - 8) continue;
         const side = (i % 32 === 0) ? 1 : -1; // alternance des côtés
-        spots.push([x + side * (road.w / 2 + 2.2), z + (rand() - 0.5) * 2]);
+        spots.push([x + side * (roadHalf(road) + 2.2), z + (rand() - 0.5) * 2]);
         planted++;
       }
     }
@@ -3277,7 +3297,7 @@ function buildGreenery(ctx, data, rand, full = false) {
     // grille des chaussées (cellules de 6 m) pour ne rien planter sur une rue
     const RC = 6, roadCells = new Set();
     for (const road of data.roads) {
-      const r = road.w / 2 + 2;
+      const r = roadHalf(road) + 2;
       for (let i = 0; i + 3 < road.p.length; i += 2) {
         const x1 = road.p[i], z1 = road.p[i + 1], x2 = road.p[i + 2], z2 = road.p[i + 3];
         const len = Math.hypot(x2 - x1, z2 - z1), k = Math.max(1, Math.ceil(len / 3));

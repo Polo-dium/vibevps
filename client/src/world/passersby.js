@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { roadHalf } from './roadfit.js';
 import { buildHuman } from './human.js';
 import { detail } from '../render/detail.js';
 import { makeRand } from './layout.js';
@@ -32,7 +33,7 @@ export function createPassersby(ctx, data) {
   };
   for (const road of data.roads ?? []) {
     if (road.w < 4) continue;
-    const off = road.w / 2 + 1.2;
+    const off = roadHalf(road) + 1.2;
     for (let i = 0; i + 3 < road.p.length; i += 2) {
       const x1 = road.p[i], z1 = road.p[i + 1], x2 = road.p[i + 2], z2 = road.p[i + 3];
       const len = Math.hypot(x2 - x1, z2 - z1);

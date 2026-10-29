@@ -174,6 +174,12 @@ npm start          # serveur de prod (sert client/dist)
     chargement pour chanter, repli sculpté), `album.js` (titres, paroles par
     section). Ajouter un morceau : MP3 dans `client/public/music/` + une
     entrée dans `album.js`.
+  - `src/world/roadfit.js` : rues ajustées aux façades (lancer de rayons
+    sur les empreintes OSM, au chargement, ~0,2 s) : `road.rw` = largeur de
+    chaussée rendue, `road.sw[i]` = trottoirs [gauche, droite] par tronçon
+    jusqu'aux façades proches (≤ 4,5 m ; pavés de mur à mur). `road.w`
+    reste la CLASSE (seuils) ; tout décalage latéral passe par
+    `roadHalf(road)`. Le tracé n'est pas déplacé (réseau connecté).
   - Circulation (`traffic.js`) : en ville OSM, `buildTraffic(..., data.roads)`
     fait rouler une flotte recyclée autour du joueur sur le VRAI réseau
     (rues ≥ 7 m, voie de droite, relief et tabliers de pont via

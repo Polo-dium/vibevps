@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { roadHalf } from './roadfit.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildHuman } from './human.js';
 import { detail } from '../render/detail.js';
@@ -92,7 +93,7 @@ export function createTerraces(ctx, spots, roads) {
   for (const r of roads ?? []) {
     if (r.w < 5.5) continue; // ruelle pavée piétonne : on peut s'y installer
     for (let i = 0; i + 3 < r.p.length; i += 2) {
-      const seg = [r.p[i], r.p[i + 1], r.p[i + 2], r.p[i + 3], r.w / 2 + 0.3];
+      const seg = [r.p[i], r.p[i + 1], r.p[i + 2], r.p[i + 3], roadHalf(r) + 0.3];
       const x0 = Math.min(seg[0], seg[2]) - 6, x1 = Math.max(seg[0], seg[2]) + 6;
       const z0 = Math.min(seg[1], seg[3]) - 6, z1 = Math.max(seg[1], seg[3]) + 6;
       for (let gx = Math.floor(x0 / RC); gx <= Math.floor(x1 / RC); gx++) {

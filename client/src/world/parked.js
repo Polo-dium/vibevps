@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { roadHalf } from './roadfit.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { detail } from '../render/detail.js';
 
@@ -87,7 +88,7 @@ export function createParkedCars(ctx, roads) {
   let total = 0, ri = 0;
   for (const r of roads) {
     ri++;
-    if (r.w < 7) continue;
+    if (r.w < 7 || roadHalf(r) < 3.2) continue; // chaussée resserrée : pas la place de se garer
     const sides = r.w >= 10 ? [-1, 1] : [hash(ri) % 2 ? 1 : -1];
     for (let i = 0; i + 3 < r.p.length; i += 2) {
       const x1 = r.p[i], z1 = r.p[i + 1], x2 = r.p[i + 2], z2 = r.p[i + 3];
@@ -97,7 +98,7 @@ export function createParkedCars(ctx, roads) {
       const tA = (nodes.get(nodeKey(x1, z1))?.n ?? 0) >= 2 ? (nodes.get(nodeKey(x1, z1)).w / 2 + 5) : 3;
       const tB = (nodes.get(nodeKey(x2, z2))?.n ?? 0) >= 2 ? (nodes.get(nodeKey(x2, z2)).w / 2 + 5) : 3;
       for (const sd of sides) {
-        const off = r.w / 2 - 1.15;
+        const off = roadHalf(r) - 1.15;
         for (let s = tA + 2.3, k = 0; s < len - tB - 2.3; s += 5.3, k++) {
           const hh = hash(ri * 7919 + i * 131 + k * 17 + (sd > 0 ? 5 : 0));
           if (hh % 100 < 28) continue; // places libres
