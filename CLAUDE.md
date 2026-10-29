@@ -187,8 +187,12 @@ npm start          # serveur de prod (sert client/dist)
   joueur + `NPC_DAILY_CAP`) → `POST /api/npc/talk`. `tts.js` : voix Piper
   (une voix par persona, `GET /api/tts/:id` seulement pour les répliques
   émises par le serveur, cache WAV dans `server/data/tts-cache`), installé
-  en tâche de fond par `tools/install-piper.mjs`. Client : `ui/talk.js`
-  (`ctx.talkTo(id, { title, emoji, greet, fallback })` → false si l'IA est
+  en tâche de fond par `tools/install-piper.mjs`. `stt.js` : micro → texte
+  (whisper.cpp compilé par `tools/install-whisper.mjs`, `POST /api/stt` en
+  WAV 16 kHz mono brut, prompt de vocabulaire lyonnais, une transcription à
+  la fois, hallucinations « sous-titres » filtrées). Client : `ui/talk.js`
+  (`ctx.talkTo(id, { title, emoji, greet, fallback })`, bouton 🎤 / Tab :
+  MediaRecorder → OfflineAudioContext 16 kHz → WAV ; → false si l'IA est
   coupée, le PNJ garde alors ses répliques fixes). `ws.js` : positions 15 Hz, PvP
   autoritatif (dégâts/kills/regen), chat de proximité. `api.js` : REST
   (register, tags, scores, progression, génération de bornes par IA si

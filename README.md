@@ -40,6 +40,11 @@ Voix des PNJ : au premier démarrage, le serveur installe tout seul
 couper ; à la main : `node tools/install-piper.mjs`). Sans Piper, les PNJ
 parlent avec la synthèse vocale du navigateur.
 
+Micro (parler aux PNJ, bouton 🎤 ou Tab dans le dialogue) : whisper.cpp est
+compilé tout seul au démarrage dans `server/data/whisper/` si `git`, `cmake`
+et `g++` sont installés (`apt install -y build-essential cmake git`), avec le
+modèle `small-q5_1` (~190 Mo). À la main : `node tools/install-whisper.mjs`.
+
 Pour un service persistant, par exemple avec systemd :
 
 ```ini

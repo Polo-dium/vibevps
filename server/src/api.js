@@ -4,6 +4,8 @@ import { db, q, insertTagWithLimit } from './db.js';
 import { aiAvailable, generateGame } from './ai.js';
 import { npcTalk, npcForget } from './npcTalk.js';
 import { ttsAvailable, ttsFile } from './tts.js';
+import { sttAvailable, transcribe, validWav } from './stt.js';
+import express from 'express';
 import { broadcast } from './ws.js';
 import { bumpDaily, getDailyStatus } from './daily.js';
 
@@ -378,7 +380,7 @@ api.post('/games', auth, async (req, res) => {
 // --- Dialogues avec les PNJ (Claude Haiku) + voix Piper -------------------
 
 api.get('/npc/status', (req, res) => {
-  res.json({ ai: aiAvailable(), tts: ttsAvailable() });
+  res.json({ ai: aiAvailable(), tts: ttsAvailable(), stt: sttAvailable() });
 });
 
 api.post('/npc/talk', auth, async (req, res) => {
@@ -407,5 +409,24 @@ api.get('/tts/:id', async (req, res) => {
   } catch (err) {
     console.error('Synthèse Piper échouée :', err.message);
     res.status(500).json({ error: 'Synthèse vocale indisponible.' });
+  }
+});
+
+// Micro → texte (whisper.cpp) : WAV 16 kHz mono envoyé brut, 15 s max
+const sttLast = new Map(); // playerId → dernier envoi
+api.post('/stt', auth, express.raw({ type: 'audio/wav', limit: '600kb' }), async (req, res) => {
+  if (!sttAvailable()) return res.status(503).json({ error: 'Micro indisponible sur ce serveur.' });
+  if (!validWav(req.body)) return res.status(400).json({ error: 'Audio invalide (WAV 16 kHz mono attendu).' });
+  const now = Date.now();
+  if (now - (sttLast.get(req.player.id) ?? 0) < 2500) {
+    return res.status(429).json({ error: 'Doucement, une phrase à la fois !' });
+  }
+  sttLast.set(req.player.id, now);
+  if (sttLast.size > 2000) sttLast.clear();
+  try {
+    res.json({ text: await transcribe(req.body) });
+  } catch (err) {
+    console.error('Transcription échouée :', err.message);
+    res.status(500).json({ error: 'Je n’ai pas compris, réessaie.' });
   }
 });

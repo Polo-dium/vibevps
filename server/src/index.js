@@ -11,6 +11,7 @@ import { aiAvailable } from './ai.js';
 import { getOgImage } from './ogImage.js';
 import { startOsmAutoUpdate } from './osmUpdate.js';
 import { startPiperAutoInstall, ttsAvailable } from './tts.js';
+import { startWhisperAutoInstall, sttAvailable } from './stt.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3000);
@@ -130,5 +131,7 @@ server.listen(PORT, () => {
       : 'Éditeur IA : INACTIF — définis ANTHROPIC_API_KEY (.env) pour les bornes et les dialogues des PNJ.'
   );
   console.log(ttsAvailable() ? 'Voix des PNJ : Piper prêt.' : 'Voix des PNJ : Piper absent (voix du navigateur).');
+  console.log(sttAvailable() ? 'Micro des PNJ : whisper.cpp prêt.' : 'Micro des PNJ : whisper.cpp absent.');
   startPiperAutoInstall();
+  startWhisperAutoInstall();
 });
