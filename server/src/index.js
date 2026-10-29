@@ -1,3 +1,4 @@
+import './env.js'; // en premier : .env → process.env
 import express from 'express';
 import compression from 'compression';
 import http from 'node:http';
@@ -9,6 +10,7 @@ import { setupWs } from './ws.js';
 import { aiAvailable } from './ai.js';
 import { getOgImage } from './ogImage.js';
 import { startOsmAutoUpdate } from './osmUpdate.js';
+import { startPiperAutoInstall, ttsAvailable } from './tts.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3000);
@@ -124,7 +126,9 @@ server.listen(PORT, () => {
   console.log(`VibeVPS — Lyon Arcade en écoute sur http://0.0.0.0:${PORT}`);
   console.log(
     aiAvailable()
-      ? 'Éditeur IA : actif (clé Anthropic détectée).'
-      : 'Éditeur IA : INACTIF — définis ANTHROPIC_API_KEY pour activer la création de bornes.'
+      ? 'IA : active (clé Anthropic détectée) — bornes + dialogues des PNJ.'
+      : 'Éditeur IA : INACTIF — définis ANTHROPIC_API_KEY (.env) pour les bornes et les dialogues des PNJ.'
   );
+  console.log(ttsAvailable() ? 'Voix des PNJ : Piper prêt.' : 'Voix des PNJ : Piper absent (voix du navigateur).');
+  startPiperAutoInstall();
 });

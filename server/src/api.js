@@ -2,6 +2,8 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { db, q, insertTagWithLimit } from './db.js';
 import { aiAvailable, generateGame } from './ai.js';
+import { npcTalk, npcForget } from './npcTalk.js';
+import { ttsAvailable, ttsFile } from './tts.js';
 import { broadcast } from './ws.js';
 import { bumpDaily, getDailyStatus } from './daily.js';
 
@@ -370,5 +372,40 @@ api.post('/games', auth, async (req, res) => {
     res.status(502).json({
       error: 'La génération du jeu a échoué : ' + (err?.message ?? 'erreur inconnue'),
     });
+  }
+});
+
+// --- Dialogues avec les PNJ (Claude Haiku) + voix Piper -------------------
+
+api.get('/npc/status', (req, res) => {
+  res.json({ ai: aiAvailable(), tts: ttsAvailable() });
+});
+
+api.post('/npc/talk', auth, async (req, res) => {
+  const scene = req.body?.scene ?? {};
+  try {
+    const out = await npcTalk(req.player, String(req.body?.npc ?? ''), req.body?.message, {
+      nuit: scene.nuit === true, pluie: scene.pluie === true,
+    });
+    res.json(out);
+  } catch (err) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+api.post('/npc/bye', auth, (req, res) => {
+  npcForget(req.player, String(req.body?.npc ?? ''));
+  res.json({ ok: true });
+});
+
+api.get('/tts/:id', async (req, res) => {
+  try {
+    const file = await ttsFile(req.params.id);
+    if (!file) return res.status(404).json({ error: 'Réplique inconnue.' });
+    res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+    res.type('audio/wav').sendFile(file);
+  } catch (err) {
+    console.error('Synthèse Piper échouée :', err.message);
+    res.status(500).json({ error: 'Synthèse vocale indisponible.' });
   }
 });

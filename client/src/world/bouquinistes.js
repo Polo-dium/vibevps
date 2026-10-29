@@ -123,7 +123,12 @@ export function buildBouquinistes(ctx, data) {
         'Un vieux Guignol illustré… Gnafron a l’air déjà pompette.',
         '« Recettes de la Mère Brazier » — la quenelle, la vraie.',
         'Une carte postale de la Croix-Rousse en 1905. Les canuts te saluent.'];
-      ctx.notify?.('📚 ' + T[Math.floor(Date.now() / 60000) % T.length]);
+      const pick = () => T[Math.floor(Date.now() / 60000) % T.length];
+      if (ctx.talkTo?.('bouquiniste', {
+        title: 'Monsieur Gaspard, bouquiniste', emoji: '📚',
+        greet: 'Bonjour. Vous cherchez un livre, ou une histoire de Lyon ?', fallback: pick,
+      })) return;
+      ctx.notify?.('📚 ' + pick());
     },
   });
   return spots.length;

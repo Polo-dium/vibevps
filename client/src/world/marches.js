@@ -189,7 +189,14 @@ export function buildMarches(ctx, data) {
   for (const g of vendors) {
     ctx.interactables?.push({
       x: g.position.x, z: g.position.z, r: 2.6, label: 'E — Causer avec le marchand',
-      action: () => ctx.notify?.(CRIS[Math.floor(Date.now() / 20000) % CRIS.length]),
+      action: () => {
+        const pick = () => CRIS[Math.floor(Date.now() / 20000) % CRIS.length];
+        if (ctx.talkTo?.('marchand', {
+          title: 'Jojo, marchand du marché', emoji: '🥕',
+          greet: 'Approchez, approchez ! Qu’est-ce qui vous ferait plaisir ?', fallback: pick,
+        })) return;
+        ctx.notify?.(pick());
+      },
     });
   }
   return all.length;

@@ -156,7 +156,14 @@ function buildSalle(ctx) {
   const [ix, iz] = k.world(8, cv + 1.2);
   ctx.interactables.push({
     x: ix, z: iz, r: 2.4, label: 'E — Causer avec le patron',
-    action: () => ctx.notify?.(PATRON[Math.floor(Date.now() / 15000) % PATRON.length]),
+    action: () => {
+      const pick = () => PATRON[Math.floor(Date.now() / 15000) % PATRON.length];
+      if (ctx.talkTo?.('patronne', {
+        title: 'La Mère Fanchon, patronne du Café des Gones', emoji: '☕',
+        greet: 'Entre, ma poule ! Un petit pot, des gratons ?', fallback: pick,
+      })) return;
+      ctx.notify?.(pick());
+    },
   });
   return {
     pocket,

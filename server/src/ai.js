@@ -31,14 +31,23 @@ et amusants. Si la description demande quelque chose d'impossible en 2D canvas,
 adaptes-en une version 2D jouable.`;
 
 export function aiAvailable() {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
 }
 
-export async function generateGame(title, prompt) {
-  const client = new Anthropic();
+// Un seul client partagé (bornes + dialogues des PNJ), créé à la première
+// demande : la clé est lue dans process.env (.env chargé par env.js).
+let client = null;
+export function anthropic() {
+  if (!client) client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY.trim(), maxRetries: 1 });
+  return client;
+}
 
-  const stream = client.messages.stream({
-    model: 'claude-sonnet-4-6',
+// Modèle des bornes : Sonnet (assez fort pour coder un jeu complet d'un coup)
+const GAME_MODEL = process.env.AI_MODEL_BORNES || 'claude-sonnet-5-5';
+
+export async function generateGame(title, prompt) {
+  const stream = anthropic().messages.stream({
+    model: GAME_MODEL,
     max_tokens: 32000,
     system: SYSTEM_PROMPT,
     messages: [
@@ -50,6 +59,12 @@ export async function generateGame(title, prompt) {
   });
 
   const message = await stream.finalMessage();
+  if (message.stop_reason === 'refusal') {
+    throw new Error('Le modèle a refusé cette description de jeu, reformule-la.');
+  }
+  if (message.stop_reason === 'max_tokens') {
+    throw new Error('Le jeu généré est trop long, simplifie la description.');
+  }
   const text = message.content
     .filter((b) => b.type === 'text')
     .map((b) => b.text)

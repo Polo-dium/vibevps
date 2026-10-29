@@ -23,12 +23,22 @@ multijoueur temps réel :
 npm install          # installe la racine + client + serveur (workspaces)
 npm run build        # compile le client (client/dist)
 cp .env.example .env # puis renseigne ANTHROPIC_API_KEY dans .env
-export $(grep -v '^#' .env | xargs)
 npm start            # sert le jeu sur http://0.0.0.0:3000
 ```
 
-Sans `ANTHROPIC_API_KEY`, tout fonctionne sauf la création de bornes IA
-(la borne « CRÉER » renvoie un message explicite).
+Le serveur lit lui-même `.env` à la racine (`server/src/env.js`) : pas besoin
+d'`export`, et le redémarrage par le cron de déploiement garde la clé.
+
+Avec `ANTHROPIC_API_KEY` : création de bornes par IA (Claude Sonnet) et
+conversations libres avec les PNJ (Claude Haiku : patron du bouchon, patronne
+du Café des Gones, marchands, bouquiniste). Sans la clé, tout fonctionne avec
+les répliques fixes et la borne « CRÉER » renvoie un message explicite.
+
+Voix des PNJ : au premier démarrage, le serveur installe tout seul
+[Piper](https://github.com/rhasspy/piper) et quatre voix françaises dans
+`server/data/piper/` (~150 Mo, tâche de fond, `PIPER_AUTO_INSTALL=0` pour
+couper ; à la main : `node tools/install-piper.mjs`). Sans Piper, les PNJ
+parlent avec la synthèse vocale du navigateur.
 
 Pour un service persistant, par exemple avec systemd :
 

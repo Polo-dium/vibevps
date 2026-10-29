@@ -180,7 +180,16 @@ npm start          # serveur de prod (sert client/dist)
     sandbox (`builtin/`), pont clavier par postMessage (`shell.js`).
   - `src/tags/` — bombe de peinture, décals réseau, éditeur de tags.
   - `src/progress.js` — niveaux (`levelOf`) et définitions des succès.
-- `server/` — Express + ws + better-sqlite3. `ws.js` : positions 15 Hz, PvP
+- `server/` — Express + ws + better-sqlite3. `env.js` charge `.env` (racine)
+  au démarrage. `ai.js` : client Anthropic partagé + bornes (Sonnet).
+  `npcTalk.js` : dialogues libres des PNJ (Claude Haiku, personas `patron`,
+  `patronne`, `marchand`, `bouquiniste`, historique serveur 15 min, quotas
+  joueur + `NPC_DAILY_CAP`) → `POST /api/npc/talk`. `tts.js` : voix Piper
+  (une voix par persona, `GET /api/tts/:id` seulement pour les répliques
+  émises par le serveur, cache WAV dans `server/data/tts-cache`), installé
+  en tâche de fond par `tools/install-piper.mjs`. Client : `ui/talk.js`
+  (`ctx.talkTo(id, { title, emoji, greet, fallback })` → false si l'IA est
+  coupée, le PNJ garde alors ses répliques fixes). `ws.js` : positions 15 Hz, PvP
   autoritatif (dégâts/kills/regen), chat de proximité. `api.js` : REST
   (register, tags, scores, progression, génération de bornes par IA si
   `ANTHROPIC_API_KEY`).

@@ -143,8 +143,13 @@ export function buildBouchon(ctx, { notify, speak } = {}) {
     x: gx, z: gz, r: 4.5,
     label: 'E — Causer avec le patron du bouchon',
     action: () => {
-      const text = PATRON_LINES[line % PATRON_LINES.length];
-      line++;
+      const next = () => PATRON_LINES[line++ % PATRON_LINES.length];
+      // IA active : vraie conversation avec Dédé, sinon ses répliques fixes
+      if (ctx.talkTo?.('patron', {
+        title: 'Dédé, patron du Bouchon des Gones', emoji: '🍷',
+        greet: 'Salut mon gone ! Assieds-toi, qu’est-ce que je te sers ?', fallback: next,
+      })) return;
+      const text = next();
       notify?.(`🍷 « ${text} »`);
       speak?.(text, { pitch: 0.6, rate: 0.95, volume: 1 });
     },

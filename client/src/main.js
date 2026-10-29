@@ -47,6 +47,7 @@ import { createSpray } from './tags/spray.js';
 import { createTagEditor } from './tags/editor.js';
 import { createGameShell } from './games/shell.js';
 import { createUi } from './ui/hud.js';
+import { createTalk } from './ui/talk.js';
 import { createProgress } from './progress.js';
 import { createCapture } from './capture.js';
 import { createQuality, fogDensityFor } from './quality.js';
@@ -452,6 +453,8 @@ async function boot() {
       }
     },
   };
+  // Conversations libres avec les PNJ (Claude côté serveur) : ctx.talkTo
+  const talk = createTalk(ctx);
 
   // Vrai Lyon (données OpenStreetMap) si le fichier a été généré sur le
   // serveur avec tools/fetch-osm.mjs, sinon ville procédurale.
@@ -1750,7 +1753,8 @@ async function boot() {
   let nearestInteractable = null;
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Escape') {
-      if (shell.isOpen()) shell.close();
+      if (talk.isOpen()) talk.close();
+      else if (shell.isOpen()) shell.close();
       else if (tagEditor.isOpen()) tagEditor.close();
       else ui.closeTopOverlay();
       return;
