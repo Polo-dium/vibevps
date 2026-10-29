@@ -132,6 +132,10 @@ npm start          # serveur de prod (sert client/dist)
     `ctx.onBridge` masque le ruban de rue sur l'eau ; plus de ponts
     génériques à z fixes. Les passerelles OSM (kind foot) passent par
     `passerelles.js` (style d'après le nom ou la structure).
+  - `src/world/berges.js` : péniches amarrées du quai Augagneur (rive gauche
+    du Rhône), alignées sur le vrai bord de l'eau (polygones OSM, pas le
+    masque à 4 m), 3 modèles en InstancedMesh, passerelles et bollards,
+    guirlandes en points additifs allumées la nuit.
   - `src/world/terraces.js` : terrasses de café devant les devantures
     « café »/« bouchon » (mobilier instancié par quartier, clients assis
     recyclés autour du joueur — `buildHuman({ seated: true })` ajoute des
