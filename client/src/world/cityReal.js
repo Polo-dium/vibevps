@@ -38,6 +38,7 @@ import { buildBerges } from './berges.js';
 import { buildBouquinistes } from './bouquinistes.js';
 import { buildMarches } from './marches.js';
 import { buildTraboulesReelles } from './traboules.js';
+import { buildCafes } from './cafes.js';
 import { createParkedCars } from './parked.js';
 import { buildStreetSigns } from './streetsigns.js';
 
@@ -1227,6 +1228,8 @@ export function buildRealCity(ctx, data) {
     console.info(`🚶 Passants : trottoirs préparés en ${Math.round(performance.now() - t0)} ms`);
     // Terrasses de café devant les devantures « café » et « bouchon »
     ctx.terraces = createTerraces(ctx, ctx.terraceSpots ?? [], data.roads);
+    // Quelques cafés où l'on peut entrer (salle de bouchon partagée)
+    ctx.cafeCount = buildCafes(ctx, ctx.terraceSpots ?? []);
     // Plaques de rue émaillées aux carrefours des grandes rues reconnues
     buildStreetSigns(ctx, data.roads, data.scale ?? 0.5);
     // Voitures garées en créneau le long des rues à trottoir

@@ -149,6 +149,13 @@ npm start          # serveur de prod (sert client/dist)
     joueur, comme `passersby.js`). Devantures en volume : `buildShopVolumes`
     (stores bannes rayés, enseignes en drapeau lumineuses la nuit ; côté
     fragment, la couleur d'instance est sous `USE_COLOR`).
+  - `marches.js` : marchés du quai Saint-Antoine et du boulevard de la
+    Croix-Rousse (étals instanciés, remballés la nuit). `traboules.js` :
+    traboules VISITABLES (longue traboule/Tour Rose, cour des Voraces) bâties
+    dans des POCHES hors carte sous le sol (`makePocket` : `ctx.pockets`,
+    `ctx.terrainHeight` y renvoie le plancher, `ctx.inPocket`) ; portes aux
+    vraies adresses, sortie par déclencheur au bout du couloir. `cafes.js` :
+    salle de bouchon partagée (poche) ouverte depuis 5 devantures café.
   - `src/world/terraces.js` : terrasses de café devant les devantures
     « café »/« bouchon » (mobilier instancié par quartier, clients assis
     recyclés autour du joueur — `buildHuman({ seated: true })` ajoute des
