@@ -41,7 +41,9 @@ export function applySeason(ctx) {
       done.add(m);
       recolor(m.color, season);
     }
-    if (o.isInstancedMesh && o.instanceColor) {
+    // couleurs d'instance : même drapeau noSeason (persistants des jardins)
+    const evergreen = mats.some((m) => m?.userData?.noSeason);
+    if (o.isInstancedMesh && o.instanceColor && !evergreen) {
       let changed = false;
       for (let i = 0; i < o.count; i++) {
         o.getColorAt(i, c);

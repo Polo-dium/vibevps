@@ -31,6 +31,7 @@ import { buildFuniculaire } from './funicular.js';
 import { buildPasserelles } from './passerelles.js';
 import { collectBridgeSpans, buildRealBridges } from './realBridges.js';
 import { buildPentes, planGrandeCote } from './pentes.js';
+import { buildJardins } from './jardins.js';
 import { createParkedCars } from './parked.js';
 import { buildStreetSigns } from './streetsigns.js';
 
@@ -1129,6 +1130,12 @@ export function buildRealCity(ctx, data) {
   // Escaliers des pentes, jardin de la Grande-Côte, murs de soutènement
   // (vrai relief seulement) : après rues et bâtiments, avant les arbres
   if (full) buildPentes(ctx, data);
+  // Jardins clos des collines (Saint-Just, Fourvière, Croix-Rousse…)
+  if (full) {
+    const reserved = reservedRects();
+    ctx.reservedAt = (x, z) => reserved.some((r) => (r.contains ? r.contains(x, z) : x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ));
+    buildJardins(ctx, data);
+  }
   buildGreenery(ctx, data, rand, full);
   if (full) buildConfluenceMuseum(ctx, { x: museumX, z: museumZ, scale: 1.08 });
 
@@ -1372,6 +1379,7 @@ function buildTerrainMesh(ctx, bound, data) {
     new THREE.MeshLambertMaterial({ vertexColors: true, map: detail })
   );
   ctx.scene.add(mesh);
+  ctx.terrainMesh = mesh; // world/jardins.js repeint les jardins des collines
 }
 
 // Une colline d'horizon est très large : son centre peut être hors carte alors
@@ -2978,7 +2986,7 @@ function buildGreenery(ctx, data, rand, full = false) {
       const t = Math.max(-0.1, Math.min(1.1, ((x - F.A.x) * dx + (z - F.A.z) * dz) / (dx * dx + dz * dz)));
       return Math.hypot(F.A.x + dx * t - x, F.A.z + dz * t - z) < 9;
     };
-    const lim = ctx.worldBound - 12, STEP = 7, CAP = 3600;
+    const lim = ctx.worldBound - 12, STEP = 6, CAP = 5200;
     const cand = [];
     for (let gz = -lim; gz < lim; gz += STEP) {
       for (let gx = -lim; gx < lim; gx += STEP) {
@@ -2987,8 +2995,9 @@ function buildGreenery(ctx, data, rand, full = false) {
         const h = H(x, z);
         if (h < 2.5) continue;
         const slope = Math.hypot(H(x + 4, z) - H(x - 4, z), H(x, z + 4) - H(x, z - 4)) / 8;
-        // dense sur les balmes, épars sur les replats des collines
-        if (pick > (slope > 0.45 ? 0.75 : slope > 0.25 ? 0.4 : 0.06)) continue;
+        // dense sur les balmes et dans les jardins clos, épars ailleurs
+        const inGarden = slope <= 0.25 && ctx.gardenAt?.(x, z);
+        if (pick > (slope > 0.45 ? 0.75 : slope > 0.25 ? 0.4 : inGarden ? 0.32 : 0.06)) continue;
         if (inWater(x, z) || inReserved(x, z) || onFic(x, z) || ctx.theatre?.covers(x, z) || ctx.pentesCovers?.(x, z)) continue;
         if (roadCells.has(Math.floor(x / RC) + ',' + Math.floor(z / RC))) continue;
         let hit = false;
@@ -3002,7 +3011,7 @@ function buildGreenery(ctx, data, rand, full = false) {
     // plafond (perf mobile) : tirage sur toute la carte, pas dans l'ordre du
     // balayage (tout finissait au nord) ; le cœur de la ville (Fourvière,
     // Croix-Rousse, là où l'on joue) passe avant la périphérie
-    const core = (t) => Math.max(Math.abs(t[0]), Math.abs(t[1])) < 900;
+    const core = (t) => Math.hypot(t[0] + 250, t[1] + 200) < 800;
     const nCore = cand.filter(core).length;
     const kCore = Math.min(1, (CAP * 0.65) / Math.max(1, nCore));
     const kOut = Math.min(1, (CAP - Math.min(nCore, CAP * 0.65)) / Math.max(1, cand.length - nCore));

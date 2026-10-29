@@ -55,6 +55,14 @@ npm start          # serveur de prod (sert client/dist)
     taillées dans les pentes en ville. Marches et terrasses deviennent le
     sol (`ctx.terrainHeight`, index spatial), `ctx.pentesCovers` écarte les
     arbres.
+  - `src/world/jardins.js` (vrai relief) : jardins clos des collines
+    (Saint-Just, Fourvière, Croix-Rousse…). Grille d'occupation à 2 m
+    (bâti + rues), `ctx.gardenAt` mémoïsé ; clôtures le long des rues côté
+    jardin (mur de pierre dorée, muret + haie, haie ; portails), arbustes
+    et cyprès instanciés (plafonds, cœur de ville d'abord), sol des
+    jardins repeint en pelouses sur `ctx.terrainMesh`. `buildGreenery`
+    plante les arbres plus serré dans les jardins. `seasons.js` respecte
+    `material.userData.noSeason` aussi pour les couleurs d'instance.
   - `src/render/` — rendu « ciné » au palier Élevé (`post.js` : bloom HDR,
     étalonnage, MSAA), reflets d'environnement procéduraux (`envmap.js`),
     matériaux PBR et profils extrudés (`materials.js`), passe matière sur le
