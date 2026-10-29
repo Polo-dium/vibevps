@@ -9,8 +9,8 @@ import { sculpt, withDetails, paint } from '../render/sculpt.js';
 // les autres. Petits détails du visage (yeux, sourcils, bouche) ajoutés en
 // pièces fines dans le même mesh.
 //
-// PERF : 7 meshes par humain (un corps, deux jambes, deux bras et deux
-// avant-bras articulés au coude). Les formes ne sont calculées qu'UNE fois par modèle (cache) : tous
+// PERF : UN maillage à squelette par humain (corps, jambes, bras et
+// avant-bras articulés au coude = os). Les formes ne sont calculées qu'UNE fois par modèle (cache) : tous
 // les humains partagent positions, normales et index sur le GPU, seules
 // leurs couleurs de sommets diffèrent (voir paint()). Grille plus fine au
 // palier Élevé, plus grossière (moins de triangles) ailleurs.
@@ -153,6 +153,57 @@ const shinGeo = () => cached(`tibia|${cellSize()}`,
   () => sculpt(legShape().slice(3).map((p) => shiftPrim(p, KNEE)), { cell: cellSize() }));
 const foreGeo = (s) => cached(`avantbras${s}|${cellSize()}`,
   () => sculpt(armShape(s).slice(3).map((p) => shiftPrim(p, ELBOW)), { cell: cellSize() }));
+// Pivots (repère des pieds) : hanches, épaules
+const HIP_L = [-0.105, 0.86, 0], HIP_R = [0.105, 0.86, 0];
+const SHOULDER_L = [-0.255, 1.41, 0], SHOULDER_R = [0.255, 1.41, 0];
+const add3 = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+
+// Toutes les pièces fusionnées dans la pose de repos, chaque sommet lié à
+// l'os de sa pièce (ordre des os : voir buildHuman). Calculé une fois par
+// modèle, partagé par tous les humains (seules les couleurs diffèrent).
+function skinnedGeo(seated, look) {
+  return cached(`squelette|${seated}|${look}|${cellSize()}`, () => {
+    const parts = [
+      [bodyGeo(look), 1, [0, 0, 0]],
+      [seated ? thighGeo() : legGeo(), 2, HIP_L],
+      [seated ? thighGeo() : legGeo(), 3, HIP_R],
+      [armGeo(-1), 4, SHOULDER_L],
+      [armGeo(1), 5, SHOULDER_R],
+      [foreGeo(-1), 6, add3(SHOULDER_L, ELBOW)],
+      [foreGeo(1), 7, add3(SHOULDER_R, ELBOW)],
+    ];
+    if (seated) parts.push([shinGeo(), 8, add3(HIP_L, KNEE)], [shinGeo(), 9, add3(HIP_R, KNEE)]);
+    let nv = 0, ni = 0;
+    for (const [g] of parts) { nv += g.attributes.position.count; ni += g.index.count; }
+    const position = new Float32Array(nv * 3), normal = new Float32Array(nv * 3), slot = new Float32Array(nv * 3);
+    const skinIndex = new Uint16Array(nv * 4), skinWeight = new Float32Array(nv * 4);
+    const index = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+    let ov = 0, oi = 0;
+    for (const [g, b, [dx, dy, dz]] of parts) {
+      const P = g.attributes.position, N = g.attributes.normal, S = g.attributes.slot;
+      for (let v = 0; v < P.count; v++) {
+        const o = (ov + v) * 3;
+        position[o] = P.getX(v) + dx; position[o + 1] = P.getY(v) + dy; position[o + 2] = P.getZ(v) + dz;
+        normal[o] = N.getX(v); normal[o + 1] = N.getY(v); normal[o + 2] = N.getZ(v);
+        slot[o] = S.getX(v); slot[o + 1] = S.getY(v); slot[o + 2] = S.getZ(v);
+        skinIndex[(ov + v) * 4] = b;
+        skinWeight[(ov + v) * 4] = 1;
+      }
+      for (let k = 0; k < g.index.count; k++) index[oi + k] = g.index.getX(k) + ov;
+      ov += P.count; oi += g.index.count;
+    }
+    const out = new THREE.BufferGeometry();
+    out.setAttribute('position', new THREE.BufferAttribute(position, 3));
+    out.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
+    out.setAttribute('slot', new THREE.BufferAttribute(slot, 3));
+    out.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndex, 4));
+    out.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeight, 4));
+    out.setIndex(new THREE.BufferAttribute(index, 1));
+    out.computeBoundingSphere();
+    return out;
+  });
+}
+
 const bodyGeo = (look) => cached(`corps|${look}|${cellSize()}`,
   () => withDetails(sculpt(bodyShape(look), { cell: cellSize() }), faceDetails()));
 
@@ -184,45 +235,41 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
   // (gone du quartier) ou longue
   const look = style ?? ['court', 'casquette', 'long'][(shirt ^ (pants >> 3) ^ (hair << 1)) % 3];
 
-  const limb = (geo, x, y) => {
-    const pivot = new THREE.Group();
-    pivot.position.set(x, y, 0);
-    pivot.add(new THREE.Mesh(paint(geo, palette), bodyMat));
-    group.add(pivot);
-    return pivot;
+  // UN SEUL maillage à squelette par humain (1 draw call au lieu de 7 à
+  // 9) : les pièces sont fusionnées, chacune liée à son os ; les os sont
+  // les anciens pivots (mêmes positions, même API : armR.rotation.x…).
+  const base = skinnedGeo(seated, look);
+  const geo = paint(base, palette);
+  geo.setAttribute('skinIndex', base.attributes.skinIndex);
+  geo.setAttribute('skinWeight', base.attributes.skinWeight);
+  const mesh = new THREE.SkinnedMesh(geo, bodyMat);
+  const bone = (parent, [x, y, z]) => {
+    const b = new THREE.Bone();
+    b.position.set(x, y, z);
+    parent.add(b);
+    return b;
   };
-  // Jambes (pivot à la hanche), bras (pivot à l'épaule)
-  const legL = limb(seated ? thighGeo() : legGeo(), -0.105, 0.86);
-  const legR = limb(seated ? thighGeo() : legGeo(), 0.105, 0.86);
+  const root = new THREE.Bone();
+  mesh.add(root);
+  const torso = bone(root, [0, 0, 0]);
+  const legL = bone(root, HIP_L), legR = bone(root, HIP_R);
+  const armL = bone(root, SHOULDER_L), armR = bone(root, SHOULDER_R);
+  // Avant-bras : os au coude, enfant du bras (rotation.x > 0 = plie le
+  // coude vers l'avant)
+  const foreL = bone(armL, ELBOW), foreR = bone(armR, ELBOW);
   // Assis : tibias articulés au genou (rotation.x < 0 = replie la jambe)
-  let kneeL = null, kneeR = null;
-  if (seated) {
-    const shin = (leg) => {
-      const pivot = new THREE.Group();
-      pivot.position.set(...KNEE);
-      pivot.add(new THREE.Mesh(paint(shinGeo(), palette), bodyMat));
-      leg.add(pivot);
-      return pivot;
-    };
-    kneeL = shin(legL);
-    kneeR = shin(legR);
-  }
-  const armL = limb(armGeo(-1), -0.255, 1.41);
-  const armR = limb(armGeo(1), 0.255, 1.41);
-  // Avant-bras : pivot au coude, enfant du bras (rotation.x > 0 = plie
-  // le coude vers l'avant)
-  const fore = (arm, s) => {
-    const pivot = new THREE.Group();
-    pivot.position.set(...ELBOW);
-    pivot.add(new THREE.Mesh(paint(foreGeo(s), palette), bodyMat));
-    arm.add(pivot);
-    return pivot;
-  };
-  const foreL = fore(armL, -1);
-  const foreR = fore(armR, 1);
-  // Tronc, tête, coiffure : rien ne bouge l'un par rapport à l'autre
-  const body = new THREE.Mesh(paint(bodyGeo(look), palette), bodyMat);
-  group.add(body);
+  const kneeL = seated ? bone(legL, KNEE) : null;
+  const kneeR = seated ? bone(legR, KNEE) : null;
+  const bones = [root, torso, legL, legR, armL, armR, foreL, foreR];
+  if (seated) bones.push(kneeL, kneeR);
+  group.add(mesh);
+  mesh.updateMatrixWorld(true);
+  mesh.bind(new THREE.Skeleton(bones));
+  // Volumes fixes (posture comprise) : sans eux, three.js recalculerait
+  // chaque sommet déformé au premier rendu / au premier tir
+  mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.95, 0), 1.25);
+  mesh.boundingBox = new THREE.Box3(new THREE.Vector3(-0.9, -0.1, -0.9), new THREE.Vector3(0.9, 2.1, 0.9));
+  const body = torso;
 
   // Animation de marche : balancement opposé jambes/bras
   function animate(t, speed) {
@@ -235,7 +282,7 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
     // Coudes souples, plus pliés quand le bras part vers l'avant ; avant-bras
     // droit tendu s'il tient une arme (accrochée au bras, voir remotes.js)
     foreL.rotation.x = 0.12 + Math.max(0, -s) * swing * 0.6;
-    foreR.rotation.x = armR.children.length > 2 ? 0 : 0.12 + Math.max(0, s) * swing * 0.6;
+    foreR.rotation.x = armR.children.some((c) => !c.isBone) ? 0 : 0.12 + Math.max(0, s) * swing * 0.6;
     // Léger rebond du corps
     group.position.y = group.userData.baseY ?? 0;
     if (speed > 0.5) {
@@ -253,12 +300,13 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
 
   return {
     group,
-    head: body,   // la tête fait partie du mesh du corps
+    head: body,   // os du tronc (tête et torse ne font qu'un)
     torso: body,
+    mesh,
     // Cibles de tir : le corps et les jambes (mêmes volumes qu'avant, en
     // moins de morceaux — les dégâts n'ont jamais dépendu de la pièce
     // touchée).
-    hitMeshes: [body, legL.children[0], legR.children[0]],
+    hitMeshes: [mesh],
     // Teinte l'humain ENTIER : la couleur du matériau multiplie les couleurs
     // de sommets. `shirtMat.color.set(rouge)` marche donc comme avant pour un
     // flash de dégâts — mais pour revenir à la normale il faut clearTint(),

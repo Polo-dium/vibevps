@@ -36,6 +36,7 @@ import { createReflections } from './world/reflections.js';
 import { applySeason } from './world/seasons.js';
 import { createDistanceCuller } from './world/culling.js';
 import { updateInstanceLods } from './render/instlod.js';
+import { createFreezer } from './render/freeze.js';
 import { createKoth } from './world/koth.js';
 import { createHiFi } from './world/hifi.js';
 import { buildGuignol } from './world/guignol.js';
@@ -1145,6 +1146,12 @@ async function boot() {
   // arbres, stores, enseignes… : seules les instances à portée partent au GPU
   ctx.updatables.push((dt) => updateInstanceLods(dt, controls.position));
   if (window.__game) window.__game.culler = culler; // hook de debug (?debug)
+  // Décor immobile : matrices figées, recalculées seulement si l'objet bouge
+  const freezer = new URLSearchParams(location.search).has('nofreeze')
+    ? { update() {}, count: 0 } // comparaison de perf (debug)
+    : createFreezer(scene);
+  console.info(`🧊 Matrices figées : ${freezer.count} objets`);
+  if (window.__game) window.__game.freezer = freezer;
 
   // Score générique : les mini-jeux locaux poussent leur meilleur résultat
   // sur une borne (MAX(score) = record).
@@ -1887,6 +1894,7 @@ async function boot() {
   let stepTimer = 0;
   let wetToastAt = 0;
 
+  let shadowFrame = false;
   function loop() {
     requestAnimationFrame(loop);
     const dt = Math.min(clock.getDelta(), 0.05);
@@ -1999,8 +2007,18 @@ async function boot() {
 
     // Ambiance jour/nuit + lumière qui suit le joueur (zone d'ombres de 190 m)
     updateEnvironment();
-    sun.position.copy(controls.position).addScaledVector(env.lightDir, 165);
-    sun.target.position.copy(controls.position);
+    // Carte d'ombre recalculée une frame sur deux (la passe d'ombre redessine
+    // tout le décor proche : ~moitié du coût de la frame à pied). La lumière
+    // ne suit le joueur QUE ces frames-là, sinon les ombres tressauteraient ;
+    // à grande vitesse (avion, voiture) on garde toutes les frames.
+    shadowFrame = !shadowFrame;
+    const shadowNow = shadowFrame || speed > 12 || !!controls.vehicle || state.flying;
+    renderer.shadowMap.autoUpdate = false;
+    if (shadowNow) {
+      renderer.shadowMap.needsUpdate = true;
+      sun.position.copy(controls.position).addScaledVector(env.lightDir, 165);
+      sun.target.position.copy(controls.position);
+    }
     // Rebond : à l'opposé du soleil (ou de la lune), presque à l'horizontale
     fill.position.set(-env.lightDir.x, 0.35, -env.lightDir.z).normalize()
       .multiplyScalar(100).add(controls.position);
@@ -2073,6 +2091,7 @@ async function boot() {
     }
 
     tutorial.update(controls.position, ARCADE);
+    freezer.update(); // après toutes les animations de la frame, avant le rendu
     post.render();
   }
   // Préchauffage : un rendu hors boucle avec TOUS les modèles d'armes

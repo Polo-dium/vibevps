@@ -154,7 +154,15 @@ npm start          # serveur de prod (sert client/dist)
     `culling.js` : petit décor masqué selon sa taille apparente
     (100·r m, plus tôt s'il a beaucoup de pièces, plancher 150 m), objets
     ajoutés après le démarrage repris toutes les 2 s. Lucarnes/cheminées
-    des tuiles : 450 m. Tuiles de bâtiments de 200 m.
+    des tuiles : 450 m. Tuiles de bâtiments de 200 m. Les grands ensembles
+    (place Bellecour…) sont parcourus élément par élément.
+    `render/freeze.js` : matrices figées pour tout ce qui existe au
+    démarrage (scène comprise, caméra et ce qu'elle porte exclues),
+    recalculées seulement si position/rotation/échelle changent (contrôle
+    avant chaque rendu) — `getWorldPosition` juste après un déplacement
+    peut donc retarder d'une frame. Carte d'ombre recalculée une frame sur
+    deux (la lumière ne suit le joueur que ces frames-là), toutes les frames
+    en véhicule ou au-delà de 12 m/s. `?debug&nofreeze` pour comparer.
   - Quais de Saône : `bouquinistes.js` (boîtes vertes du quai de la Pêcherie,
     ouvertes le jour). Rues : `cyclistes.js` (Vélo'v recyclés autour du
     joueur, comme `passersby.js`). Devantures en volume : `buildShopVolumes`
@@ -172,8 +180,9 @@ npm start          # serveur de prod (sert client/dist)
     recyclés autour du joueur — `buildHuman({ seated: true })` ajoute des
     genoux). `roofs.js` : lucarnes et souches de cheminée en volume
     (InstancedMesh par tuile de ville).
-  - `src/world/human.js` (humains sculptés, 7 meshes/humain (coudes articulés), géométrie
-    partagée, couleurs par sommet) et `src/world/statue.js` (Louis XIV,
+  - `src/world/human.js` (humains sculptés, UN SkinnedMesh par humain = 1 draw
+    call : pièces fusionnées, os = anciens pivots armL/armR/foreL/legL/kneeL…,
+    géométrie partagée, couleurs par sommet ; une arme se fixe sur l'os armR) et `src/world/statue.js` (Louis XIV,
     Saint-Exupéry et le Petit Prince).
   - Théâtre gallo-romain de Fourvière (ville OSM) : `theatre.js` (gradins
     praticables — `ctx.terrainHeight` réécrit dans l'emprise,

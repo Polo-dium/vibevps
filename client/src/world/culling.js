@@ -43,18 +43,27 @@ export function createDistanceCuller(scene, playerPos) {
       if (m.geometry.boundingBox?.isEmpty()) m.geometry.computeBoundingBox();
       if (m.geometry.boundingSphere && !(m.geometry.boundingSphere.radius > 0)) m.geometry.computeBoundingSphere();
     });
+    o.updateWorldMatrix(true, true);
     box.setFromObject(o);
     if (box.isEmpty()) return; // pas encore rempli : on repassera
     seen.add(o);
     box.getBoundingSphere(sphere);
-    if (sphere.radius > BIG || !Number.isFinite(sphere.radius)) return;
+    if (!Number.isFinite(sphere.radius)) return;
+    // Grand ensemble (place Bellecour : statue, bancs, bornes, massifs…) :
+    // on descend d'un cran et on traite ses éléments un par un
+    if (sphere.radius > BIG) {
+      if (!o.isMesh && !o.isPoints) for (const c of o.children) track(c);
+      return;
+    }
     let n = 0;
     o.traverse((m) => { if (m.isMesh || m.isPoints || m.isLine) n++; });
     items.push({
       o,
       n,
-      ox: sphere.center.x - o.position.x,
-      oz: sphere.center.z - o.position.z,
+      // décalage centre ↔ origine MONDE de l'objet (matrixWorld, tenue à
+      // jour à chaque frame : vaut aussi pour les éléments d'un ensemble)
+      ox: sphere.center.x - o.matrixWorld.elements[12],
+      oz: sphere.center.z - o.matrixWorld.elements[14],
       r: sphere.radius,
       shown: o.visible,
       // On ne touche jamais à un objet déjà masqué par une autre logique
@@ -79,7 +88,8 @@ export function createDistanceCuller(scene, playerPos) {
     if (!p) return;
     const view0 = viewDistance ?? 99999;
     for (const it of items) {
-      const cx = it.o.position.x + it.ox, cz = it.o.position.z + it.oz;
+      const cx = it.o.matrixWorld.elements[12] + it.ox;
+      const cz = it.o.matrixWorld.elements[14] + it.oz;
       const d = Math.hypot(cx - p.x, cz - p.z) - it.r;
       const view = sizeView(view0, it.r, it.n);
       if (d > view + HYST) {
@@ -101,7 +111,8 @@ export function createDistanceCuller(scene, playerPos) {
     for (const it of items) {
       if (!it.owned) continue;
       owned++;
-      const cx = it.o.position.x + it.ox, cz = it.o.position.z + it.oz;
+      const cx = it.o.matrixWorld.elements[12] + it.ox;
+      const cz = it.o.matrixWorld.elements[14] + it.oz;
       const d = Math.hypot(cx - p.x, cz - p.z) - it.r;
       const v = sizeView(view, it.r, it.n);
       if (d < v) {
