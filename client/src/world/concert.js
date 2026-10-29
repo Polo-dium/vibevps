@@ -12,7 +12,7 @@ import { detail } from '../render/detail.js';
 // paroles, faisceaux, line arrays, public dans l'orchestre.
 //
 // Événement partagé SANS serveur (même motif que le cycle jour/nuit) :
-// le morceau du jour et la position de lecture se déduisent de Date.now(),
+// le titre en cours et la position de lecture se déduisent de Date.now(),
 // tout le monde entend la même mesure au même moment, zéro trafic réseau.
 // Le son ne se télécharge et ne se décode qu'à l'approche du théâtre.
 
@@ -24,14 +24,17 @@ const FULL = 38; // dans la cavea : plein volume
 const SHOW = 420;
 const ALBUM_DAY0 = 20754; // au-delà, tout le plateau est masqué (zéro coût)
 
+// PLAYLIST : tout l'album s'enchaîne en boucle (titre, applaudissements,
+// titre suivant…), position calée sur Date.now() : même morceau, même
+// mesure chez tous les joueurs. Le tour d'album commence au 28/10/2026.
+const ALBUM_T0 = ALBUM_DAY0 * DAY_MS - PARIS;
+const LOOP = ALBUM.reduce((a, tr) => a + tr.duration + GAP, 0);
 export function concertState(now = Date.now()) {
-  // Rotation ancrée au 28/10/2026 : ce jour-là, le premier titre (le clip)
-  const day = Math.floor((now + PARIS) / DAY_MS) - ALBUM_DAY0;
-  const track = ALBUM[((day % ALBUM.length) + ALBUM.length) % ALBUM.length];
-  const tomorrow = ALBUM[(((day + 1) % ALBUM.length) + ALBUM.length) % ALBUM.length];
-  const cycle = track.duration + GAP;
-  const t = (((now / 1000) % cycle) + cycle) % cycle;
-  return { track, tomorrow, t, playing: t < track.duration };
+  let u = ((((now - ALBUM_T0) / 1000) % LOOP) + LOOP) % LOOP;
+  let i = 0;
+  while (i < ALBUM.length - 1 && u >= ALBUM[i].duration + GAP) { u -= ALBUM[i].duration + GAP; i++; }
+  const track = ALBUM[i], next = ALBUM[(i + 1) % ALBUM.length];
+  return { track, next, t: u, playing: u < track.duration };
 }
 
 function sectionAt(track, t) {
@@ -254,7 +257,8 @@ export function buildConcert(ctx, P) {
 
   // LE VRAI CLIP (si le morceau en a un) : <video> muette calée sur la même
   // horloge que le son, chargée seulement à l'approche
-  let video = null, videoTex = null, videoFile = null, lastVideoSync = 0;
+  let video = null, videoTex = null, videoFile = null, lastVideoSync = 0, lastVideoFrame = 0;
+  const videoThrottle = detail.level !== 'eleve';
   function syncVideo(st, near, now) {
     const clip = st.track.clip;
     if (!clip || !near) {
@@ -266,15 +270,20 @@ export function buildConcert(ctx, P) {
       video.muted = true;
       video.playsInline = true;
       video.preload = 'auto';
-      videoTex = new THREE.VideoTexture(video);
+      // Hors palier Élevé : texture envoyée au GPU 12 fois/s seulement (une
+      // VideoTexture le fait à chaque image de la vidéo)
+      videoTex = videoThrottle ? new THREE.Texture(video) : new THREE.VideoTexture(video);
       videoTex.colorSpace = THREE.SRGBColorSpace;
+      videoTex.minFilter = THREE.LinearFilter;
+      videoTex.generateMipmaps = false;
     }
     if (videoFile !== clip) {
       videoFile = clip;
       // H.264 (plus léger) si le navigateur le lit, sinon VP9 (Chromium
       // libre, certains Linux)
       const h264 = video.canPlayType('video/mp4; codecs="avc1.4D401E"');
-      video.src = `/clips/${clip}.${h264 ? 'mp4' : 'webm'}`;
+      // ?r=2 : sort du cache « immuable » d'un an des anciennes versions
+      video.src = `/clips/${clip}.${h264 ? 'mp4' : 'webm'}?r=2`;
     }
     if (!st.playing) { if (!video.paused) video.pause(); return video.readyState >= 2; }
     if (video.paused || (now - lastVideoSync > 1000 && video.readyState >= 2 && Math.abs(video.currentTime - st.t) > 0.3)) {
@@ -420,6 +429,9 @@ export function buildConcert(ctx, P) {
   function loadRig() {
     rigState = 'loading';
     loadSingerModel('/models/chanteuse.glb').then((m) => {
+      // 30 000 triangles et 52 os : pas d'ombre portée hors palier Élevé
+      // (sous les projecteurs, elle ne se remarque pas)
+      if (detail.level !== 'eleve') m.group.traverse((o) => { o.castShadow = false; });
       m.group.position.copy(singer.group.position);
       root.add(m.group);
       singer.group.visible = false;
@@ -475,9 +487,10 @@ export function buildConcert(ctx, P) {
     label: 'E — Programme du concert',
     action: () => {
       const st = concertState();
-      ctx.notify?.(st.tomorrow === st.track
-        ? `🎤 À Fourvière : « ${st.track.titre} » en boucle, tous les jours.`
-        : `🎤 Ce soir à Fourvière : « ${st.track.titre} » en boucle. Demain : « ${st.tomorrow.titre} ».`);
+      const left = Math.max(0, Math.round(st.track.duration - st.t));
+      ctx.notify?.(st.playing
+        ? `🎤 Sur scène : « ${st.track.titre} » (encore ${Math.floor(left / 60)} min ${left % 60} s). Ensuite : « ${st.next.titre} ». Tout l'album tourne en boucle !`
+        : `🎤 Entracte… prochain titre : « ${st.next.titre} ».`);
     },
   });
 
@@ -508,7 +521,7 @@ export function buildConcert(ctx, P) {
     g.fillStyle = '#ff7a1a';
     g.font = 'bold 22px "Courier New", monospace';
     g.textAlign = 'center';
-    g.fillText('MORCEAU DU JOUR', W / 2, 40);
+    g.fillText(st.playing ? 'EN CE MOMENT' : 'ENTRACTE', W / 2, 40);
     g.fillStyle = '#ffffff';
     g.font = 'bold 34px sans-serif';
     wrap(g, st.track.titre.toUpperCase(), W / 2, 88, W - 30, 38);
@@ -520,7 +533,10 @@ export function buildConcert(ctx, P) {
       g.fillText('👏 MERCI LYON !', W / 2, 260);
       g.font = '24px sans-serif';
       g.fillStyle = '#ffffff';
-      g.fillText(`On remet ça dans ${left} s`, W / 2, 310);
+      g.fillText(`Ensuite dans ${left} s :`, W / 2, 310);
+      g.fillStyle = '#ffe66d';
+      g.font = 'bold 24px sans-serif';
+      wrap(g, `« ${st.next.titre} »`, W / 2, 350, W - 34, 30);
       lyricTex.needsUpdate = true;
       return;
     }
@@ -554,7 +570,7 @@ export function buildConcert(ctx, P) {
     frame++;
     if (!greeted && d < 70) {
       greeted = true;
-      ctx.notify?.(`🎤 Concert au théâtre de Fourvière ! Morceau du jour : « ${st.track.titre} »`);
+      ctx.notify?.(`🎤 Concert au théâtre de Fourvière ! Sur scène : « ${st.track.titre} »`);
     }
 
     // Niveaux : vrai son si on l'entend, sinon un tempo de secours (130 BPM)
@@ -675,6 +691,10 @@ export function buildConcert(ctx, P) {
     // Écran géant : le clip s'il existe ; sinon gros plans de la chanteuse
     // (2/3 du temps) et visuels géométriques, en alternance toutes les 8 s
     const hasClip = syncVideo(st, d < 320, nowMs);
+    if (hasClip && videoThrottle && nowMs - lastVideoFrame > 83 && !video.paused) {
+      lastVideoFrame = nowMs;
+      videoTex.needsUpdate = true;
+    }
     const mode = hasClip ? 'clip' : (!closeEvery || Math.floor(st.t / 8) % 3 === 2 ? 'geo' : 'close');
     const wanted = mode === 'clip' ? videoTex : mode === 'geo' ? geoTex : rt.texture;
     if (screenMat.map !== wanted) { screenMat.map = wanted; screenMat.needsUpdate = true; }

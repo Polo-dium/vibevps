@@ -187,8 +187,9 @@ npm start          # serveur de prod (sert client/dist)
   - Théâtre gallo-romain de Fourvière (ville OSM) : `theatre.js` (gradins
     praticables — `ctx.terrainHeight` réécrit dans l'emprise,
     `ctx.terrainMeshHeight` garde le maillage du sol sous la pierre),
-    `concert.js` (concert permanent : morceau du jour + position de lecture
-    déduits de `Date.now()`, son spatial chargé à l'approche, écran géant en
+    `concert.js` (concert permanent : PLAYLIST de tout l'album en boucle,
+    titre + position de lecture déduits de `Date.now()` (`concertState` :
+    track, next, t, playing), son spatial chargé à l'approche, écran géant en
     gros plan : la chanteuse est déplacée le temps du rendu dans une petite
     scène à part `closeScene` (même transformation que le théâtre, projecteurs
     propres) — jamais un 2e rendu de toute la ville ; faisceaux additifs
@@ -196,7 +197,11 @@ npm start          # serveur de prod (sert client/dist)
     (la chanteuse des clips : modèle .glb riggé + os de mâchoire ajouté au
     chargement pour chanter, repli sculpté), `album.js` (titres, paroles par
     section). Ajouter un morceau : MP3 dans `client/public/music/` + une
-    entrée dans `album.js`.
+    entrée dans `album.js`. Clip remplacé sur le VPS sans git :
+    `node tools/fetch-clip.mjs <lien Drive> <nom>` → `server/data/clips/`
+    (servi en priorité, `Cache-Control: no-cache`). Hors palier Élevé, la
+    texture du clip n'est envoyée au GPU que 12 fois/s et la chanteuse ne
+    porte pas d'ombre. Le HUD affiche les ms processeur par frame.
   - `src/world/roadfit.js` : rues ajustées aux façades (lancer de rayons
     sur les empreintes OSM, au chargement, ~0,2 s) : `road.rw` = largeur de
     chaussée rendue, `road.sw[i]` = trottoirs [gauche, droite] par tronçon

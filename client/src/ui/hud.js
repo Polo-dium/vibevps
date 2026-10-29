@@ -265,10 +265,10 @@ export function createUi() {
     promptEl.addEventListener('click', () => handler());
   }
 
-  function setInfo({ fps, players, pos }) {
+  function setInfo({ fps, players, pos, cpu }) {
     infoEl.textContent =
       `LYON ARCADE — ${state.auth?.name ?? ''}\n` +
-      `${players + 1} joueur(s) en ligne · ${fps} fps\n` +
+      `${players + 1} joueur(s) en ligne · ${fps} fps` + (cpu != null ? ` · ${cpu} ms` : '') + '\n' +
       `x ${pos.x.toFixed(0)}  z ${pos.z.toFixed(0)}`;
     infoEl.style.whiteSpace = 'pre';
   }

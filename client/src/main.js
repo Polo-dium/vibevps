@@ -1895,8 +1895,13 @@ async function boot() {
   let wetToastAt = 0;
 
   let shadowFrame = false;
+  // Temps PROCESSEUR d'une frame (JS + envoi des commandes au GPU), lissé :
+  // affiché à côté des fps. 30 fps avec peu de ms = plafond du navigateur
+  // (mode économie d'énergie) ou carte graphique saturée, pas le jeu.
+  let cpuMs = 0;
   function loop() {
     requestAnimationFrame(loop);
+    const frameStart = performance.now();
     const dt = Math.min(clock.getDelta(), 0.05);
 
     controls.update(dt);
@@ -2087,12 +2092,13 @@ async function boot() {
     infoTimer -= dt;
     if (infoTimer <= 0) {
       infoTimer = 0.25;
-      ui.setInfo({ fps: fpsValue, players: remotes.count(), pos: controls.position });
+      ui.setInfo({ fps: fpsValue, players: remotes.count(), pos: controls.position, cpu: Math.round(cpuMs) });
     }
 
     tutorial.update(controls.position, ARCADE);
     freezer.update(); // après toutes les animations de la frame, avant le rendu
     post.render();
+    cpuMs += (performance.now() - frameStart - cpuMs) * 0.05;
   }
   // Préchauffage : un rendu hors boucle avec TOUS les modèles d'armes
   // devant la caméra compile d'avance leurs shaders PBR (et ceux du décor,

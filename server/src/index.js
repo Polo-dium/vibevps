@@ -85,6 +85,12 @@ app.get('/lyon-osm.json', (req, res) => {
   else res.status(404).end();
 });
 
+// Clips du concert déposés sur le serveur (tools/fetch-clip.mjs, hors git) :
+// prioritaires sur ceux du dépôt, sans jamais bloquer le git pull du cron
+// (revalidés à chaque fois : un clip remplacé doit passer tout de suite)
+const clipHeaders = (res) => res.setHeader('Cache-Control', 'no-cache');
+app.use('/clips', express.static(path.join(__dirname, '..', 'data', 'clips'), { setHeaders: clipHeaders }));
+
 if (fs.existsSync(distDir)) {
   // Les assets JS/CSS ont un hash dans leur nom → cache long OK. Mais
   // index.html et lyon-osm.json NE DOIVENT PAS être mis en cache par le
@@ -94,6 +100,8 @@ if (fs.existsSync(distDir)) {
     setHeaders: (res, filePath) => {
       if (filePath.endsWith('index.html')) {
         res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+      } else if (filePath.includes(`${path.sep}clips${path.sep}`)) {
+        clipHeaders(res); // remplaçables sur le serveur (fetch-clip.mjs)
       } else if (filePath.endsWith('lyon-osm.json')) {
         res.setHeader('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
       } else {
