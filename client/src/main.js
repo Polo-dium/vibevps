@@ -1969,7 +1969,8 @@ async function boot() {
     updateJetParticles(dt);
 
     // Tombé dans le fleuve : petit message (la vraie nage viendra plus tard)
-    if (controls.position.y < -1.2 && !state.driving && infoTimer <= 0 && !wetToastAt) {
+    if (controls.position.y < -1.2 && !state.driving && infoTimer <= 0 && !wetToastAt &&
+        !ctx.inPocket?.(controls.position.x, controls.position.z)) {
       wetToastAt = Date.now();
       ui.toast('🌊 Glagla ! Rejoins un escalier de quai pour remonter.');
     } else if (controls.position.y > -0.5 && wetToastAt && Date.now() - wetToastAt > 8000) {

@@ -367,6 +367,10 @@ export class Kit {
 
   // Pavé [u0,u1] × [y0,y1] × [v0,v1] ; collide : volume plein praticable
   box(key, u0, u1, y0, y1, v0, v1, color, { collide = false, uvScale } = {}) {
+    // bornes dans n'importe quel ordre (murs symétriques écrits s·v0, s·v1)
+    if (u1 < u0) [u0, u1] = [u1, u0];
+    if (v1 < v0) [v0, v1] = [v1, v0];
+    if (y1 < y0) [y0, y1] = [y1, y0];
     this.add(key, new THREE.BoxGeometry(u1 - u0, y1 - y0, v1 - v0), {
       u: (u0 + u1) / 2, y: (y0 + y1) / 2, v: (v0 + v1) / 2, color, uvScale,
     });

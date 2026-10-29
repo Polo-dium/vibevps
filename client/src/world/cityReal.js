@@ -37,6 +37,7 @@ import { buildJardins } from './jardins.js';
 import { buildBerges } from './berges.js';
 import { buildBouquinistes } from './bouquinistes.js';
 import { buildMarches } from './marches.js';
+import { buildTraboulesReelles } from './traboules.js';
 import { createParkedCars } from './parked.js';
 import { buildStreetSigns } from './streetsigns.js';
 
@@ -1208,6 +1209,8 @@ export function buildRealCity(ctx, data) {
   if (full) ctx.bouquinCount = buildBouquinistes(ctx, data);
   // Marchés du quai Saint-Antoine et du boulevard de la Croix-Rousse
   if (full) ctx.marcheCount = buildMarches(ctx, data);
+  // Traboules visitables (longue traboule / Tour Rose, cour des Voraces)
+  if (full) ctx.trabouleCount = buildTraboulesReelles(ctx, data);
   // Le silure remonte le plus large des fleuves (le Rhône)
   const widest = [...data.water].sort((a, b) => (b.maxX - b.minX) - (a.maxX - a.minX))[0];
   if (widest) buildSilure(ctx, widest);
