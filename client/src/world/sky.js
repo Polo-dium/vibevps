@@ -86,26 +86,30 @@ export function buildSky(scene, radius = 470) {
   dome.userData.noShadow = true;
   scene.add(dome);
 
-  // Nuages : sprites doux qui dérivent lentement, à plusieurs altitudes
-  const cloudTex = makeCloudTexture();
+  // Nuages : cumulus peints (sommets éclairés, base plate et grise) en
+  // sprites, répartis sur toute la carte. Placement par seed fixe et dérive
+  // calée sur Date.now() : le même ciel chez tous les joueurs, sans réseau.
+  const R = Math.max(700, radius * 0.8);
+  const crand = mulberry(9157);
+  const texs = [0, 1, 2, 3].map((k) => makeCloudTexture(mulberry(311 + k * 97), k));
   const clouds = [];
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 42; i++) {
     const far = i % 3 === 0; // quelques nuages plus hauts et plus pâles
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: cloudTex,
+      map: texs[i % 4],
       transparent: true,
-      opacity: far ? 0.3 + Math.random() * 0.2 : 0.45 + Math.random() * 0.3,
+      opacity: far ? 0.55 + crand() * 0.2 : 0.8 + crand() * 0.2,
       depthWrite: false,
+      fog: false,
     }));
-    const s = (far ? 90 : 55) + Math.random() * 90;
-    sprite.scale.set(s, s * 0.36, 1);
-    sprite.position.set(
-      (Math.random() - 0.5) * 700,
-      (far ? 150 : 85) + Math.random() * 80,
-      (Math.random() - 0.5) * 700
-    );
-    sprite.userData.speed = 1.2 + Math.random() * 1.6;
+    const sz = (far ? 260 : 170) + crand() * 220;
+    sprite.scale.set(sz, sz * 0.42, 1);
+    sprite.userData.x0 = (crand() - 0.5) * 2 * R;
+    sprite.position.set(sprite.userData.x0, (far ? 340 : 230) + crand() * 110, (crand() - 0.5) * 2 * R);
+    sprite.userData.speed = 2 + crand() * 2.5;
     sprite.userData.baseOpacity = sprite.material.opacity;
+    sprite.renderOrder = -6;
+    sprite.userData.noCull = true;
     scene.add(sprite);
     clouds.push(sprite);
   }
@@ -115,34 +119,74 @@ export function buildSky(scene, radius = 470) {
   // solaire coïncide toujours avec le soleil 3D, sans parallaxe.
   function update(dt, daylight = 1, pos = null) {
     if (pos) dome.position.set(pos.x, 0, pos.z);
+    const t = Date.now() / 1000;
     for (const c of clouds) {
-      c.position.x += c.userData.speed * dt;
-      if (c.position.x > 420) c.position.x = -420;
-      c.material.opacity = c.userData.baseOpacity * (0.25 + 0.75 * daylight);
-      const v = 0.35 + 0.65 * daylight;
-      c.material.color.setRGB(v, v, v * 1.05);
+      // dérive d'ouest en est, bouclée sur la largeur du ciel
+      const span = 4 * R;
+      c.position.x = ((((c.userData.x0 + R * 2 + c.userData.speed * t) % span) + span) % span) - R * 2;
+      c.material.opacity = c.userData.baseOpacity * (0.2 + 0.8 * daylight);
+      const v = 0.28 + 0.72 * daylight;
+      c.material.color.setRGB(v, v, v * 1.06);
     }
   }
 
   return { update, uniforms };
 }
 
-function makeCloudTexture() {
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 128;
-  const g = canvas.getContext('2d');
-  // Cumulus doux : gros amas central + franges plus fines, base plus plate
-  for (let i = 0; i < 22; i++) {
-    const t = i / 22;
-    const x = 30 + Math.random() * 196;
-    const y = 50 + Math.random() * 30 + t * 8;
-    const r = (i < 8 ? 24 : 12) + Math.random() * 22;
+// Générateur pseudo-aléatoire local (seed fixe : le même ciel pour tous)
+function mulberry(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Cumulus : amas de bulles (silhouette), puis ombrage — un pixel dont le
+// dessus est encore « dans » le nuage est à l'ombre (lumière du haut) :
+// sommets blancs, ventre gris-bleu, base plate coupée net.
+function makeCloudTexture(rand, kind) {
+  const W = 256, H = 128;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const base = 92 + kind * 3; // ligne de base (px)
+  const n = 26 + kind * 4;
+  for (let i = 0; i < n; i++) {
+    const x = 34 + rand() * 188;
+    const mid = 1 - Math.abs(x - 128) / 110; // plus haut au centre
+    const r = 10 + rand() * 16 + mid * 18;
+    const y = base - r * (0.5 + rand() * 0.6) - mid * 22;
     const grad = g.createRadialGradient(x, y, 0, x, y, r);
-    grad.addColorStop(0, `rgba(255,255,255,${i < 8 ? 0.5 : 0.3})`);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.7, 'rgba(255,255,255,0.85)');
     grad.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = grad;
-    g.fillRect(0, 0, 256, 128);
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
   }
-  return new THREE.CanvasTexture(canvas);
+  const img = g.getImageData(0, 0, W, H), d = img.data;
+  const A = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) A[i] = d[i * 4 + 3] / 255;
+  const at = (x, y) => (x < 0 || y < 0 || x >= W || y >= H ? 0 : A[y * W + x]);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      let a = Math.min(1, Math.max(0, (A[i] - 0.06) / 0.75));
+      // base plate : fondu net sous la ligne de base
+      a *= Math.min(1, Math.max(0, (base + 4 - y) / 10));
+      // ombre propre : densité au-dessus du point
+      const occ = (at(x, y - 6) + at(x - 3, y - 12) + at(x + 3, y - 18)) / 3;
+      const sh = Math.min(1, occ * 1.1) * 0.75 + Math.max(0, (y - base + 30) / 30) * 0.25;
+      const r = 255 - sh * 80, gg = 255 - sh * 70, b = 255 - sh * 50;
+      d[i * 4] = r; d[i * 4 + 1] = gg; d[i * 4 + 2] = b;
+      d[i * 4 + 3] = a * 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
