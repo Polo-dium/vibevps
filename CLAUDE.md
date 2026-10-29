@@ -72,6 +72,11 @@ npm start          # serveur de prod (sert client/dist)
     `ao.js` : occlusion ambiante écran à demi-résolution (rendu ciné,
     coupée en premier par la résolution dynamique). `atmosphere.js` : halo
     du soleil dans la brume (patch global des chunks fog, tous paliers).
+    `landmarkFog(mesh, k)` : perspective aérienne des grands repères (Crayon,
+    basilique, tour métallique, monuments) — profondeur de brume × k, jamais
+    masqués par la portée de vue. Portée adaptative bornée par
+    `preset.viewFloor` (quality.js). Alpes : photo `pano/alpes-v4.webp`
+    étirée en niveaux dans le shader (elle est très voilée).
     `sculpt.js` : modelage organique par champs de distance (union douce
     de volumes → maillage « surface nets » au chargement, mis en cache et
     partagé) — à utiliser pour tout personnage/statue/créature au lieu

@@ -2025,8 +2025,9 @@ async function boot() {
           // viennent du petit décor lointain). La définition d'image ne baisse
           // qu'ensuite, quand il n'y a plus de portée à gagner — une image
           // nette dans une ville plus brumeuse vaut mieux que l'inverse.
-          if (viewScale > 0.45) {
-            viewScale = Math.max(0.45, viewScale - 0.12);
+          const floor = quality.preset.viewFloor ?? 0.45;
+          if (viewScale > floor) {
+            viewScale = Math.max(floor, viewScale - 0.12);
             applyViewDistance(quality.preset);
             dynCooldown = 4;
           } else if (renderScale > 0.6) {

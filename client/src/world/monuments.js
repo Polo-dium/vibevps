@@ -4,6 +4,7 @@ import { lyonXZ } from './squares.js';
 import { makeRand } from './layout.js';
 import { sculpt, paint } from '../render/sculpt.js';
 import { detail } from '../render/detail.js';
+import { landmarkFog } from '../render/atmosphere.js';
 
 // MONUMENTS DE LA PRESQU'ÎLE ET DU VIEUX LYON (ville OSM). Les données OSM
 // n'ont que des empreintes + une hauteur : la cathédrale Saint-Jean, l'Hôtel
@@ -405,7 +406,8 @@ export class Kit {
       mesh.receiveShadow = true;
       group.add(mesh);
     }
-    this.ctx.scene.add(group);
+    // perspective aérienne des repères : on les devine encore au loin
+    this.ctx.scene.add(landmarkFog(group, 0.5));
     return group;
   }
 }

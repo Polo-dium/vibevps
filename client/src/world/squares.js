@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeRand } from './layout.js';
+import { landmarkFog } from '../render/atmosphere.js';
 
 // PLACES ET REPÈRES DU VRAI LYON (ville OSM) : les données OSM n'ont que
 // les bâtiments et les rues — les grandes places restaient en sol nu (en
@@ -213,7 +214,7 @@ function tourMetallique(ctx, x, z, H) {
   const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x8a7a66 }));
   mesh.position.set(x, y0, z);
   mesh.castShadow = true;
-  ctx.scene.add(mesh);
+  ctx.scene.add(landmarkFog(mesh, 0.3)); // repère : visible de loin (render/atmosphere.js)
   // feu rouge de balisage au sommet
   const light = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff3020 }));
   light.position.set(x, y0 + H + 0.3, z);

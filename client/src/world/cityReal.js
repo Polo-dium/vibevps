@@ -20,6 +20,7 @@ import { buildTraffic } from './traffic.js';
 import { buildRooftopBar } from './rooftops.js';
 import { addRoof, makeRoofSlopeMaterial, dormerGeometry, chimneyGeometry } from './roofs.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { landmarkFog } from '../render/atmosphere.js';
 import { planTheatre, buildTheatre } from './theatre.js';
 import { buildConcert } from './concert.js';
 import { riverWaterMaterial } from '../render/water.js';
@@ -1190,7 +1191,19 @@ export function buildRealCity(ctx, data) {
     const basP = data.poi?.basilica ?? [-369, -244.5];
     const bX = basP[0] - 18, bZ = basP[1];
     const basY = Math.max(0, ctx.terrainHeight(bX, bZ));
-    buildBasilica(ctx, bX, bZ, basY);
+    {
+      // La basilique domine la ville : ses grands volumes (nef, tours,
+      // parvis, Vierge dorée) prennent la perspective aérienne des repères
+      // et ne disparaissent plus avec la portée de vue
+      const before = ctx.scene.children.length;
+      buildBasilica(ctx, bX, bZ, basY);
+      const box = new THREE.Box3(), sph = new THREE.Sphere();
+      for (const o of ctx.scene.children.slice(before)) {
+        if (!o.isMesh) continue;
+        box.setFromObject(o).getBoundingSphere(sph);
+        if (sph.radius > 4 || o.position.y > basY + 15) landmarkFog(o, 0.4);
+      }
+    }
     buildParcRosaire(ctx, bX + 42, bZ, -215, -152);
     // La ficelle : gare Saint-Jean (au pied du parc, près de la cathédrale)
     // → esplanade de la basilique
@@ -1412,7 +1425,7 @@ function hillTouchesWater(ctx, x, z, radius, bound) {
 function buildCountryside(ctx, bound, rand) {
   const meadow = new THREE.Mesh(
     new THREE.CircleGeometry(bound * 3, 40),
-    new THREE.MeshLambertMaterial({ color: 0x5d7a4a })
+    new THREE.MeshLambertMaterial({ color: 0x687f62 })
   );
   // Prairies et monts restent verts en toute saison (seasons.js rousissait
   // tout ce qui est vert : à l'automne, Lyon finissait au milieu d'un désert)
@@ -1428,7 +1441,9 @@ function buildCountryside(ctx, bound, rand) {
   const N = 42;
   const geo = new THREE.ConeGeometry(1, 1, 7); // écrasé/étiré par instance
   geo.translate(0, 0.5, 0); // base du cône au sol
-  const mat = new THREE.MeshLambertMaterial({ color: 0x51684a });
+  // Bleutées, pas vertes : à 2 km la perspective aérienne efface le vert
+  // (la couronne verte faisait un « fond vert » derrière la ville)
+  const mat = new THREE.MeshLambertMaterial({ color: 0x627786 });
   mat.userData.noSeason = true;
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0);
@@ -1561,11 +1576,15 @@ function buildAlps(ctx, bound, rand) {
   // paraît désormais posée sur l'horizon au lieu de dominer immédiatement
   // la ville. Les reliefs latéraux décroissants occupent près de 200°.
   const R = bound * 2.2;
-  const HGT = bound * 0.2;
+  // (plus haute qu'avant : à 0,2 × bound la chaîne n'était qu'un liseré
+  // noyé dans la brume de l'horizon)
+  const HGT = bound * 0.36;
   const arc = 3.45;
   const geo = new THREE.CylinderGeometry(R, R, HGT, 32, 1, true, Math.PI / 2 - arc / 2, arc);
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.y = HGT / 2 - 6;
+  // base légèrement relevée : le pied de la chaîne passait sous la couronne
+  // de collines et la brume d'horizon, il ne restait que les cimes
+  mesh.position.y = HGT / 2 + 25;
   mesh.userData.noShadow = true;
   // Après les astres (renderOrder -8/-7) : la chaîne se fond PAR-DESSUS le
   // soleil et la lune, qui se lèvent donc derrière les montagnes.
@@ -1580,7 +1599,29 @@ function buildAlps(ctx, bound, rand) {
   // Si le fichier manque, la version peinte reste en place.
   new THREE.TextureLoader().load('/pano/alpes-v4.webp', (t) => {
     t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
     mat.map = t;
+    // La photo est très voilée (prise à 150 km) : sur le ciel du jeu, de la
+    // même teinte, la chaîne disparaissait. On lui rend du relief — contraste
+    // autour du gris moyen, roche bleutée plus sombre, neige plus blanche,
+    // bord transparent plus franc — sans toucher au fichier.
+    mat.onBeforeCompile = (sh) => {
+      sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+        {
+          // niveaux mesurés sur la photo : luminance sRGB 0,42 → 0,60 (soit
+          // ~0,15 → 0,33 en linéaire) ; on les étire sur toute la plage
+          vec3 c = diffuseColor.rgb;
+          float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+          float t = clamp((l - 0.15) / 0.18, 0.0, 1.0);
+          vec3 rock = vec3(0.2, 0.27, 0.42); // roche bleuie par 100 km d'air
+          vec3 snow = vec3(0.92, 0.93, 0.96);
+          vec3 stretched = mix(rock, snow, smoothstep(0.35, 0.9, t));
+          // un soupçon de la teinte d'origine (lumière rasante dorée)
+          diffuseColor.rgb = stretched * (0.85 + 0.3 * c / max(l, 0.01) * 0.5);
+          diffuseColor.a = smoothstep(0.08, 0.6, diffuseColor.a);
+        }`);
+    };
+    mat.customProgramCacheKey = () => 'alpes-contraste';
     mat.needsUpdate = true;
   }, undefined, () => {});
 }
@@ -2837,24 +2878,34 @@ function buildCrayonLandmark(ctx, x, z, h = 100, groundY = 0) {
   const towerTex = makeSkylineTexture();
   towerTex.wrapS = towerTex.wrapT = THREE.RepeatWrapping;
   towerTex.repeat.set(12, Math.max(4, Math.round(h / 10)));
+  // Repère de la ville : perspective aérienne (render/atmosphere.js) — il
+  // pâlit avec la distance mais se lit encore de Fourvière, et n'est jamais
+  // masqué par la portée de vue (il l'était, comme tout petit décor)
+  const group = new THREE.Group();
   const crayon = new THREE.Mesh(
     new THREE.CylinderGeometry(R, R, h, 20),
-    new THREE.MeshLambertMaterial({ map: towerTex, color: 0xa9594a, fog: false })
+    new THREE.MeshLambertMaterial({ map: towerTex, color: 0xa9594a })
   );
   crayon.position.set(x, groundY + h / 2, z);
-  ctx.scene.add(crayon);
   const crown = new THREE.Mesh(
     new THREE.CylinderGeometry(R * 1.04, R * 1.04, h * 0.036, 20),
-    new THREE.MeshLambertMaterial({ color: 0xd8cfc2, fog: false })
+    new THREE.MeshLambertMaterial({ color: 0xd8cfc2 })
   );
   crown.position.set(x, groundY + h + h * 0.018, z);
-  ctx.scene.add(crown);
   const tip = new THREE.Mesh(
     new THREE.ConeGeometry(R, h * 0.24, 20),
-    new THREE.MeshLambertMaterial({ color: 0x8d4538, fog: false })
+    new THREE.MeshLambertMaterial({ color: 0x8d4538 })
   );
   tip.position.set(x, groundY + h + h * 0.036 + (h * 0.24) / 2, z);
-  ctx.scene.add(tip);
+  // feu de balisage rouge au sommet (sprite additif, clignote la nuit)
+  const beacon = makeGlowSprite(0xff3322, 9, 0.9);
+  beacon.position.set(x, groundY + h * 1.28 + 1, z);
+  ctx.updatables.push(() => {
+    const night = ctx.env?.night ?? 0;
+    beacon.visible = night > 0.2 && Math.floor(Date.now() / 900) % 2 === 0;
+  });
+  group.add(crayon, crown, tip, beacon);
+  ctx.scene.add(landmarkFog(group, 0.3));
 }
 
 // Verdure : parcs, alignements le long des quais et de Bellecour. Tout le

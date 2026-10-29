@@ -60,3 +60,40 @@ export function setAtmosphere(dir, tint, amount) {
   sunColor.g = tint.g;
   sunColor.b = tint.b;
 }
+
+// PERSPECTIVE AÉRIENNE DES GRANDS REPÈRES (le Crayon, la basilique, la tour
+// métallique…) : la brume est calée sur la portée de vue de la ville (voir
+// quality.js), qui noie tout à ~1 km sur les petits paliers. Un repère doit
+// pourtant se lire de loin : on ne lui applique qu'une FRACTION de la
+// profondeur de brume (k ∈ ]0;1]) — il pâlit avec la distance sans jamais
+// disparaître ni découper l'horizon comme un aplat sans brume (fog: false).
+// Compatible avec la passe matière du palier Élevé (enhance.js reprend
+// userData.shaderPatch). Rend aussi le mesh insensible aux cullers.
+export function landmarkFog(mesh, k = 0.35) {
+  mesh.userData.noCull = true;
+  mesh.traverse?.((o) => {
+    if (!o.isMesh) return;
+    o.userData.noCull = true;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) {
+      if (!m || m.userData.landmarkFog) continue;
+      m.fog = true;
+      m.userData.landmarkFog = k;
+      const prev = m.userData.shaderPatch;
+      const patch = (shader) => {
+        prev?.(shader);
+        shader.vertexShader = shader.vertexShader.replace(
+          '#include <fog_vertex>',
+          `#include <fog_vertex>\n#ifdef USE_FOG\n\tvFogDepth *= ${k.toFixed(3)};\n#endif`
+        );
+      };
+      const key = (m.userData.shaderPatchKey ?? '') + '|repere' + k;
+      m.userData.shaderPatch = patch;
+      m.userData.shaderPatchKey = key;
+      m.onBeforeCompile = patch;
+      m.customProgramCacheKey = () => key;
+      m.needsUpdate = true;
+    }
+  });
+  return mesh;
+}

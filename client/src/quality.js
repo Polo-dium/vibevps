@@ -20,9 +20,12 @@ const LABELS = { bas: 'Bas', moyen: 'Moyen', eleve: 'Élevé' };
 // les bâtiments disparaître, on voit juste plus loin ou moins loin.
 const PRESETS = {
 // postfx : rendu « ciné » (bloom HDR, étalonnage, MSAA — voir render/post.js)
-  bas: { pixelRatio: 1, shadows: false, shadowMapSize: 1024, viewDistance: 420, postfx: false },
-  moyen: { pixelRatio: 1.25, shadows: true, shadowMapSize: 1024, viewDistance: 850, postfx: false },
-  eleve: { pixelRatio: 2, shadows: true, shadowMapSize: 2048, viewDistance: 2400, postfx: true },
+// viewFloor : plancher de la portée adaptative (main.js la rogne quand le
+// fps baisse). En Élevé elle ne descend plus sous 0,75 × 2 400 m : c'est le
+// palier « on voit loin » (le Crayon depuis Fourvière, les Alpes).
+  bas: { pixelRatio: 1, shadows: false, shadowMapSize: 1024, viewDistance: 420, viewFloor: 0.45, postfx: false },
+  moyen: { pixelRatio: 1.25, shadows: true, shadowMapSize: 1024, viewDistance: 850, viewFloor: 0.6, postfx: false },
+  eleve: { pixelRatio: 2, shadows: true, shadowMapSize: 2048, viewDistance: 2400, viewFloor: 0.75, postfx: true },
 };
 
 // Densité de brume qui rend une tuile ~90 % grise à la distance de coupure :
