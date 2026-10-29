@@ -16,8 +16,10 @@ const BIN = process.env.WHISPER_BIN || path.join(DIR, 'whisper.cpp', 'build', 'b
 const MODEL_NAME = process.env.WHISPER_MODEL || 'small-q5_1';
 const MODEL = path.join(DIR, 'models', `ggml-${MODEL_NAME}.bin`);
 const TMP = path.join(here, '..', 'data', 'stt-tmp');
-// La moitié des cœurs : le serveur de jeu garde de la marge
-const THREADS = String(Math.max(1, Math.floor(os.cpus().length / 2)));
+// Une transcription courte à la fois : tous les cœurs (un laissé au jeu
+// à partir de 4), WHISPER_THREADS pour forcer
+const CORES = os.cpus().length;
+const THREADS = String(process.env.WHISPER_THREADS || Math.max(1, CORES >= 4 ? CORES - 1 : CORES));
 // Vocabulaire du jeu : aide whisper à écrire « Fourvière », pas « four vierge »
 const PROMPT = 'Salut gone ! Bellecour, Fourvière, la Croix-Rousse, Saint-Jean, la Saône, le Rhône, '
   + 'un bouchon lyonnais, une quenelle, Guignol, Gnafron, une traboule, la ficelle.';

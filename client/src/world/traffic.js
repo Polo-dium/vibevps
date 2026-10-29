@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { audio } from '../audio.js';
 import { createMusicSource } from '../music.js';
 import { makeRand, riverCx, riverHalf } from './layout.js';
+import { detail } from '../render/detail.js';
 
 // Circulation des quais : avenues le long des berges — qui SUIVENT le tracé
 // courbe des fleuves —, trafic de voitures low-poly (tout en InstancedMesh :
@@ -18,8 +19,12 @@ const CABRIO_COLORS = [0xd9333f, 0x00b8a9, 0xffd23f, 0xff7a4d, 0x4da6ff, 0xc44df
 const LANE = 1.7; // demi-écart des deux voies
 const AVENUE_W = 7;
 
-export function buildTraffic(ctx, bands, maxHalf = 110) {
+// roads (ville OSM) : les voitures roulent sur le VRAI réseau de rues, à
+// droite, recyclées autour du joueur (comme les Vélo'v), et suivent le relief
+// et les tabliers des ponts ; plus d'avenues de berge inventées.
+export function buildTraffic(ctx, bands, maxHalf = 110, roads = null) {
   const rand = makeRand(4242);
+  const net = roads ? buildRoadNet(ctx, roads) : null;
   const L = Math.min((ctx.worldBound ?? 134) - 6, maxHalf);
 
   // --- Avenues : une chaussée de chaque côté de chaque fleuve. Si les
@@ -53,7 +58,7 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
     return (z) => arr[Math.max(0, Math.min(n - 1, Math.floor((z + W0) / res)))];
   };
   const avenues = [];
-  for (const band of bands) {
+  for (const band of net ? [] : bands) {
     const half = riverHalf(band);
     const zLo = Math.max(band.zMin ?? -L, -L);
     const zHi = Math.min(band.zMax ?? L, L);
@@ -126,6 +131,16 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
     }
   }
 
+  // Ville OSM : flotte recyclée sur les rues + voitures conduisibles garées
+  // au bord des petites rues (celles où parked.js ne gare rien)
+  if (net) {
+    const pool = detail.level === 'eleve' ? 30 : detail.level === 'moyen' ? 20 : 12;
+    for (let k = 0; k < pool; k++) {
+      moving.push({ net: true, seg: null, t: 0, speed: 7 + rand() * 4, x: 0, z: 0, y: -60, ry: 0, wait: 0 });
+    }
+    parked.push(...net.parkSpots);
+  }
+
   const n = moving.length + parked.length;
   const bodyGeo = new THREE.BoxGeometry(1.9, 0.6, 4.2);
   bodyGeo.translate(0, 0.62, 0);
@@ -166,6 +181,7 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
   // Position/orientation d'une voiture de trafic sur son avenue courbe :
   // x = chaussée à ce z + déport de voie ; cap = tangente de la courbe.
   function placeCar(car) {
+    if (car.net) return;
     car.x = car.av.ax(car.z) + LANE * car.dir;
     const ahead = car.av.ax(car.z + car.dir * 4) + LANE * car.dir;
     car.ry = Math.atan2(ahead - car.x, car.dir * 4) + Math.PI;
@@ -176,13 +192,13 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
     placeCar(car);
     _c.setHex(CAR_COLORS[Math.floor(rand() * CAR_COLORS.length)]);
     bodies.setColorAt(idx, _c);
-    setCar(idx, car.x, car.z, car.ry);
+    setCar(idx, car.x, car.z, car.ry, car.y ?? 0);
   });
   parked.forEach((car, k) => {
     const idx = moving.length + k;
     _c.setHex(CAR_COLORS[Math.floor(rand() * CAR_COLORS.length)]);
     bodies.setColorAt(idx, _c);
-    setCar(idx, car.x, car.z, car.ry);
+    setCar(idx, car.x, car.z, car.ry, car.y ?? 0);
     // TOUTES les berlines garées sont conduisibles (caméra de poursuite)
     makeBerline(ctx, car, idx, setCar);
   });
@@ -197,6 +213,28 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
     tick++;
     const p = ctx.playerPos?.();
     for (const car of moving) {
+      if (car.net) {
+        if (!p) continue;
+        if (!car.seg || Math.abs(p.x - car.x) + Math.abs(p.z - car.z) > 260) {
+          car.wait -= dt;
+          if (car.wait > 0) continue;
+          car.wait = 1; // nouvel essai dans 1 s si aucune rue libre
+          if (!net.spawn(car, p, tick < 3, rand)) { setCar(car.i, 0, 0, 0, -60); continue; }
+        }
+        net.advance(car, dt, rand);
+        const far = Math.abs(p.x - car.x) + Math.abs(p.z - car.z) > 140;
+        if (far && (tick + car.i) % 6 !== 0) continue;
+        net.place(car, far ? 1 : dt);
+        setCar(car.i, car.x, car.z, car.ry, car.y);
+        if (!far && runOverCd <= 0 && !ctx.isDriving?.() &&
+          Math.hypot(p.x - car.x, p.z - car.z) < 1.8 && Math.abs(p.y - car.y) < 1.6) {
+          runOverCd = 1.6;
+          audio.horn();
+          audio.crash();
+          ctx.onRunOver?.();
+        }
+        continue;
+      }
       car.z += car.dir * car.speed * dt;
       if (car.z > car.av.zHi + 2) car.z = car.av.zLo - 2;
       if (car.z < car.av.zLo - 2) car.z = car.av.zHi + 2;
@@ -226,7 +264,7 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
   // --- Décapotables conduisibles ------------------------------------------
   // Garées le long des accotements côté quai (jamais dans un bâtiment) :
   // plusieurs par avenue, réparties sur la longueur de la courbe.
-  const spots = [];
+  const spots = net ? net.cabrioSpots : [];
   for (const av of avenues) {
     const len = av.zHi - av.zLo;
     for (let k = 1; k <= 4; k++) {
@@ -249,7 +287,7 @@ export function buildTraffic(ctx, bands, maxHalf = 110) {
 function makeBerline(ctx, p, idx, setCar) {
   const car = { heading: p.ry, speed: 0, thirdPerson: true };
   // Pseudo-groupe : startDrive/stopDrive ne lisent que .position
-  const anchor = { position: new THREE.Vector3(p.x, 0, p.z) };
+  const anchor = { position: new THREE.Vector3(p.x, p.y ?? 0, p.z) };
   let driving = false;
 
   // Repose la voiture là où elle s'est arrêtée (collider approché par le cap)
@@ -258,12 +296,13 @@ function makeBerline(ctx, p, idx, setCar) {
     gate.label = 'E — Conduire la berline';
     p.x = anchor.position.x;
     p.z = anchor.position.z;
+    p.y = anchor.position.y;
     gate.x = p.x;
     gate.z = p.z;
     const s = Math.abs(Math.sin(car.heading)), c = Math.abs(Math.cos(car.heading));
     p.box = {
       minX: p.x - (1.1 * c + 2.1 * s), maxX: p.x + (1.1 * c + 2.1 * s),
-      minY: 0, maxY: 1.4,
+      minY: anchor.position.y, maxY: anchor.position.y + 1.4,
       minZ: p.z - (2.1 * c + 1.1 * s), maxZ: p.z + (2.1 * c + 1.1 * s),
     };
     ctx.colliders.push(p.box);
@@ -278,7 +317,7 @@ function makeBerline(ctx, p, idx, setCar) {
         driving = true;
         ctx.colliders.remove?.(p.box); // plus un obstacle : c'est NOTRE voiture
         gate.label = 'E — Couper le moteur et sortir';
-        anchor.position.set(p.x, 0, p.z);
+        anchor.position.set(p.x, p.y ?? 0, p.z);
         ctx.startDrive?.(car, anchor);
         ctx.notify?.('🚗 Berline empruntée ! ZQSD pour conduire, Espace pour klaxonner.');
       } else {
@@ -341,7 +380,7 @@ function buildCabrio(ctx, spot, color) {
     axle.position.set(0, 0.26, off);
     group.add(axle);
   }
-  group.position.set(spot.x, 0, spot.z);
+  group.position.set(spot.x, spot.y ?? 0, spot.z);
   group.rotation.y = spot.ry;
   ctx.scene.add(group);
 
@@ -426,4 +465,128 @@ function makeAvenueTexture() {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   return tex;
+}
+
+// --- Réseau de rues OSM pour la circulation --------------------------------
+// Tronçons orientés (les deux sens : le JSON n'a pas les sens uniques), voie
+// de droite, enchaînement aux carrefours, index spatial pour recycler les
+// voitures autour du joueur.
+function buildRoadNet(ctx, roads) {
+  const CELL = 50;
+  const segs = [], grid = new Map(), ends = new Map();
+  const key = (cx, cz) => cx * 100003 + cz;
+  const nk = (x, z) => `${Math.round(x)},${Math.round(z)}`;
+  const wet = (x, z) => ctx.waterMask?.isWater(x, z) && !ctx.onBridge?.(x, z);
+  for (const road of roads) {
+    if (road.w < 7) continue; // rues carrossables à deux voies
+    const lane = Math.min(1.45, road.w * 0.18);
+    for (let i = 0; i + 3 < road.p.length; i += 2) {
+      const x1 = road.p[i], z1 = road.p[i + 1], x2 = road.p[i + 2], z2 = road.p[i + 3];
+      const len = Math.hypot(x2 - x1, z2 - z1);
+      if (len < 0.5 || wet((x1 + x2) / 2, (z1 + z2) / 2)) continue;
+      for (const dir of [1, -1]) {
+        const a = dir > 0 ? [x1, z1] : [x2, z2], b = dir > 0 ? [x2, z2] : [x1, z1];
+        const sg = {
+          a, b, len, lane, ux: (b[0] - a[0]) / len, uz: (b[1] - a[1]) / len,
+          ka: nk(a[0], a[1]), kb: nk(b[0], b[1]),
+        };
+        const idx = segs.push(sg) - 1;
+        const k = key(Math.floor((a[0] + b[0]) / 2 / CELL), Math.floor((a[1] + b[1]) / 2 / CELL));
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(idx);
+        if (!ends.has(sg.ka)) ends.set(sg.ka, []);
+        ends.get(sg.ka).push(sg);
+      }
+    }
+  }
+
+  function near(px, pz, rMin, rMax) {
+    const out = [], R = Math.ceil(rMax / CELL);
+    const cx = Math.floor(px / CELL), cz = Math.floor(pz / CELL);
+    for (let i = -R; i <= R; i++) for (let j = -R; j <= R; j++) {
+      for (const idx of grid.get(key(cx + i, cz + j)) ?? []) {
+        const sg = segs[idx];
+        if (sg.len < 6) continue;
+        const d = Math.hypot((sg.a[0] + sg.b[0]) / 2 - px, (sg.a[1] + sg.b[1]) / 2 - pz);
+        if (d >= rMin && d <= rMax) out.push(sg);
+      }
+    }
+    return out;
+  }
+
+  // Voitures conduisibles : bord des petites rues (5,5 m, là où parked.js ne
+  // gare rien et où la circulation ne passe pas), réparties sur toute la
+  // ville, hors eau / ponts / obstacles. Déterministe (ordre du JSON).
+  const blocked = (x, z) => ctx.waterMask?.isWater(x, z) || ctx.onBridge?.(x, z) || ctx.theatre?.covers?.(x, z) ||
+    (ctx.colliders.nearby ? ctx.colliders.nearby(x, z, 3) : []).some((b) =>
+      x + 2.4 > b.minX && x - 2.4 < b.maxX && z + 2.4 > b.minZ && z - 2.4 < b.maxZ && b.maxY - b.minY > 0.5);
+  const cands = [];
+  roads.forEach((road, ri) => {
+    if (road.w < 5 || road.w >= 7) return;
+    for (let i = 0; i + 3 < road.p.length; i += 2) {
+      const x1 = road.p[i], z1 = road.p[i + 1], x2 = road.p[i + 2], z2 = road.p[i + 3];
+      const len = Math.hypot(x2 - x1, z2 - z1);
+      if (len < 16) continue;
+      const ux = (x2 - x1) / len, uz = (z2 - z1) / len, sd = (ri + i) % 4 < 2 ? 1 : -1;
+      const off = road.w / 2 - 1.1;
+      cands.push({
+        x: (x1 + x2) / 2 - uz * off * sd, z: (z1 + z2) / 2 + ux * off * sd,
+        ry: Math.atan2(ux, uz) + (sd > 0 ? Math.PI : 0),
+      });
+    }
+  });
+  const parkSpots = [], cabrioSpots = [];
+  const step = Math.max(1, Math.floor(cands.length / 60));
+  for (let i = 0; i < cands.length && parkSpots.length + cabrioSpots.length < 48; i += step) {
+    const c = cands[i];
+    if (blocked(c.x, c.z)) continue;
+    c.y = Math.max(0, ctx.terrainHeight?.(c.x, c.z) ?? 0);
+    if ((parkSpots.length + cabrioSpots.length) % 5 === 4) { cabrioSpots.push(c); continue; }
+    const s = Math.abs(Math.sin(c.ry)), co = Math.abs(Math.cos(c.ry));
+    c.box = {
+      minX: c.x - (1.1 * co + 2.1 * s), maxX: c.x + (1.1 * co + 2.1 * s), minY: c.y, maxY: c.y + 1.4,
+      minZ: c.z - (2.1 * co + 1.1 * s), maxZ: c.z + (2.1 * co + 1.1 * s),
+    };
+    ctx.colliders.push(c.box);
+    parkSpots.push(c);
+  }
+
+  return {
+    parkSpots, cabrioSpots,
+    spawn(car, p, first, rand) {
+      const list = near(p.x, p.z, first ? 12 : 60, 170);
+      if (!list.length) { car.seg = null; return false; }
+      car.seg = list[Math.floor(rand() * list.length)];
+      car.t = rand() * car.seg.len;
+      car.ry = null;
+      this.place(car, 1);
+      return true;
+    },
+    advance(car, dt, rand) {
+      car.t += car.speed * dt;
+      let guard = 0;
+      while (car.seg && car.t > car.seg.len && guard++ < 4) {
+        car.t -= car.seg.len;
+        const outs = ends.get(car.seg.kb) ?? [];
+        const fwd = outs.filter((o) => o.kb !== car.seg.ka); // pas de demi-tour
+        const pick = fwd.length ? fwd : outs;
+        if (!pick.length) { car.seg = null; return; }
+        car.seg = pick[Math.floor(rand() * pick.length)];
+      }
+    },
+    place(car, k) {
+      const sg = car.seg;
+      if (!sg) return;
+      const t = Math.min(car.t, sg.len);
+      car.x = sg.a[0] + sg.ux * t - sg.uz * sg.lane;
+      car.z = sg.a[1] + sg.uz * t + sg.ux * sg.lane;
+      car.y = ctx.terrainHeight?.(car.x, car.z) ?? 0;
+      const target = Math.atan2(sg.ux, sg.uz) + Math.PI;
+      if (car.ry == null) car.ry = target;
+      else {
+        const d = Math.atan2(Math.sin(target - car.ry), Math.cos(target - car.ry));
+        car.ry += d * Math.min(1, k * 7); // virage lissé aux carrefours
+      }
+    },
+  };
 }

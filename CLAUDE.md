@@ -174,6 +174,13 @@ npm start          # serveur de prod (sert client/dist)
     chargement pour chanter, repli sculpté), `album.js` (titres, paroles par
     section). Ajouter un morceau : MP3 dans `client/public/music/` + une
     entrée dans `album.js`.
+  - Circulation (`traffic.js`) : en ville OSM, `buildTraffic(..., data.roads)`
+    fait rouler une flotte recyclée autour du joueur sur le VRAI réseau
+    (rues ≥ 7 m, voie de droite, relief et tabliers de pont via
+    `ctx.terrainHeight`), berlines/décapotables conduisibles garées au bord
+    des rues de 5,5 m ; les avenues de berge inventées ne servent plus qu'à
+    la ville procédurale. Parapet des quais : `ctx.waterGuard` →
+    `controls.setWaterGuard` empêche de descendre à pied dans le lit.
   - `src/player/` — contrôles FPS + tactile, arme (modèles détaillés dans
     `weaponModels.js`), joueurs distants, voix.
   - `src/games/` — bornes d'arcade : mini-jeux HTML autonomes en iframe

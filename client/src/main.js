@@ -662,6 +662,7 @@ async function boot() {
     camera, renderer.domElement, ctx.colliders,
     (x, z) => ctx.terrainHeight?.(x, z) ?? 0
   );
+  if (ctx.waterGuard) controls.setWaterGuard(ctx.waterGuard); // parapet des quais (ville OSM)
   // Chute libre après un saut d'avion : la voile est un visuel local (les
   // autres joueurs te voient simplement tomber), la mort est arbitrée par
   // le serveur via le canal « ouch » (cause 'chute' → dégâts plafonnés 100).

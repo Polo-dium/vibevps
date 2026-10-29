@@ -79,6 +79,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   // l'atterrissage, marches lissées (localStorage lyon_bob = '0' pour couper)
   let bobPhase = 0, bobAmt = 0, landDip = 0, eyeY = null;
   let bobOn = true;
+  let waterGuard = null;
   try { bobOn = localStorage.getItem('lyon_bob') !== '0'; } catch { /* stockage indisponible */ }
 
   if (!IS_TOUCH) {
@@ -593,6 +594,16 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       if (!wasGrounded && airTime > 0.15) landDip = Math.min(0.24, -vyBefore * 0.016);
       airTime = 0;
     }
+    // Parapet des quais : à pied, on ne descend pas dans le lit du fleuve en
+    // marchant (on peut toujours y sauter exprès, et on en ressort à pied)
+    if (waterGuard && onGround) {
+      const here = waterGuard(pos.x, pos.z);
+      if (!here) {
+        const ax = Math.sign(vel.x) * 0.35, az = Math.sign(vel.z) * 0.35;
+        if (vel.x && waterGuard(pos.x + vel.x * dt + ax, pos.z)) vel.x = 0;
+        if (vel.z && waterGuard(pos.x, pos.z + vel.z * dt + az)) vel.z = 0;
+      }
+    }
     resolveAxis('x', vel.x * dt);
     resolveAxis('z', vel.z * dt);
 
@@ -631,6 +642,8 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     isMoving() { return Math.hypot(vel.x, vel.z) > 0.5; },
     speed() { return Math.hypot(vel.x, vel.z); },
     get onGround() { return onGround; },
+    // (x, z) → true si c'est le lit d'un fleuve (posé par la ville OSM)
+    setWaterGuard(fn) { waterGuard = fn; },
     setTouchMove(fwd, strafe) {
       touchMove.fwd = fwd;
       touchMove.strafe = strafe;

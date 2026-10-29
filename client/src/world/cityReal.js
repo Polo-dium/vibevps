@@ -1134,6 +1134,10 @@ export function buildRealCity(ctx, data) {
       buildWaterSurfaces(ctx, data.waterPolys);
       if (rhoneContinuation) buildRiverContinuation(ctx, rhoneContinuation);
       buildQuayEdges(ctx, mask); // murets de pierre : fin des débordements
+      // Parapet invisible des quais (controls.setWaterGuard) : lit du fleuve
+      // = sol au niveau BED_Y. Ponts, bas-ports, poches… relèvent déjà le
+      // sol via ctx.terrainHeight : ils restent praticables.
+      ctx.waterGuard = (x, z) => mask.isWater(x, z) && ctx.terrainHeight(x, z) < BED_Y + 0.4;
     } else {
       ctx.terrainHeight = ground;
       composeRiverTerrain(ctx, data.water, [], null);
@@ -1219,7 +1223,7 @@ export function buildRealCity(ctx, data) {
   if (full) {
     // Trafic sur les vrais quais courbes ; basilique de Fourvière (reculée
     // sur la colline) + parc du Rosaire qui descend vers Saint-Jean.
-    buildTraffic(ctx, data.water, bound - 8);
+    buildTraffic(ctx, data.water, bound - 8, data.roads);
     // Passants sur les trottoirs, recyclés autour du joueur
     const t0 = performance.now();
     createPassersby(ctx, data);
