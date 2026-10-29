@@ -2475,6 +2475,21 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
             (ctx.terraceSpots ??= []).push({ x: mx, z: mz, nx, nz });
           }
           shopUv.push(u0, v0, u1, v0, u1, v1, u0, v0, u1, v1, u0, v1);
+          // Volumes de la devanture (world/devantures plus bas) : store
+          // banne sur ~1 commerce sur 3, enseigne en drapeau sur ~1 sur 5.
+          // Choix par hash : aucun rand() consommé
+          const hh = hash2(bi * 71 + i * 29 + k * 13);
+          if (hh % 3 === 0 || hh % 5 === 0) {
+            const mx = (ax + bx) / 2, mz = (az + bz) / 2;
+            let nx = -(bz - az), nz = bx - ax;
+            const nl = Math.hypot(nx, nz) || 1;
+            nx /= nl; nz /= nl;
+            if (nx * (mx - cx) + nz * (mz - cz) < 0) { nx = -nx; nz = -nz; }
+            (ctx.shopVolumes ??= []).push({
+              x: mx, z: mz, nx, nz, y: yBase, w: Math.hypot(bx - ax, bz - az),
+              shop, awning: hh % 3 === 0, flag: hh % 5 === 0,
+            });
+          }
         }
       }
     }
@@ -2805,6 +2820,7 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     const shops = new THREE.Mesh(geo, mat);
     shops.userData.noShadow = true;
     ctx.scene.add(shops);
+    buildShopVolumes(ctx, ctx.shopVolumes ?? []);
   }
 
   console.log(`Lyon OSM : ${kept} bâtiments dans ${tiles.size} tuiles.`);
@@ -3436,6 +3452,90 @@ function makeTreeBillboardTexture() {
 // maillage, une seule texture pour tous les rez-de-chaussée de la ville,
 // mais chaque module de vitrine (4,5 m) pioche son commerce. Carte émissive
 // assortie : la nuit, seules l'enseigne, la vitrine et la porte s'allument.
+// STORES BANNES ET ENSEIGNES EN DRAPEAU : le volume des devantures (elles
+// ne sont sinon qu'une image plaquée sur le mur). Toile rayée aux couleurs
+// du commerce, inclinée vers la rue, lambrequin festonné ; enseigne
+// perpendiculaire à la façade qui s'éclaire la nuit (croix verte des
+// pharmacies, carotte rouge des tabacs). Instancié : 3 draw calls.
+function buildShopVolumes(ctx, spots) {
+  const awn = spots.filter((s) => s.awning), flags = spots.filter((s) => s.flag);
+  const night = { value: 0 };
+  ctx.updatables.push(() => { night.value = Math.max(0, (ctx.env?.night ?? 0) - 0.15); });
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3();
+  const UP = new THREE.Vector3(0, 1, 0), col = new THREE.Color();
+  if (awn.length) {
+    // toile rayée (rayures blanches sur la couleur d'instance)
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = 8;
+    const g = c.getContext('2d');
+    for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? '#f4efe4' : '#ffffff'; g.fillRect(i * 8, 0, 8, 8); }
+    const stripe = new THREE.CanvasTexture(c);
+    stripe.colorSpace = THREE.SRGBColorSpace;
+    stripe.wrapS = THREE.RepeatWrapping;
+    // toile inclinée (1 m de projection) + lambrequin festonné (local :
+    // x le long de la façade, z vers la rue, y vers le haut)
+    const parts = [];
+    const canvas = new THREE.PlaneGeometry(1, 1.15, 1, 1);
+    canvas.rotateX(-Math.PI / 2 + 0.5);
+    canvas.translate(0, -0.27, 0.5);
+    parts.push(canvas);
+    const val = new THREE.PlaneGeometry(1, 0.28, 12, 1);
+    const p = val.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      // festons : le bas ondule
+      if (p.getY(i) < 0) p.setY(i, p.getY(i) - 0.06 * Math.abs(Math.sin(p.getX(i) * Math.PI * 6)));
+    }
+    val.translate(0, -0.68, 1.03);
+    parts.push(val);
+    const geo = mergeGeometries(parts.map((g2) => g2.toNonIndexed()));
+    const uv = geo.attributes.uv, pp = geo.attributes.position;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, pp.getX(i) * 6, 0.5);
+    const mat = new THREE.MeshLambertMaterial({ map: stripe, side: THREE.DoubleSide });
+    const mesh = new THREE.InstancedMesh(geo, mat, awn.length);
+    awn.forEach((s, i) => {
+      q.setFromAxisAngle(UP, Math.atan2(s.nx, s.nz));
+      m.compose(v.set(s.x + s.nx * 0.05, s.y + 2.75, s.z + s.nz * 0.05), q, sc.set(Math.max(1, s.w - 0.5), 1, 1));
+      mesh.setMatrixAt(i, m);
+      col.set(SHOPS[s.shop].awn[0]);
+      mesh.setColorAt(i, col);
+    });
+    mesh.castShadow = true;
+    mesh.name = 'stores-bannes';
+    ctx.scene.add(mesh);
+  }
+  if (flags.length) {
+    // enseigne : potence de fer + caisson lumineux
+    const arm = new THREE.BoxGeometry(0.05, 0.05, 0.75).translate(0, 0.5, 0.38).toNonIndexed();
+    const box = new THREE.BoxGeometry(0.12, 0.62, 0.62).translate(0, 0.1, 0.62).toNonIndexed();
+    const armMesh = new THREE.InstancedMesh(arm, new THREE.MeshLambertMaterial({ color: 0x23262b }), flags.length);
+    const signMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    signMat.onBeforeCompile = (sh) => {
+      sh.uniforms.signNight = night;
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float signNight;')
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+          #ifdef USE_COLOR // (couleur d'instance : USE_COLOR côté fragment)
+            totalEmissiveRadiance += vColor * signNight * 1.6;
+          #endif`);
+    };
+    signMat.customProgramCacheKey = () => 'enseigne-drapeau';
+    const signMesh = new THREE.InstancedMesh(box, signMat, flags.length);
+    flags.forEach((s, i) => {
+      q.setFromAxisAngle(UP, Math.atan2(s.nx, s.nz));
+      // décalée vers un bord du commerce, au-dessus du store
+      m.compose(v.set(s.x, s.y + 3.35, s.z), q, sc.set(1, 1, 1));
+      armMesh.setMatrixAt(i, m);
+      signMesh.setMatrixAt(i, m);
+      const S = SHOPS[s.shop];
+      col.set(S.cross ? '#1fb85a' : S.carotte ? '#d8332b' : S.awn[0]);
+      signMesh.setColorAt(i, col);
+    });
+    armMesh.name = 'enseignes-potences';
+    signMesh.name = 'enseignes-drapeau';
+    ctx.scene.add(armMesh, signMesh);
+  }
+}
+
 const SHOPS = [
   { nom: 'BOULANGERIE', band: '#5a3a22', ink: '#f2d28a', awn: ['#c98b3a', '#f3e6c8'], goods: ['#d9a35a', '#c27b3a', '#f0d79a', '#a8662c'] },
   { nom: 'PHARMACIE', band: '#e9efe9', ink: '#1f8a4c', awn: ['#2e9e5b', '#eef3ee'], goods: ['#e8eef2', '#9fc7d8', '#d64b4b', '#ffffff'], cross: true },

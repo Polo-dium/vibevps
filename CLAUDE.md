@@ -144,6 +144,11 @@ npm start          # serveur de prod (sert client/dist)
     la rive cuite par `bakeShoreMap`, piles dans `ctx.bridgePiers`).
   - Ciel (`sky.js`) : 42 cumulus peints, seed fixe et dérive sur
     `Date.now()` (même ciel pour tous).
+  - Quais de Saône : `bouquinistes.js` (boîtes vertes du quai de la Pêcherie,
+    ouvertes le jour). Rues : `cyclistes.js` (Vélo'v recyclés autour du
+    joueur, comme `passersby.js`). Devantures en volume : `buildShopVolumes`
+    (stores bannes rayés, enseignes en drapeau lumineuses la nuit ; côté
+    fragment, la couleur d'instance est sous `USE_COLOR`).
   - `src/world/terraces.js` : terrasses de café devant les devantures
     « café »/« bouchon » (mobilier instancié par quartier, clients assis
     recyclés autour du joueur — `buildHuman({ seated: true })` ajoute des
