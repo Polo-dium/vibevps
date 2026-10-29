@@ -1474,156 +1474,145 @@ function buildCountryside(ctx, bound, rand) {
 }
 
 // Les Alpes à l'est, Mont Blanc en majesté — comme depuis les toits de la
-// Croix-Rousse par temps clair. Panorama PEINT en canvas (zéro asset, règle
-// du projet) sur un arc de cylindre au-delà des collines, hors brume (le
-// voile atmosphérique est peint dans la texture), teinté par le cycle
-// jour/nuit (voir l'updatable plus bas).
-// Facultatif : déposer une vraie photo panoramique dans /pano/alpes.jpg sur
-// le VPS (comme /pano/fourviere.jpg) et elle remplace la version peinte.
+// Croix-Rousse par temps clair. Zéro asset : trois plans de crêtes tirés
+// par déplacement du point milieu (silhouettes nettes, pas de dents de
+// scie), peints dans une texture de DONNÉES (R = neige, G = versant éclairé,
+// B = plan, A = couverture). Les couleurs ne sont PAS dans la texture : le
+// shader les tire à chaque image de la couleur de l'horizon (brume) —
+// roche un peu plus sombre et plus bleue que l'horizon, neige blanche au
+// soleil, bleutée à l'ombre, à peine plus claire que le ciel au clair de
+// lune. Les plans lointains se fondent dans l'horizon (perspective
+// aérienne) : de jour une chaîne pâle et neigeuse, de nuit une silhouette
+// discrète au lieu d'un bandeau noir. (L'ancienne photo, très voilée,
+// passait pour une rangée de nuages.)
 function buildAlps(ctx, bound, rand) {
-  const W = 1024, H = 256;
+  const W = 2048, H = 256;
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
   const g = canvas.getContext('2d');
+  const img = g.createImageData(W, H);
+  const D = img.data;
 
-  // Enveloppe latérale : les sommets culminent vers le centre du panorama
-  // et s'affaissent vers les extrémités — la chaîne MEURT à l'horizon au
-  // lieu de s'arrêter net, ce qui donne l'impression qu'elle continue.
-  function win(x) {
-    const t = x / W;
-    const s = Math.min(1, Math.min(t, 1 - t) / 0.24);
-    return s * s * (3 - 2 * s); // smoothstep
-  }
-
-  // Une chaîne = un profil en dents de scie (marche aléatoire × enveloppe),
-  // rempli d'un dégradé vertical : neige au sommet → roche → voile bleuté.
-  function ridge(baseY, amp, snow, rock, haze, blanc = null, jag = 0.85) {
-    const pts = [];
-    let h = amp * 0.4; // hauteur au-dessus de la ligne de base (0..amp)
-    for (let x = 0; x <= W; x += 10 + Math.floor(rand() * 14)) {
-      h = Math.min(amp, Math.max(0, h + (rand() - 0.5) * amp * jag));
-      pts.push([x, baseY - h * win(x)]);
-    }
-    pts.push([W, baseY]);
-    // Mont Blanc : un dôme large et haut aux deux tiers du panorama
-    if (blanc) {
-      const cx = W * 0.64;
-      for (const p of pts) {
-        const d = Math.abs(p[0] - cx) / (W * 0.075);
-        if (d < 1.6) p[1] = Math.min(p[1], baseY - amp * (1.55 - 0.6 * d * d) * win(p[0]));
+  // Enveloppe : la chaîne culmine au centre et meurt aux deux bouts
+  const win = (x) => {
+    const t = x / W, k = Math.min(1, Math.min(t, 1 - t) / 0.22);
+    return k * k * (3 - 2 * k);
+  };
+  // Profil fractal (déplacement du point milieu), valeurs 0..1
+  const profile = (rough, seedAmp) => {
+    const N = 1024;
+    const h = new Float32Array(N + 1);
+    h[0] = rand() * 0.3; h[N] = rand() * 0.3;
+    for (let step = N; step > 1; step >>= 1) {
+      const amp = seedAmp * Math.pow(step / N, rough);
+      for (let i = step >> 1; i < N; i += step) {
+        h[i] = (h[i - (step >> 1)] + h[i + (step >> 1)]) / 2 + (rand() - 0.5) * amp;
       }
     }
-    let top = baseY;
-    for (const p of pts) top = Math.min(top, p[1]);
-    const grad = g.createLinearGradient(0, top, 0, H);
-    grad.addColorStop(0, snow);
-    grad.addColorStop(0.15, snow); // manteau neigeux sur les sommets
-    grad.addColorStop(0.42, rock); // la roche affleure sous la neige
-    grad.addColorStop(0.85, haze);
-    grad.addColorStop(1, 'rgba(190,205,225,0)'); // fond fondu dans le ciel
-    g.fillStyle = grad;
-    g.beginPath();
-    g.moveTo(0, H);
-    for (const [x, y2] of pts) g.lineTo(x, y2);
-    g.lineTo(W, H);
-    g.closePath();
-    g.fill();
+    let lo = Infinity, hi = -Infinity;
+    for (const v of h) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    return (x) => {
+      const f = (x / W) * N, i = Math.min(N - 1, Math.floor(f)), t = f - i;
+      return ((h[i] * (1 - t) + h[i + 1] * t) - lo) / (hi - lo);
+    };
+  };
+  // [ligne de base (px depuis le haut), amplitude, limite des neiges (0..1
+  // de l'amplitude), plan (0 lointain → 1 proche), Mont Blanc ?]
+  const LAYERS = [
+    [H * 0.62, H * 0.42, 0.74, 0.0, false],
+    [H * 0.74, H * 0.5, 0.66, 0.5, true],
+    [H * 0.9, H * 0.34, 0.86, 1.0, false],
+  ];
+  for (const [base, amp, snowLine, depth, blanc] of LAYERS) {
+    const prof = profile(0.62, 1.2);
+    const detail = profile(0.9, 1);
+    const top = new Float32Array(W);
+    for (let x = 0; x < W; x++) {
+      let v = prof(x) * 0.85 + detail(x) * 0.15;
+      if (blanc) {
+        // le dôme du Mont Blanc, aux deux tiers du panorama, domine
+        const d = (x - W * 0.62) / (W * 0.06);
+        v = Math.max(v, 1.35 - 0.35 * d * d);
+      }
+      top[x] = base - amp * Math.max(0, v) * win(x);
+    }
+    for (let x = 0; x < W; x++) {
+      const yTop = top[x];
+      // versant : la pente du profil dit s'il regarde le soleil (sud-est)
+      const slope = (top[Math.min(W - 1, x + 3)] - top[Math.max(0, x - 3)]) / 6;
+      const lit = slope > 0 ? 0.35 : 1.0;
+      for (let y = Math.max(0, Math.floor(yTop)); y < H; y++) {
+        const i = (y * W + x) * 4;
+        const cover = Math.min(1, y - yTop + 1);
+        if (cover <= 0) continue;
+        // hauteur relative du point dans la chaîne (1 = sommet du plan)
+        const rel = (base - y) / amp;
+        // neige : au-dessus de la limite, déchiquetée par des couloirs
+        const streak = Math.sin(x * 0.37 + Math.sin(x * 0.051) * 4) * 0.09 + Math.sin(x * 0.013 + depth * 5) * 0.12 + (rand() - 0.5) * 0.04;
+        const snow = THREE.MathUtils.clamp((rel - snowLine + streak) / 0.06, 0, 1);
+        // un plan plus proche recouvre le précédent
+        D[i] = snow * 255;
+        D[i + 1] = lit * 255;
+        D[i + 2] = depth * 255;
+        D[i + 3] = Math.max(D[i + 3], cover * 255);
+      }
+    }
   }
-
-  // Trois plans de crêtes (du plus lointain au plus proche) : c'est la
-  // superposition qui fait la profondeur, donc la crédibilité. Palette
-  // volontairement TRÈS claire : matériau non éclairé, teinté jour/nuit
-  // plus bas.
-  ridge(H * 0.44, H * 0.2, 'rgba(255,255,255,0.55)', 'rgba(214,226,240,0.5)', 'rgba(212,222,236,0.25)');
-  ridge(H * 0.52, H * 0.3, 'rgba(255,255,255,0.95)', 'rgba(188,204,226,0.9)', 'rgba(205,218,232,0.4)');
-  ridge(H * 0.62, H * 0.42, '#ffffff', '#93a8c2', 'rgba(195,210,228,0.5)', true, 1.2);
-
-  // Fondu d'opacité aux deux bords : même la base de la chaîne disparaît
-  // en douceur au lieu de laisser une couture verticale visible.
-  g.globalCompositeOperation = 'destination-out';
-  const EDGE = W * 0.09;
-  for (const [x0, x1] of [[0, EDGE], [W, W - EDGE]]) {
-    const fade = g.createLinearGradient(x0, 0, x1, 0);
-    fade.addColorStop(0, 'rgba(0,0,0,1)');
-    fade.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = fade;
-    g.fillRect(Math.min(x0, x1), 0, EDGE + 1, H);
-  }
-  g.globalCompositeOperation = 'source-over';
-
+  g.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  // Matériau NON éclairé : à cette distance, l'éclairage de scène rendait la
-  // neige gris foncé (paroi est jamais face au soleil). La teinte suit le
-  // cycle jour/nuit à la main via ctx.env — Alpes blanches en journée,
-  // silhouette bleutée au clair de lune.
+  tex.anisotropy = 8;
+  tex.generateMipmaps = true;
+
+  const horizon = { value: new THREE.Color() };
+  const sunTint = { value: new THREE.Color() };
+  const day = { value: 1 };
   const mat = new THREE.MeshBasicMaterial({
     map: tex, transparent: true, fog: false, side: THREE.BackSide, depthWrite: false,
   });
+  mat.userData.noSeason = true;
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, { uHorizon: horizon, uSun: sunTint, uDay: day });
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uHorizon;\nuniform vec3 uSun;\nuniform float uDay;')
+      .replace('#include <map_fragment>', `
+        vec4 al = texture2D( map, vMapUv );
+        float snow = al.r, lit = al.g, depth = al.b;
+        // roche : un cran sous l'horizon, bleuie
+        vec3 rock = uHorizon * mix(0.42, 0.66, 1.0 - depth) * vec3(0.86, 0.92, 1.08);
+        // neige : blanche au soleil (teintée par lui), bleutée à l'ombre ;
+        // la nuit, à peine plus claire que le ciel (clair de lune)
+        vec3 snowSun = mix(uHorizon * 1.35, vec3(0.97, 0.96, 0.94) * mix(vec3(1.0), uSun, 0.35), uDay);
+        vec3 snowShade = mix(uHorizon * 1.12, mix(uHorizon, vec3(0.78, 0.84, 0.95), 0.6), uDay);
+        vec3 col = mix(rock, mix(snowShade, snowSun, lit), snow);
+        // perspective aérienne : plans lointains et pied de la chaîne noyés
+        float haze = 0.35 * (1.0 - depth) + 0.5 * (1.0 - smoothstep(0.0, 0.4, vMapUv.y));
+        col = mix(col, uHorizon, clamp(haze, 0.0, 0.85));
+        diffuseColor = vec4(col, al.a * opacity);`);
+  };
+  mat.customProgramCacheKey = () => 'alpes-silhouettes';
   ctx.updatables.push(() => {
-    const d = ctx.env?.daylight ?? 1;
-    // mat.color est en LINÉAIRE : pour une silhouette nocturne sombre il
-    // faut des valeurs très basses (0,22 linéaire ≈ gris moyen à l'écran).
-    // Courbe en d² : les Alpes accrochent la dernière lumière au crépuscule.
-    const k = d * d;
-    mat.color.setRGB(0.03 + 0.97 * k, 0.035 + 0.965 * k, 0.06 + 0.94 * k);
+    const fog = ctx.scene.fog?.color;
+    if (fog) horizon.value.copy(fog);
+    day.value = THREE.MathUtils.clamp(ctx.env?.daylight ?? 1, 0, 1);
+    sunTint.value.set(0xffe2b8);
   });
 
-  // Arc de ~110° centré plein est (+x, côté Part-Dieu/aérodrome), au-delà
-  // de la couronne de collines mais dans le champ de la caméra (far = 3×bound)
-  // Plus loin, plus bas et beaucoup plus large : depuis les toits, la chaîne
-  // paraît désormais posée sur l'horizon au lieu de dominer immédiatement
-  // la ville. Les reliefs latéraux décroissants occupent près de 200°.
+  // Arc de ~200° centré plein est (+x, côté Part-Dieu), au-delà de la
+  // couronne de collines. Hauteur modeste : à 150 km les Alpes ne sont
+  // qu'une frange sur l'horizon, et le Mont Blanc la domine.
   const R = bound * 2.2;
-  // (plus haute qu'avant : à 0,2 × bound la chaîne n'était qu'un liseré
-  // noyé dans la brume de l'horizon)
-  const HGT = bound * 0.36;
+  const HGT = bound * 0.2;
   const arc = 3.45;
-  const geo = new THREE.CylinderGeometry(R, R, HGT, 32, 1, true, Math.PI / 2 - arc / 2, arc);
+  const geo = new THREE.CylinderGeometry(R, R, HGT, 48, 1, true, Math.PI / 2 - arc / 2, arc);
   const mesh = new THREE.Mesh(geo, mat);
-  // base légèrement relevée : le pied de la chaîne passait sous la couronne
-  // de collines et la brume d'horizon, il ne restait que les cimes
-  mesh.position.y = HGT / 2 + 25;
+  mesh.position.y = HGT / 2 + 8;
   mesh.userData.noShadow = true;
+  mesh.userData.noCull = true;
   // Après les astres (renderOrder -8/-7) : la chaîne se fond PAR-DESSUS le
   // soleil et la lune, qui se lèvent donc derrière les montagnes.
   mesh.renderOrder = -5;
   ctx.scene.add(mesh);
-
-  // Vraie photo des Alpes : panorama COMPOSÉ hors ligne en une seule
-  // texture SANS couture (WebP transparent, commité car pas d'accès direct
-  // au VPS) — massif central pleine hauteur, chaînes latérales réduites qui
-  // se fondent dedans par chevauchement, extrémités qui s'aplatissent puis
-  // disparaissent. Plaquage simple, aucune répétition à l'exécution.
-  // Si le fichier manque, la version peinte reste en place.
-  new THREE.TextureLoader().load('/pano/alpes-v4.webp', (t) => {
-    t.colorSpace = THREE.SRGBColorSpace;
-    t.anisotropy = 8;
-    mat.map = t;
-    // La photo est très voilée (prise à 150 km) : sur le ciel du jeu, de la
-    // même teinte, la chaîne disparaissait. On lui rend du relief — contraste
-    // autour du gris moyen, roche bleutée plus sombre, neige plus blanche,
-    // bord transparent plus franc — sans toucher au fichier.
-    mat.onBeforeCompile = (sh) => {
-      sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
-        {
-          // niveaux mesurés sur la photo : luminance sRGB 0,42 → 0,60 (soit
-          // ~0,15 → 0,33 en linéaire) ; on les étire sur toute la plage
-          vec3 c = diffuseColor.rgb;
-          float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-          float t = clamp((l - 0.15) / 0.18, 0.0, 1.0);
-          vec3 rock = vec3(0.2, 0.27, 0.42); // roche bleuie par 100 km d'air
-          vec3 snow = vec3(0.92, 0.93, 0.96);
-          vec3 stretched = mix(rock, snow, smoothstep(0.35, 0.9, t));
-          // un soupçon de la teinte d'origine (lumière rasante dorée)
-          diffuseColor.rgb = stretched * (0.85 + 0.3 * c / max(l, 0.01) * 0.5);
-          diffuseColor.a = smoothstep(0.08, 0.6, diffuseColor.a);
-        }`);
-    };
-    mat.customProgramCacheKey = () => 'alpes-contraste';
-    mat.needsUpdate = true;
-  }, undefined, () => {});
 }
 
 // Texture d'asphalte des chaussées : enrobé sombre, granulats, traces de
@@ -2064,8 +2053,53 @@ function flatRoofWithHoles(tile, outer, holes, y, color) {
   return { yTop: y, inset: null, tris };
 }
 
+// Plus petite largeur d'une empreinte (calibres posés sur chaque arête)
+function footprintMinWidth(pts) {
+  let best = Infinity;
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const [x1, z1] = pts[i], [x2, z2] = pts[(i + 1) % n];
+    const l = Math.hypot(x2 - x1, z2 - z1);
+    if (l < 0.3) continue;
+    const ux = (x2 - x1) / l, uz = (z2 - z1) / l;
+    let lo = Infinity, hi = -Infinity;
+    for (const [x, z] of pts) {
+      const v = -(x - x1) * uz + (z - z1) * ux;
+      lo = Math.min(lo, v); hi = Math.max(hi, v);
+    }
+    best = Math.min(best, hi - lo);
+  }
+  return best;
+}
+
+// Index des chaussées OSM : (x, z) est-il sur une rue ?
+function makeRoadTest(roads) {
+  const C = 20, grid = new Map();
+  for (const r of roads) {
+    for (let i = 0; i + 3 < r.p.length; i += 2) {
+      const s = [r.p[i], r.p[i + 1], r.p[i + 2], r.p[i + 3], r.w / 2];
+      for (let x = Math.floor(Math.min(s[0], s[2]) / C); x <= Math.floor(Math.max(s[0], s[2]) / C); x++) {
+        for (let z = Math.floor(Math.min(s[1], s[3]) / C); z <= Math.floor(Math.max(s[1], s[3]) / C); z++) {
+          const k = x + ',' + z;
+          if (!grid.has(k)) grid.set(k, []);
+          grid.get(k).push(s);
+        }
+      }
+    }
+  }
+  return (x, z) => {
+    for (const s of grid.get(Math.floor(x / C) + ',' + Math.floor(z / C)) ?? []) {
+      const ex = s[2] - s[0], ez = s[3] - s[1], l2 = ex * ex + ez * ez || 1;
+      const t = Math.max(0, Math.min(1, ((x - s[0]) * ex + (z - s[1]) * ez) / l2));
+      if (Math.hypot(s[0] + ex * t - x, s[1] + ez * t - z) < s[4]) return true;
+    }
+    return false;
+  };
+}
+
 function buildOsmBuildings(ctx, data, rand, full = false) {
   const reserved = reservedRects();
+  const onRoadAt = makeRoadTest(data.roads ?? []);
   const facadeTex = makeFacadeTexture();
   facadeTex.wrapS = facadeTex.wrapT = THREE.RepeatWrapping;
   // Fenêtres émissives : allumées la nuit via emissiveIntensity animé
@@ -2213,6 +2247,14 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     // Monument bâti à part (world/monuments.js) : sauté APRÈS les rand() de
     // teinte, la séquence des immeubles suivants reste identique
     if (b.monument) continue;
+    // Lames absurdes : murs, auvents ou abris tagués « building » dans OSM —
+    // moins de 1,6 m de large (3 m réels), ou moins de 3 m posés sur une
+    // rue. Ils sortaient en tours aveugles d'un mètre plantées sur la
+    // chaussée. Même règle : sautés après les rand().
+    {
+      const w = footprintMinWidth(pts);
+      if (w < 1.6 || (w < 3 && onRoadAt(cx, cz))) continue;
+    }
 
     // Sur la ville complète, le bâtiment est posé sur le terrain (pentes de
     // la Croix-Rousse, flanc de Fourvière) avec une jupe enterrée de 2 m

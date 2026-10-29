@@ -75,8 +75,12 @@ npm start          # serveur de prod (sert client/dist)
     `landmarkFog(mesh, k)` : perspective aérienne des grands repères (Crayon,
     basilique, tour métallique, monuments) — profondeur de brume × k, jamais
     masqués par la portée de vue. Portée adaptative bornée par
-    `preset.viewFloor` (quality.js). Alpes : photo `pano/alpes-v4.webp`
-    étirée en niveaux dans le shader (elle est très voilée).
+    `preset.viewFloor` (quality.js). Alpes (`buildAlps`) : trois plans de
+    crêtes fractales dans une texture de DONNÉES (neige, versant, plan),
+    couleurs calculées dans le shader depuis la couleur de la brume
+    (jour : roche bleutée et neige ; nuit : silhouette au clair de lune).
+    `buildOsmBuildings` saute les empreintes de moins de 1,6 m de large
+    (ou 3 m posées sur une rue) : murs/auvents tagués building dans OSM.
     `sculpt.js` : modelage organique par champs de distance (union douce
     de volumes → maillage « surface nets » au chargement, mis en cache et
     partagé) — à utiliser pour tout personnage/statue/créature au lieu
