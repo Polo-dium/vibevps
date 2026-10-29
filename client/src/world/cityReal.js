@@ -34,6 +34,7 @@ import { collectBridgeSpans, buildRealBridges } from './realBridges.js';
 import { buildPentes, planGrandeCote } from './pentes.js';
 import { buildJardins } from './jardins.js';
 import { buildBerges } from './berges.js';
+import { buildBouquinistes } from './bouquinistes.js';
 import { createParkedCars } from './parked.js';
 import { buildStreetSigns } from './streetsigns.js';
 
@@ -1201,6 +1202,8 @@ export function buildRealCity(ctx, data) {
   buildPeniches(ctx, data.water);
   // Péniches amarrées du quai Augagneur (rive gauche du Rhône)
   if (full) ctx.bergesCount = buildBerges(ctx, data);
+  // Bouquinistes du quai de la Pêcherie (rive Presqu'île de la Saône)
+  if (full) ctx.bouquinCount = buildBouquinistes(ctx, data);
   // Le silure remonte le plus large des fleuves (le Rhône)
   const widest = [...data.water].sort((a, b) => (b.maxX - b.minX) - (a.maxX - a.minX))[0];
   if (widest) buildSilure(ctx, widest);
