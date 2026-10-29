@@ -178,9 +178,16 @@ export function buildStoneBridge(ctx, { cx0, cz0, yaw, len, over, deckY, bedY, w
     }
   }
 
-  // Piles : avant-becs triangulaires (amont/aval) coiffés d'un chaperon
+  // Piles : avant-becs triangulaires (amont/aval) coiffés d'un chaperon.
+  // Leur trace au sol (monde) part dans ctx.bridgePiers : l'eau y dessine
+  // remous et sillage (render/water.js)
+  const cy = Math.cos(yaw), sy = Math.sin(yaw);
+  ctx.bridgePiers = ctx.bridgePiers ?? [];
   for (let k = 1; k < n; k++) {
     const px = -wSpan / 2 - inset + k * (span + PIER) - PIER / 2;
+    for (let lz = -HALF_W - 1; lz <= HALF_W + 1; lz += 1.5) {
+      ctx.bridgePiers.push([cx0 + px * cy + lz * sy, cz0 - px * sy + lz * cy]);
+    }
     const hb = ySpring + 0.9 - yBot;
     for (const zs of [-1, 1]) {
       const d = PIER / Math.SQRT2;

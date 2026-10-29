@@ -62,6 +62,14 @@ function waveNormalTexture() {
 }
 
 let shared = null;
+// Distance à la rive (quais + piles de ponts), cuite une fois : écume et
+// sillages. Texture R8 en coordonnées monde, branchée après les ponts.
+const shore = { value: null };
+const shoreInfo = { value: new THREE.Vector4(0, 0, 0, 0) }; // bound, taille, actif
+export function setShoreMap(tex, bound, size = bound * 2) {
+  shore.value = tex;
+  shoreInfo.value.set(bound, size, 1, 0);
+}
 
 export function riverWaterMaterial() {
   if (shared) return shared;
@@ -78,6 +86,8 @@ export function riverWaterMaterial() {
     shader.uniforms.waveMap = { value: waveMap };
     shader.uniforms.waveTime = time;
     shader.uniforms.waterNight = night;
+    shader.uniforms.shoreMap = shore;
+    shader.uniforms.shoreInfo = shoreInfo;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vWaterPos;')
       .replace('#include <project_vertex>', `#include <project_vertex>
@@ -88,7 +98,13 @@ export function riverWaterMaterial() {
         uniform float waveTime;
         varying vec3 vWaterPos;
         uniform float waterNight;
-        vec3 wWaterN = vec3(0.0, 1.0, 0.0);`)
+        uniform sampler2D shoreMap;
+        uniform vec4 shoreInfo;
+        vec3 wWaterN = vec3(0.0, 1.0, 0.0);
+        // distance normalisée à la rive (0 = berge/pile, 1 = ≥ 16 m)
+        float shoreD(vec2 p) {
+          return texture2D(shoreMap, (p + shoreInfo.x) / shoreInfo.y).r;
+        }`)
       // Rugosité qui monte avec la distance (anti-scintillement)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         float wDist = length(vWaterPos - cameraPosition);
@@ -96,8 +112,10 @@ export function riverWaterMaterial() {
       // Normale : deux couches de rides qui dérivent en sens croisés
       .replace('#include <normal_fragment_maps>', `{
         vec2 p = vWaterPos.xz;
-        vec3 n1 = texture2D(waveMap, p * 0.045 + waveTime * vec2(0.011, 0.018)).xyz * 2.0 - 1.0;
-        vec3 n2 = texture2D(waveMap, p * 0.13 + waveTime * vec2(-0.024, 0.009)).xyz * 2.0 - 1.0;
+        // les deux fleuves coulent vers le sud (+z) : les rides suivent le
+        // fil de l'eau, la petite couche plus vite que la grande
+        vec3 n1 = texture2D(waveMap, p * 0.045 - waveTime * vec2(0.004, 0.02)).xyz * 2.0 - 1.0;
+        vec3 n2 = texture2D(waveMap, p * 0.13 - waveTime * vec2(-0.01, 0.055)).xyz * 2.0 - 1.0;
         vec2 slope = n1.xy * 0.26 + n2.xy * 0.16; // fleuve calme : rides fines
         slope *= mix(1.0, 0.18, smoothstep(25.0, 380.0, wDist));
         vec3 wn = normalize(vec3(slope.x, 1.0, slope.y));
@@ -119,6 +137,20 @@ export function riverWaterMaterial() {
         float sky = smoothstep(0.03, 0.2, rdir.y);
         vec3 bank = vec3(0.16, 0.15, 0.12) * dot(reflectedLight.indirectSpecular, vec3(0.33)) * 2.2;
         reflectedLight.indirectSpecular = mix(bank, reflectedLight.indirectSpecular, sky);
+        // ÉCUME : liseré au pied des quais et sillage en aval des piles de
+        // ponts (échantillons décalés vers l'amont = traîne vers le sud)
+        if (shoreInfo.z > 0.5) {
+          vec2 p = vWaterPos.xz;
+          float d0 = shoreD(p);
+          float wake = min(shoreD(p - vec2(0.0, 7.0)), shoreD(p - vec2(0.0, 15.0)) + 0.15);
+          float edge = 1.0 - smoothstep(0.0, 0.22, d0);
+          float trail = (1.0 - smoothstep(0.0, 0.3, wake)) * 0.7;
+          float n = texture2D(waveMap, p * 0.21 - waveTime * vec2(0.0, 0.09)).z;
+          float m = texture2D(waveMap, p * 0.07 + waveTime * vec2(0.01, -0.03)).x;
+          float foam = max(edge, trail) * smoothstep(0.36, 0.7, n * 0.6 + m * 0.5);
+          foam *= 1.0 - smoothstep(60.0, 260.0, wDist);
+          reflectedLight.indirectDiffuse += vec3(0.85, 0.9, 0.88) * foam * (1.0 - 0.75 * waterNight);
+        }
         // NUIT : fenêtres éclairées et lampadaires des quais se reflètent en
         // colonnes dorées, étirées et brisées par les rides (le rayon
         // réfléchi tremble avec la normale). Colonnes indexées par l'azimut

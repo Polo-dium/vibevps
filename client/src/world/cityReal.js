@@ -23,7 +23,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { landmarkFog } from '../render/atmosphere.js';
 import { planTheatre, buildTheatre } from './theatre.js';
 import { buildConcert } from './concert.js';
-import { riverWaterMaterial } from '../render/water.js';
+import { riverWaterMaterial, setShoreMap } from '../render/water.js';
 import { createPassersby } from './passersby.js';
 import { createTerraces } from './terraces.js';
 import { buildPlacesLyon } from './squares.js';
@@ -151,6 +151,40 @@ function waterDistanceFn(mask) {
     const c = (d[k] * (1 - u) + d[k + 1] * u) * (1 - v) + (d[k + n] * (1 - u) + d[k + n + 1] * u) * v;
     return c >= INF / 2 ? Infinity : c * res;
   };
+}
+
+// Texture « distance à la rive » de l'eau (render/water.js) : chanfrein
+// depuis toute maille de terre du masque, piles de ponts comprises
+// (ctx.bridgePiers), plafonnée à 16 m. Une seule fois au chargement.
+function bakeShoreMap(ctx) {
+  const { n, res, bound, grid } = ctx.waterMask;
+  const INF = 1e6;
+  const d = new Float32Array(n * n);
+  for (let k = 0; k < n * n; k++) d[k] = grid[k] ? INF : 0;
+  for (const [x, z] of ctx.bridgePiers ?? []) {
+    const c = Math.floor((x + bound) / res), r = Math.floor((z + bound) / res);
+    if (c >= 0 && r >= 0 && c < n && r < n) d[r * n + c] = 0;
+  }
+  const a = 1, b = Math.SQRT2;
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const k = j * n + i; let v = d[k];
+    if (i > 0) v = Math.min(v, d[k - 1] + a);
+    if (j > 0) { v = Math.min(v, d[k - n] + a); if (i > 0) v = Math.min(v, d[k - n - 1] + b); if (i < n - 1) v = Math.min(v, d[k - n + 1] + b); }
+    d[k] = v;
+  }
+  for (let j = n - 1; j >= 0; j--) for (let i = n - 1; i >= 0; i--) {
+    const k = j * n + i; let v = d[k];
+    if (i < n - 1) v = Math.min(v, d[k + 1] + a);
+    if (j < n - 1) { v = Math.min(v, d[k + n] + a); if (i < n - 1) v = Math.min(v, d[k + n + 1] + b); if (i > 0) v = Math.min(v, d[k + n - 1] + b); }
+    d[k] = v;
+  }
+  const px = new Uint8Array(n * n);
+  for (let k = 0; k < n * n; k++) px[k] = Math.min(255, Math.round((d[k] * res / 16) * 255));
+  const tex = new THREE.DataTexture(px, n, n, THREE.RedFormat, THREE.UnsignedByteType);
+  tex.magFilter = tex.minFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  // la grille couvre [-bound ; -bound + n·res] (n·res ≈ 2·bound)
+  setShoreMap(tex, bound, n * res);
 }
 
 // Collines réelles : max d'ellipsoïdes analytiques (cap = plateau)
@@ -1116,6 +1150,8 @@ export function buildRealCity(ctx, data) {
     // l'eau) : APRÈS le maillage du sol, le tablier devient le terrain
     ctx.bridgeSpans = collectBridgeSpans(ctx, data);
     buildRealBridges(ctx, ctx.bridgeSpans);
+    // Distance à la rive (quais + piles des ponts) pour l'écume de l'eau
+    if (ctx.waterMask) bakeShoreMap(ctx);
   } else {
     // --- ANCIEN JSON : colline synthétique collée à l'ouest de la Saône --
     EXTRA_RECTS = [CONF_RECT];
