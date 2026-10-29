@@ -3186,6 +3186,21 @@ function buildGreenery(ctx, data, rand, full = false) {
   // séquence partagée (teintes des arbres existants…) ne bouge pas.
   const nBase = valid.length;
   const frand = makeRand(5501);
+  // Parcs plantés plus dru (le parc du Rosaire n'avait que 120 arbres sur
+  // toute la pente de Fourvière) : générateur dédié, la séquence partagée
+  // ne bouge pas. Allées en lacets et ficelle épargnées.
+  for (const r of ctx.parkRects ?? []) {
+    const prand = makeRand(7717);
+    for (let i = 0; i < 420; i++) {
+      const x = r.minX + prand() * (r.maxX - r.minX);
+      const z = r.minZ + prand() * (r.maxZ - r.minZ);
+      const sc = 0.8 + prand() * 0.6;
+      if (inWater(x, z) || onFicelle(x, z) || ctx.pentesCovers?.(x, z)) continue;
+      const ty = ctx.terrainHeight?.(x, z) ?? 0;
+      if (ty < -0.5) continue;
+      valid.push([x, z, sc, Math.max(0, ty)]);
+    }
+  }
   if (ctx.hasRelief) {
     const H = (x, z) => ctx.terrainHeight(x, z);
     // grille des chaussées (cellules de 6 m) pour ne rien planter sur une rue
