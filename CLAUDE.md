@@ -136,6 +136,14 @@ npm start          # serveur de prod (sert client/dist)
     du Rhône), alignées sur le vrai bord de l'eau (polygones OSM, pas le
     masque à 4 m), 3 modèles en InstancedMesh, passerelles et bollards,
     guirlandes en points additifs allumées la nuit.
+    Bas-ports de la rive gauche (`buildBasPorts`) : promenade basse au ras
+    de l'eau (piste + pelouse + platanes) posée sur les premiers mètres du
+    lit, praticable via `ctx.terrainHeight` / `ctx.basPortAt`.
+  - Eau (`render/water.js`) : rides dans le sens du courant, écume au pied
+    des quais et sillages des piles (`setShoreMap`, texture de distance à
+    la rive cuite par `bakeShoreMap`, piles dans `ctx.bridgePiers`).
+  - Ciel (`sky.js`) : 42 cumulus peints, seed fixe et dérive sur
+    `Date.now()` (même ciel pour tous).
   - `src/world/terraces.js` : terrasses de café devant les devantures
     « café »/« bouchon » (mobilier instancié par quartier, clients assis
     recyclés autour du joueur — `buildHuman({ seated: true })` ajoute des

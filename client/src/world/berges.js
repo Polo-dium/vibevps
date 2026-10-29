@@ -92,6 +92,85 @@ function bargeGeometry(kind) {
   return mergeGeometries(parts);
 }
 
+// BAS-PORTS DE LA RIVE GAUCHE : au pied du quai, une promenade basse au
+// ras de l'eau (comme les berges réaménagées du Rhône) — piste de béton
+// clair côté fleuve, bande de pelouse plantée contre le mur de quai,
+// bordure de pierre. Posée sur les premiers mètres du lit (polygones OSM),
+// praticable via ctx.terrainHeight. Renvoie sa largeur (0 si absente).
+const BASPORT_W = 7;
+const BASPORT_Y = -0.45; // ~1,15 m au-dessus de l'eau, marche de 45 cm depuis le quai
+function buildBasPorts(ctx, rhone, polys) {
+  const Z0 = -420, Z1 = 300, ST = 2;
+  const edge = new Map(); // tranche de z → abscisse du bord de l'eau (rive gauche)
+  const top = [], lawn = [], face = [];
+  const trees = [];
+  let prev = null;
+  for (let z = Z0; z <= Z1; z += ST) {
+    const cx = riverCx(rhone, z);
+    if (!polys.some((r) => insidePoly(r, cx, z))) { prev = null; continue; }
+    const e = edgeDist(polys, cx, z, 1, 0);
+    if (!Number.isFinite(e) || e < BASPORT_W + 20) { prev = null; continue; }
+    const xe = cx + e;
+    edge.set(Math.round(z / ST), xe);
+    if (prev) {
+      const [za, xa] = prev;
+      const quad = (arr, o0, o1, y) => arr.push(
+        xa - o1, y, za, xe - o0, y, z, xe - o1, y, z,
+        xa - o1, y, za, xa - o0, y, za, xe - o0, y, z
+      );
+      quad(top, 3.4, BASPORT_W, BASPORT_Y);         // piste côté fleuve
+      quad(lawn, 0, 3.4, BASPORT_Y + 0.02);         // pelouse contre le quai
+      // parement vertical côté eau, jusque sous la surface
+      face.push(
+        xa - BASPORT_W, BASPORT_Y, za, xe - BASPORT_W, -2.4, z, xe - BASPORT_W, BASPORT_Y, z,
+        xa - BASPORT_W, BASPORT_Y, za, xa - BASPORT_W, -2.4, za, xe - BASPORT_W, -2.4, z
+      );
+    }
+    if (Math.round(z) % 11 === 0) trees.push([xe - 1.7, z]);
+    prev = [z, xe];
+  }
+  if (!top.length) return 0;
+  const mk = (arr, color, name) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+    g.computeVertexNormals();
+    // normales vers le haut quel que soit l'ordre (sauf le parement)
+    const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide }));
+    mesh.receiveShadow = true;
+    mesh.name = name;
+    ctx.scene.add(mesh);
+    return mesh;
+  };
+  mk(top, 0xc9c2b2, 'bas-port-piste');
+  const lawnMesh = mk(lawn, 0x5c8a45, 'bas-port-pelouse');
+  lawnMesh.material.userData.noSeason = true;
+  mk(face, 0x9a917f, 'bas-port-parement');
+  // platanes du bas-port (troncs + houppiers instanciés)
+  const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.16, 0.22, 3, 6).translate(0, 1.5, 0),
+    new THREE.MeshLambertMaterial({ color: 0x6b5a48 }), trees.length);
+  const crown = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1.9, 1).translate(0, 4.2, 0),
+    new THREE.MeshLambertMaterial({ color: 0x5f8a3e, flatShading: true }), trees.length);
+  const m = new THREE.Matrix4(), c = new THREE.Color();
+  trees.forEach(([x, z], i) => {
+    m.makeTranslation(x, BASPORT_Y, z);
+    trunk.setMatrixAt(i, m);
+    crown.setMatrixAt(i, m);
+    c.setHSL(0.27 + ((i * 37) % 10) * 0.006, 0.4, 0.3 + ((i * 13) % 7) * 0.015);
+    crown.setColorAt(i, c);
+  });
+  trunk.castShadow = crown.castShadow = true;
+  ctx.scene.add(trunk, crown);
+  // on marche sur le bas-port
+  const at = (x, z) => {
+    const xe = edge.get(Math.round(z / ST));
+    return xe != null && x <= xe + 0.3 && x >= xe - BASPORT_W ? BASPORT_Y : null;
+  };
+  ctx.basPortAt = at;
+  const natural = ctx.terrainHeight;
+  ctx.terrainHeight = (x, z) => at(x, z) ?? natural(x, z);
+  return BASPORT_W;
+}
+
 export function buildBerges(ctx, data) {
   const mask = ctx.waterMask, polys = data.waterPolys;
   if (!mask || !polys?.length) return null;
@@ -100,6 +179,9 @@ export function buildBerges(ctx, data) {
   if (!rhone?.cx) return null;
   const rand = makeRand(4703);
   const ground = (x, z) => Math.max(0, ctx.terrainHeight(x, z));
+  // Les bas-ports (promenade basse au ras de l'eau) d'abord : les péniches
+  // s'amarrent contre leur bord
+  const BW = buildBasPorts(ctx, rhone, polys);
   // Rive gauche, du pont Lafayette au sud de la Guillotière (quai Augagneur)
   const Z0 = -300, Z1 = 230, STEP = L + 9;
   const spots = [];
@@ -115,7 +197,7 @@ export function buildBerges(ctx, data) {
     const tl = Math.hypot(tx, tz);
     const ax = tx / tl, az = tz / tl;
     // pas sous un pont ni contre une passerelle
-    const bx = cx + e - (W / 2 + 0.7);
+    const bx = cx + e - BW - (W / 2 + 0.7);
     if ((ctx.realBridges ?? []).some((d) => Math.hypot(d.cx - bx, d.cz - zc) < d.halfW + L * 0.7 + 4)) continue;
     if (ctx.onBridge?.(bx, zc) || ctx.onBridge?.(bx + az * 8, zc + 10) || ctx.onBridge?.(bx, zc - 10)) continue;
     const qx = cx + e + 2.2; // quai
@@ -165,10 +247,13 @@ export function buildBerges(ctx, data) {
     }
     // passerelle du pont au quai + deux bollards
     const [gx0, , gz0] = P(W / 2 - 0.2, 0, 2);
-    quai.push({ x0: gx0, z0: gz0, y0: deckY + 0.05, x1: s.qx, z1: gz0, y1: s.qy + 0.05 });
+    // la passerelle rejoint le bas-port (ou le quai s'il n'y en a pas ici)
+    const lowX = ctx.basPortAt?.(s.qx - BW - 1, gz0) != null ? s.qx - 2.2 - BW + 1.2 : s.qx;
+    const lowY = lowX !== s.qx ? BASPORT_Y : s.qy;
+    quai.push({ x0: gx0, z0: gz0, y0: deckY + 0.05, x1: lowX, z1: gz0, y1: lowY + 0.05 });
     for (const lz of [-L / 2 + 2, L / 2 - 3]) {
       const [, , z] = P(0, 0, lz);
-      quai.push({ bollard: true, x: s.qx - 0.9, z, y: s.qy });
+      quai.push({ bollard: true, x: lowX - 0.9 + (lowX !== s.qx ? 1.6 : 0), z, y: lowY });
     }
   }
   // passerelles (planches + mains courantes) et bollards : un maillage
