@@ -469,8 +469,9 @@ function makeAvenueTexture() {
 }
 
 // --- Réseau de rues OSM pour la circulation --------------------------------
-// Tronçons orientés (les deux sens : le JSON n'a pas les sens uniques), voie
-// de droite, enchaînement aux carrefours, index spatial pour recycler les
+// Tronçons orientés : les deux sens (voie de droite), ou un seul sur deux
+// voies pour les sens uniques OSM (road.o = ±1, champ facultatif des JSON
+// récents) ; enchaînement aux carrefours, index spatial pour recycler les
 // voitures autour du joueur.
 function buildRoadNet(ctx, roads) {
   const CELL = 50;
@@ -485,10 +486,11 @@ function buildRoadNet(ctx, roads) {
       const x1 = road.p[i], z1 = road.p[i + 1], x2 = road.p[i + 2], z2 = road.p[i + 3];
       const len = Math.hypot(x2 - x1, z2 - z1);
       if (len < 0.5 || wet((x1 + x2) / 2, (z1 + z2) / 2)) continue;
-      for (const dir of [1, -1]) {
+      const ways = road.o ? [[road.o, lane], [road.o, -lane]] : [[1, lane], [-1, lane]];
+      for (const [dir, ln] of ways) {
         const a = dir > 0 ? [x1, z1] : [x2, z2], b = dir > 0 ? [x2, z2] : [x1, z1];
         const sg = {
-          a, b, len, lane, ux: (b[0] - a[0]) / len, uz: (b[1] - a[1]) / len,
+          a, b, len, lane: ln, ux: (b[0] - a[0]) / len, uz: (b[1] - a[1]) / len,
           ka: nk(a[0], a[1]), kb: nk(b[0], b[1]),
         };
         const idx = segs.push(sg) - 1;
@@ -579,8 +581,12 @@ function buildRoadNet(ctx, roads) {
       const sg = car.seg;
       if (!sg) return;
       const t = Math.min(car.t, sg.len);
-      car.x = sg.a[0] + sg.ux * t - sg.uz * sg.lane;
-      car.z = sg.a[1] + sg.uz * t + sg.ux * sg.lane;
+      const x = sg.a[0] + sg.ux * t - sg.uz * sg.lane;
+      const z = sg.a[1] + sg.uz * t + sg.ux * sg.lane;
+      // Aux carrefours, la voie décalée saute d'un tronçon à l'autre : la
+      // voiture rejoint sa nouvelle trajectoire en douceur (pas de téléport)
+      if (car.ry == null || k >= 1 || Math.abs(x - car.x) + Math.abs(z - car.z) > 6) { car.x = x; car.z = z; }
+      else { const f = Math.min(1, k * 6); car.x += (x - car.x) * f; car.z += (z - car.z) * f; }
       car.y = ctx.terrainHeight?.(car.x, car.z) ?? 0;
       const target = Math.atan2(sg.ux, sg.uz) + Math.PI;
       if (car.ry == null) car.ry = target;

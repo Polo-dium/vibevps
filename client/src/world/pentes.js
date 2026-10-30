@@ -11,7 +11,6 @@ import { lyonXZ } from './squares.js';
 //   - Montée de la Grande-Côte : en haut de la montée pavée, le jardin en
 //     terrasses (murs de soutènement, pelouses, escalier central) et le
 //     balcon-panorama sur la Presqu'île et Fourvière.
-//   - Murs de soutènement le long des rues taillées dans les pentes.
 // On marche VRAIMENT sur les marches : ctx.terrainHeight renvoie la hauteur
 // de la marche dans l'emprise des escaliers et des terrasses (comme le
 // tablier des ponts), sans un seul collider de plus.
@@ -217,47 +216,6 @@ function terraceGarden(ground, rect, parts, idx, n = 5) {
   return levels;
 }
 
-// Murs de soutènement : là où une rue entaille la pente, le talus amont est
-// tenu par un mur de pierre (les pentes de la Croix-Rousse, le Gourguillon)
-function retainingWalls(ground, roads, parts, skip, urban) {
-  let n = 0;
-  for (const road of roads) {
-    if (road.w < 4.5) continue;
-    const half = road.w / 2 + 1.7; // au bord du trottoir
-    for (let i = 0; i + 3 < road.p.length; i += 2) {
-      const x1 = road.p[i], z1 = road.p[i + 1], x2 = road.p[i + 2], z2 = road.p[i + 3];
-      const len = Math.hypot(x2 - x1, z2 - z1);
-      if (len < 2) continue;
-      const ax = (x2 - x1) / len, az = (z2 - z1) / len;
-      const k = Math.ceil(len / 4);
-      for (let t = 0; t < k; t++) {
-        const s0 = (len * t) / k, s1 = (len * (t + 1)) / k;
-        const mx = x1 + ax * (s0 + s1) / 2, mz = z1 + az * (s0 + s1) / 2;
-        const yr = ground(mx, mz);
-        if (yr < 2 || skip(mx, mz)) continue;
-        let isUrban = null; // évalué seulement si le talus s'y prête (coûteux)
-        for (const s of [-1, 1]) {
-          const ex = mx - az * s * half, ez = mz + ax * s * half;
-          // talus franc : le sol monte de 1,6 m à 3 m du trottoir ET
-          // continue de monter derrière (pas une simple bosse)
-          const up = ground(ex - az * s * 3, ez + ax * s * 3) - yr;
-          const up2 = ground(ex - az * s * 7, ez + ax * s * 7) - yr;
-          if (up < 1.6 || up2 < up + 0.8) continue;
-          if (isUrban === null) isUrban = urban(mx, mz);
-          if (!isUrban) break;
-          // le mur arase le talus (son sommet rejoint la pente) : il retient
-          // la terre au lieu de faire clôture
-          const h = Math.min(4, up * 0.9);
-          parts.wall.push(slab(s1 - s0 + 0.05, 0.5, yr - 0.6, yr + h, ex, ez, ax, az));
-          parts.cap.push(slab(s1 - s0 + 0.05, 0.62, yr + h, yr + h + 0.12, ex, ez, ax, az));
-          n++;
-        }
-      }
-    }
-  }
-  return n;
-}
-
 // Pentes de la ville OSM. À appeler APRÈS le maillage du sol, les rues et
 // les bâtiments (colliders), avant les arbres.
 export function buildPentes(ctx, data) {
@@ -267,8 +225,6 @@ export function buildPentes(ctx, data) {
   const idx = makeIndex();
   const parts = { step: [], stone: [], cap: [], iron: [], lawn: [], gravel: [], wall: [] };
   const scale = data.scale ?? 0.5;
-  const onBuilding = (x, z) => (ctx.colliders.nearby ? ctx.colliders.nearby(x, z, 1) : [])
-    .some((b) => x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ && b.maxY > ground(x, z) + 2);
 
   // --- Montée de la Grande-Côte : jardin en terrasses + panorama
   const gc = ctx.grandeCote;
@@ -349,15 +305,6 @@ export function buildPentes(ctx, data) {
       }
     }
   }
-
-  // --- Murs de soutènement le long des rues en pente
-  // seulement en ville (immeubles à moins de ~25 m) : pas de murs en
-  // pleine campagne ni dans les parcs
-  const nearCity = (x, z) => (ctx.colliders.nearby ? ctx.colliders.nearby(x, z, 18) : [])
-    .some((b) => b.maxY - b.minY > 5);
-  retainingWalls(ground, data.roads, parts, (x, z) => inGarden(x, z) || onBuilding(x, z) ||
-    ctx.theatre?.covers(x, z) || ctx.waterMask?.isWater(x, z) ||
-    (ctx.parkRects ?? []).some((r) => x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ), nearCity);
 
   // --- Maillages (un par matériau)
   const stoneTex = ashlarTexture();

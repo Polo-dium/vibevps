@@ -148,7 +148,7 @@ function buildSalle(ctx) {
       ctx.scene.add(h.group);
     }
   });
-  const patron = buildHuman({ shirt: 0xf2efe8, pants: 0x1c1c22 });
+  const patron = buildHuman({ shirt: 0xf2efe8, pants: 0x1c1c22, fem: true, style: 'chignon', jupe: false, veste: false }); // la patronne
   const [px, pz] = k.world(8, -hw + 0.8);
   patron.group.position.set(px, pocket.y, pz);
   patron.group.rotation.y = Math.PI / 2; // face au comptoir et à la salle

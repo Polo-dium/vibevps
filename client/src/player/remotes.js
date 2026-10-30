@@ -21,6 +21,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     const human = buildHuman({
       shirt: baseColor.getHex(),
       pants: PANTS[name.length % PANTS.length],
+      fem: false, veste: false, jupe: false, barbe: false, // avatar de joueur : tenue fixe
     });
     human.group.add(makeNameplate(name));
     human.group.position.set(p[0], p[1], p[2]);

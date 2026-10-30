@@ -489,7 +489,15 @@ for (const el of data.elements) {
     // Les sentiers/passerelles ne sont pas des rues (seules les voies
     // piétonnes en sont déjà) ; un pont routier reste une rue
     // (marquée b: 1, champ facultatif — les anciens clients l'ignorent)
-    if (!FOOT_ONLY_RE.test(el.tags.highway)) roads.push(isBridge ? { w: roadWidth(el.tags), p: pts.flat(), b: 1 } : { w: roadWidth(el.tags), p: pts.flat() });
+    if (!FOOT_ONLY_RE.test(el.tags.highway)) {
+      const r = isBridge ? { w: roadWidth(el.tags), p: pts.flat(), b: 1 } : { w: roadWidth(el.tags), p: pts.flat() };
+      // Sens unique (champ facultatif) : o = 1 dans le sens du tracé, -1 à
+      // rebours. Lu par la circulation (world/traffic.js).
+      const ow = el.tags.oneway;
+      if (ow === 'yes' || ow === '1' || ow === 'true' || (el.tags.junction === 'roundabout' && ow !== 'no')) r.o = 1;
+      else if (ow === '-1' || ow === 'reverse') r.o = -1;
+      roads.push(r);
+    }
   }
 }
 

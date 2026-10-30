@@ -208,7 +208,7 @@ export function createMissions(ctx, { ui, audio, onXp }) {
 const TALKERS = [
   {
     id: 'guide', poi: 'basilique', title: 'Lucie, guide de Fourvière', emoji: '🧭', short: 'Lucie',
-    look: { shirt: 0x2f7d5b, pants: 0x3b3f4a, skin: 0xf0cfb0, hair: 0x8a5a2b, style: 'long' },
+    look: { shirt: 0x2f7d5b, pants: 0x3b3f4a, skin: 0xf0cfb0, hair: 0x8a5a2b, style: 'long', fem: true, veste: 0x2a3a2e, jupe: true, barbe: false },
     greet: 'Bonjour ! Bienvenue sur la colline qui prie. Une question sur Lyon ?',
     lines: ['La basilique, on l’appelle l’éléphant renversé : regardez ses quatre tours !',
       'Lugdunum, capitale des Gaules, c’était ici même, il y a deux mille ans.',
@@ -216,7 +216,7 @@ const TALKERS = [
   },
   {
     id: 'guignol', poi: 'guignol', title: 'Guignol', emoji: '🎭', short: 'Guignol',
-    look: { shirt: 0x7a3b22, pants: 0x2b2b30, skin: 0xf0cfb0, hair: 0x111111, style: 'court' },
+    look: { shirt: 0x7a3b22, pants: 0x2b2b30, skin: 0xf0cfb0, hair: 0x111111, style: 'court', fem: false, veste: 0x7a3b22, jupe: false, barbe: false },
     greet: 'Salut les gones ! Ah c’est toi ? T’as pas vu Gnafron ? Il me doit un pot !',
     lines: ['Gnafron ? Encore au bouchon, à coup sûr !',
       'Le gendarme me cherche, fais comme si t’avais rien vu, gone.',
@@ -224,7 +224,7 @@ const TALKERS = [
   },
   {
     id: 'conducteur', poi: 'ficelle', title: 'Marcel, conducteur de la ficelle', emoji: '🚡', short: 'Marcel',
-    look: { shirt: 0x1f2f55, pants: 0x1f2f55, skin: 0xe8c39e, hair: 0x6b6b6b, style: 'casquette' },
+    look: { shirt: 0xe8e3d8, pants: 0x1f2f55, skin: 0xe8c39e, hair: 0x6b6b6b, style: 'casquette', fem: false, veste: 0x1f2f55, jupe: false, barbe: true },
     greet: 'Bonjour ! La ficelle part toutes les deux minutes, montez donc.',
     lines: ['Trente ans que je monte et descends cette colline, je connais chaque caillou.',
       'Les deux cabines se croisent pile au milieu, c’est le contrepoids.',
@@ -232,7 +232,7 @@ const TALKERS = [
   },
   {
     id: 'supporter', poi: 'roi', title: 'Kévin, supporter de l’OL', emoji: '⚽', short: 'Kévin',
-    look: { shirt: 0xf2f2f2, pants: 0x1d3c8f, skin: 0xc68e63, hair: 0x111111, style: 'casquette' },
+    look: { shirt: 0xf2f2f2, pants: 0x1d3c8f, skin: 0xc68e63, hair: 0x111111, style: 'casquette', fem: false, veste: false, jupe: false, barbe: false },
     greet: 'Wesh gone ! Allez l’OL ! Tu viens au match ce soir ?',
     lines: ['Allez l’OL, allez allez l’OL !', 'Les Verts ? Connais pas. À Lyon on est rouge et bleu.',
       'Le Groupama Stadium, quand ça chante, ça fait trembler Décines !'],
@@ -269,7 +269,7 @@ export function createTalkers(ctx) {
       const y = Math.max(0, ctx.terrainHeight?.(spot.x, spot.z) ?? 0);
       h.group.position.set(spot.x, y, spot.z);
       h.group.userData.baseY = y;
-      h.group.rotation.y = Math.atan2(-(poi.x - spot.x), -(poi.z - spot.z)) + Math.PI;
+      h.group.rotation.y = Math.atan2(-(poi.x - spot.x), -(poi.z - spot.z)) + Math.PI; // dos au lieu, face aux passants
       h.animate(0, 0);
       ctx.scene.add(h.group);
       // Bulle au-dessus de la tête : 💬, ou 🎁/❗ quand une mission l'attend
@@ -300,7 +300,7 @@ export function createTalkers(ctx) {
       n.bubble.visible = d < 28;
       if (d > 40) continue;
       // se tourne vers le joueur quand il approche, revient à sa pose sinon
-      const want = d < 9 ? Math.atan2(-dx, -dz) + Math.PI : n.yaw0;
+      const want = d < 9 ? Math.atan2(-dx, -dz) : n.yaw0;
       let diff = ((want - n.yaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
       n.yaw += diff * Math.min(1, dt * 4);
       n.h.group.rotation.y = n.yaw;

@@ -92,7 +92,7 @@ export function buildBouchon(ctx, { notify, speak } = {}) {
 
   // Comptoir au fond + patron derrière
   add(new THREE.BoxGeometry(3.6, 1.05, 0.8), darkWood, 1.6, 0.53, D / 2 - 1.2);
-  const patron = buildHuman({ shirt: 0xf0ead8, pants: 0x39404e, hair: 0x6e6e6e }).group;
+  const patron = buildHuman({ shirt: 0xf0ead8, pants: 0x39404e, hair: 0x6e6e6e, fem: false, veste: false, barbe: true, style: 'chauve' }).group;
   patron.position.set(1.6, 0, D / 2 - 2.1);
   patron.rotation.y = Math.PI;
   group.add(patron);

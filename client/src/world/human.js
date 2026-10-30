@@ -19,7 +19,8 @@ import { sculpt, withDetails, paint } from '../render/sculpt.js';
 
 // Teintes (slots) des volumes
 const SHIRT = 0, SHIRT_DARK = 1, PANTS = 2, SKIN = 3, SKIN_DARK = 4, HAIR = 5,
-  SHOE = 6, SOLE = 7, BELT = 8, METAL = 9, WHITE = 10, EYE = 11, LIP = 12, CAP = 13;
+  SHOE = 6, SOLE = 7, BELT = 8, METAL = 9, WHITE = 10, EYE = 11, LIP = 12, CAP = 13,
+  INNER = 14, SKIRT = 15;
 
 const cache = new Map();
 function cached(key, build) {
@@ -66,22 +67,30 @@ function armShape(s) {
   ];
 }
 
-// Tronc, bassin, cou, tête et coiffure (un seul volume)
-function bodyShape(look) {
+// Tronc, bassin, cou, tête et coiffure (un seul volume). Variantes v :
+// fem (silhouette : épaules, taille, poitrine, hanches), veste (veste
+// ouverte sur la chemise INNER, pans sur les hanches), jupe, barbe.
+function bodyShape(look, v = {}) {
+  const f = !!v.fem;
   const p = [
     // Bassin + ceinture
-    { t: 'ell', c: [0, 0.89, 0.005], r: [0.175, 0.12, 0.115], slot: PANTS, k: 0.03 },
-    { t: 'ell', c: [0, 0.985, 0.003], r: [0.184, 0.03, 0.124], slot: BELT, k: 0.004 },
-    // Taille, cage thoracique, pectoraux, dos, épaules
-    { t: 'ell', c: [0, 1.09, 0], r: [0.158, 0.13, 0.1], slot: SHIRT, k: 0.04 },
-    { t: 'ell', c: [0, 1.28, 0.0], r: [0.19, 0.17, 0.118], slot: SHIRT, k: 0.06 },
-    { t: 'ell', c: [-0.072, 1.3, -0.05], r: [0.08, 0.062, 0.055], slot: SHIRT, k: 0.05 },
-    { t: 'ell', c: [0.072, 1.3, -0.05], r: [0.08, 0.062, 0.055], slot: SHIRT, k: 0.05 },
-    { t: 'ell', c: [0, 1.3, 0.045], r: [0.175, 0.16, 0.085], slot: SHIRT, k: 0.05 },
-    { t: 'cone', a: [-0.18, 1.39, 0.008], b: [0.18, 1.39, 0.008], r1: 0.066, r2: 0.066, slot: SHIRT, k: 0.1 },
-    { t: 'cone', a: [-0.07, 1.44, 0.02], b: [0.07, 1.44, 0.02], r1: 0.05, r2: 0.05, slot: SHIRT, k: 0.08 }, // trapèzes
+    { t: 'ell', c: [0, 0.89, 0.005], r: f ? [0.182, 0.125, 0.12] : [0.175, 0.12, 0.115], slot: PANTS, k: 0.03 },
+    { t: 'ell', c: [0, 0.985, 0.003], r: f ? [0.16, 0.026, 0.11] : [0.184, 0.03, 0.124], slot: BELT, k: 0.004 },
+    // Taille, cage thoracique, pectoraux (ou poitrine), dos, épaules
+    { t: 'ell', c: [0, 1.09, 0], r: f ? [0.132, 0.13, 0.092] : [0.158, 0.13, 0.1], slot: SHIRT, k: 0.04 },
+    { t: 'ell', c: [0, 1.28, 0.0], r: f ? [0.162, 0.16, 0.108] : [0.19, 0.17, 0.118], slot: SHIRT, k: 0.06 },
+    ...(f ? [
+      { t: 'ell', c: [-0.062, 1.265, -0.068], r: [0.066, 0.064, 0.058], slot: SHIRT, k: 0.04 },
+      { t: 'ell', c: [0.062, 1.265, -0.068], r: [0.066, 0.064, 0.058], slot: SHIRT, k: 0.04 },
+    ] : [
+      { t: 'ell', c: [-0.072, 1.3, -0.05], r: [0.08, 0.062, 0.055], slot: SHIRT, k: 0.05 },
+      { t: 'ell', c: [0.072, 1.3, -0.05], r: [0.08, 0.062, 0.055], slot: SHIRT, k: 0.05 },
+    ]),
+    { t: 'ell', c: [0, 1.3, 0.045], r: f ? [0.15, 0.15, 0.08] : [0.175, 0.16, 0.085], slot: SHIRT, k: 0.05 },
+    { t: 'cone', a: [f ? -0.16 : -0.18, 1.39, 0.008], b: [f ? 0.16 : 0.18, 1.39, 0.008], r1: f ? 0.056 : 0.066, r2: f ? 0.056 : 0.066, slot: SHIRT, k: 0.1 },
+    { t: 'cone', a: [-0.07, 1.44, 0.02], b: [0.07, 1.44, 0.02], r1: f ? 0.042 : 0.05, r2: f ? 0.042 : 0.05, slot: SHIRT, k: 0.08 }, // trapèzes
     // Col + cou
-    { t: 'cone', a: [0, 1.45, 0.012], b: [0, 1.585, 0.0], r1: 0.054, r2: 0.05, slot: SKIN, k: 0.02 },
+    { t: 'cone', a: [0, 1.45, 0.012], b: [0, 1.585, 0.0], r1: f ? 0.045 : 0.054, r2: f ? 0.042 : 0.05, slot: SKIN, k: 0.02 },
     // Tête : crâne, mâchoire, menton, pommettes, arcades, nez, oreilles
     { t: 'ell', c: [0, 1.678, 0.008], r: [0.093, 0.112, 0.104], slot: SKIN, k: 0.03 },
     { t: 'ell', c: [0, 1.605, -0.03], r: [0.072, 0.058, 0.072], slot: SKIN, k: 0.05 },
@@ -96,9 +105,29 @@ function bodyShape(look) {
     { t: 'sphere', c: [-0.038, 1.68, -0.106], r: 0.02, sub: true, k: 0.014 },
     { t: 'sphere', c: [0.038, 1.68, -0.106], r: 0.02, sub: true, k: 0.014 },
   ];
+  // Veste ouverte : la chemise (INNER) se voit en V sur la poitrine, revers
+  // plus sombres, pans de la veste qui couvrent la ceinture
+  if (v.veste) {
+    p.push({ t: 'ell', c: [0, 1.27, f ? -0.098 : -0.106], r: [0.066, 0.15, 0.03], slot: INNER, k: 0.012 });
+    p.push({ t: 'cone', a: [-0.05, 1.42, -0.1], b: [-0.03, 1.13, -0.112], r1: 0.018, r2: 0.012, slot: SHIRT_DARK, k: 0.01 });
+    p.push({ t: 'cone', a: [0.05, 1.42, -0.1], b: [0.03, 1.13, -0.112], r1: 0.018, r2: 0.012, slot: SHIRT_DARK, k: 0.01 });
+    p.push({ t: 'ell', c: [0, 0.97, 0.004], r: f ? [0.17, 0.085, 0.124] : [0.19, 0.085, 0.13], slot: SHIRT, k: 0.03 });
+  }
+  // Jupe (évasée, au-dessus du genou)
+  if (v.jupe) p.push({ t: 'cone', a: [0, 1.0, 0.004], b: [0, 0.6, 0.012], r1: 0.15, r2: 0.24, slot: SKIRT, k: 0.03 });
+  // Barbe courte + moustache
+  if (v.barbe) {
+    p.push({ t: 'ell', c: [0, 1.595, -0.052], r: [0.08, 0.052, 0.062], slot: HAIR, k: 0.015 });
+    p.push({ t: 'ell', c: [0, 1.616, -0.1], r: [0.034, 0.008, 0.012], slot: HAIR, k: 0.006 });
+  }
   // Calotte de cheveux : en retrait du front, couvre le haut et la nuque
-  p.push({ t: 'ell', c: [0, 1.722, 0.006], r: [0.1, 0.088, 0.11], slot: look === 'casquette' ? CAP : HAIR, k: 0.012 });
-  if (look === 'casquette') {
+  p.push({ t: 'ell', c: [0, 1.722, 0.006], r: [0.1, 0.088, 0.11], slot: look === 'casquette' ? CAP : look === 'chauve' ? SKIN : HAIR, k: 0.012 });
+  if (look === 'chauve') {
+    p.push({ t: 'ell', c: [0, 1.67, 0.04], r: [0.1, 0.05, 0.07], slot: HAIR, k: 0.02 }); // couronne
+  } else if (look === 'chignon') {
+    p.push({ t: 'ell', c: [0, 1.655, 0.05], r: [0.092, 0.075, 0.07], slot: HAIR, k: 0.02 });
+    p.push({ t: 'sphere', c: [0, 1.745, 0.1], r: 0.052, slot: HAIR, k: 0.02 }); // chignon
+  } else if (look === 'casquette') {
     p.push({ t: 'ell', c: [0, 1.718, 0.012], r: [0.106, 0.072, 0.112], slot: CAP, k: 0.01 });
     p.push({ t: 'ell', c: [0, 1.725, -0.112], r: [0.082, 0.011, 0.068], slot: CAP, k: 0.012 });
     p.push({ t: 'ell', c: [0, 1.665, 0.045], r: [0.088, 0.05, 0.075], slot: HAIR, k: 0.02 }); // nuque
@@ -161,10 +190,10 @@ const add3 = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 // Toutes les pièces fusionnées dans la pose de repos, chaque sommet lié à
 // l'os de sa pièce (ordre des os : voir buildHuman). Calculé une fois par
 // modèle, partagé par tous les humains (seules les couleurs diffèrent).
-function skinnedGeo(seated, look) {
-  return cached(`squelette|${seated}|${look}|${cellSize()}`, () => {
+function skinnedGeo(seated, look, v) {
+  return cached(`squelette|${seated}|${look}|${v.fem}|${v.veste}|${v.jupe}|${v.barbe}|${cellSize()}`, () => {
     const parts = [
-      [bodyGeo(look), 1, [0, 0, 0]],
+      [bodyGeo(look, v), 1, [0, 0, 0]],
       [seated ? thighGeo() : legGeo(), 2, HIP_L],
       [seated ? thighGeo() : legGeo(), 3, HIP_R],
       [armGeo(-1), 4, SHOULDER_L],
@@ -204,10 +233,28 @@ function skinnedGeo(seated, look) {
   });
 }
 
-const bodyGeo = (look) => cached(`corps|${look}|${cellSize()}`,
-  () => withDetails(sculpt(bodyShape(look), { cell: cellSize() }), faceDetails()));
+const bodyGeo = (look, v) => cached(`corps|${look}|${v.fem}|${v.veste}|${v.jupe}|${v.barbe}|${cellSize()}`,
+  () => withDetails(sculpt(bodyShape(look, v), { cell: cellSize() }), faceDetails()));
 
-export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e, hair = 0x3a2c1e, style, seated = false } = {}) {
+// Vestes et jupes (teintes de la garde-robe lyonnaise)
+const JACKETS = [0x1f2a44, 0x2a2a2e, 0xa8865a, 0x5b6068, 0x4a5a3a, 0x6d2430, 0x8a8f96];
+const SKIRTS = [0x22252c, 0x6d2430, 0x2f4a6d, 0x9a7a52, 0x3c5a48, 0x5a2f5e];
+const TIGHTS = [0x1c1c22, 0x3a2f2a];
+
+// Options facultatives : fem, veste (couleur ou true), jupe, barbe. Non
+// précisées, elles se DÉDUISENT des couleurs (même tenue = même personne) :
+// la foule est variée sans hasard. Silhouette (taille, carrure) idem.
+export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e, hair = 0x3a2c1e, style, seated = false,
+  fem, veste, jupe, barbe } = {}) {
+  let hsh = (shirt * 31 + pants * 17 + hair * 7 + skin) >>> 0;
+  hsh = Math.imul(hsh ^ (hsh >>> 15), 2246822507) >>> 0;
+  const bit = (k, n) => (hsh >>> k) % n;
+  fem ??= bit(0, 2) === 1;
+  veste ??= bit(3, 3) === 0;
+  jupe ??= fem && !seated && bit(6, 3) === 0;
+  barbe ??= !fem && bit(9, 4) === 0;
+  if (seated) jupe = false;
+  const v = { fem, veste: !!veste, jupe: !!jupe, barbe: !!barbe };
   const group = new THREE.Group();
   // Matériau unique de CET humain : la couleur multiplie les couleurs de
   // sommets, donc la mettre en rouge teinte tout le personnage (flash).
@@ -231,14 +278,26 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
   palette[EYE] = C(0x1b1d22);
   palette[LIP] = C(skin).lerp(C(0xa0473d), 0.45);
   palette[CAP] = C(shirt).multiplyScalar(0.72);
-  // Coiffure stable pour une même tenue (déterministe) : courte, casquette
-  // (gone du quartier) ou longue
-  const look = style ?? ['court', 'casquette', 'long'][(shirt ^ (pants >> 3) ^ (hair << 1)) % 3];
+  // Veste : le tronc et les manches prennent la couleur de la veste, la
+  // chemise ne se voit plus que dans l'encolure
+  palette[INNER] = C(shirt);
+  if (v.veste) {
+    const jc = typeof veste === 'number' ? veste : JACKETS[bit(12, JACKETS.length)];
+    palette[SHIRT] = C(jc);
+    palette[SHIRT_DARK] = C(jc).multiplyScalar(0.7);
+  }
+  palette[SKIRT] = C(SKIRTS[bit(15, SKIRTS.length)]);
+  // jupe : jambes nues ou collants sombres
+  if (v.jupe) palette[PANTS] = bit(18, 3) ? C(skin) : C(TIGHTS[bit(21, TIGHTS.length)]);
+  // Coiffure stable pour une même tenue (déterministe)
+  const look = style ?? (fem
+    ? ['long', 'chignon', 'long'][bit(20, 3)]
+    : ['court', 'casquette', 'court', 'chauve'][bit(20, 4)]);
 
   // UN SEUL maillage à squelette par humain (1 draw call au lieu de 7 à
   // 9) : les pièces sont fusionnées, chacune liée à son os ; les os sont
   // les anciens pivots (mêmes positions, même API : armR.rotation.x…).
-  const base = skinnedGeo(seated, look);
+  const base = skinnedGeo(seated, look, v);
   const geo = paint(base, palette);
   geo.setAttribute('skinIndex', base.attributes.skinIndex);
   geo.setAttribute('skinWeight', base.attributes.skinWeight);
@@ -262,6 +321,11 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
   const kneeR = seated ? bone(legR, KNEE) : null;
   const bones = [root, torso, legL, legR, armL, armR, foreL, foreR];
   if (seated) bones.push(kneeL, kneeR);
+  // Carrure et taille propres à chacun (±6 %), un peu plus menues pour les
+  // silhouettes féminines
+  const sy = (0.94 + bit(23, 7) * 0.02) * (fem ? 0.955 : 1);
+  const sw = sy * (0.94 + bit(26, 5) * 0.03);
+  mesh.scale.set(sw, sy, sw);
   group.add(mesh);
   mesh.updateMatrixWorld(true);
   mesh.bind(new THREE.Skeleton(bones));

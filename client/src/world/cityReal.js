@@ -2225,11 +2225,11 @@ function footprintMinWidth(pts) {
 }
 
 // Index des chaussées OSM : (x, z) est-il sur une rue ?
-function makeRoadTest(roads) {
+function makeRoadTest(roads, margin = 0) {
   const C = 20, grid = new Map();
   for (const r of roads) {
     for (let i = 0; i + 3 < r.p.length; i += 2) {
-      const s = [r.p[i], r.p[i + 1], r.p[i + 2], r.p[i + 3], roadHalf(r)];
+      const s = [r.p[i], r.p[i + 1], r.p[i + 2], r.p[i + 3], roadHalf(r) + margin];
       for (let x = Math.floor(Math.min(s[0], s[2]) / C); x <= Math.floor(Math.max(s[0], s[2]) / C); x++) {
         for (let z = Math.floor(Math.min(s[1], s[3]) / C); z <= Math.floor(Math.max(s[1], s[3]) / C); z++) {
           const k = x + ',' + z;
@@ -2342,14 +2342,18 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       : maxX > r.minX && minX < r.maxX && maxZ > r.minZ && minZ < r.maxZ))) {
       continue;
     }
-    // Pas de bâtiment sur l'eau ni sur l'avenue de quai (distance au tracé, par z)
-    if (nearRiver(data.water, cx, cz, 14)) continue;
-    // …ni sur l'eau réelle NI À MOINS DE 8 M de la berge (masque dilaté) :
-    // la promenade de quai passe entre l'eau et les premières façades.
+    // Pas de bâtiment sur l'eau ni sur l'avenue de quai. Avec les vrais
+    // polygones d'eau (masque), le tracé approché (bande de 14 m) n'est plus
+    // consulté : il rasait la première rangée d'immeubles des quais (Vieux
+    // Lyon, quai Saint-Antoine) et n'en laissait que les annexes en cubes.
+    if (!ctx.waterMask && nearRiver(data.water, cx, cz, 14)) continue;
+    // …ni sur l'eau réelle NI À MOINS DE ~4 M de la berge (masque à 4 m) :
+    // la chaussée du quai OSM passe entre l'eau et les premières façades.
     if (ctx.waterMask) {
+      const D = 4;
       const nearW = (x, z) => ctx.waterMask.isWater(x, z) ||
-        ctx.waterMask.isWater(x + 8, z) || ctx.waterMask.isWater(x - 8, z) ||
-        ctx.waterMask.isWater(x, z + 8) || ctx.waterMask.isWater(x, z - 8);
+        ctx.waterMask.isWater(x + D, z) || ctx.waterMask.isWater(x - D, z) ||
+        ctx.waterMask.isWater(x, z + D) || ctx.waterMask.isWater(x, z - D);
       // Test sur les VRAIS sommets (et le centre), pas les coins de la
       // boîte englobante : celle d'un grand bâtiment en biais (Hôtel-Dieu)
       // débordait sur le fleuve et l'immeuble entier disparaissait, ne
@@ -2883,6 +2887,35 @@ function buildOsmRoads(ctx, data, full = false) {
   const yAt = full
     ? (x, z) => Math.max(0, ctx.terrainHeight?.(x, z) ?? 0) + 0.06
     : () => 0.045;
+  // Hauteurs des 4 coins d'une bande (a1/a2 au début, b1/b2 à la fin), plus
+  // un léger surplus sur les pentes : la bande est plane entre ses coins,
+  // le sol bombé ne doit pas la traverser
+  const drape = (xa1, za1, xa2, za2, xb1, zb1, xb2, zb2, dy) => {
+    const y = [yAt(xa1, za1), yAt(xa2, za2), yAt(xb1, zb1), yAt(xb2, zb2)];
+    if (!full) return y.map((v) => v + dy);
+    // surplus calculé sur un gabarit FIXE autour du tronçon (±3 m), le même
+    // pour la chaussée, ses bordures et ses marquages : ils restent empilés
+    const cx = (xa1 + xa2 + xb1 + xb2) / 4, cz = (za1 + za2 + zb1 + zb2) / 4;
+    let nx = xa2 - xa1, nz = za2 - za1;
+    const nl = Math.hypot(nx, nz) || 1;
+    nx = (nx / nl) * 3; nz = (nz / nl) * 3;
+    const ys = [yAt(cx + nx, cz + nz), yAt(cx - nx, cz - nz), yAt((xa1 + xa2) / 2, (za1 + za2) / 2), yAt((xb1 + xb2) / 2, (zb1 + zb2) / 2)];
+    const lift = Math.min(0.3, 0.06 * (Math.max(...ys) - Math.min(...ys)));
+    return y.map((v) => v + dy + lift);
+  };
+  // Disque (éventail de 10 triangles) posé au sol, face vers le haut
+  const joint = (arr, x, z, r, dy) => {
+    const N = 10, ys = [];
+    for (let k = 0; k < N; k++) ys.push(yAt(x + Math.cos((k / N) * Math.PI * 2) * r, z + Math.sin((k / N) * Math.PI * 2) * r));
+    const yc = yAt(x, z);
+    const lift = full ? Math.min(0.3, 0.06 * (Math.max(...ys, yc) - Math.min(...ys, yc))) : 0;
+    for (let k = 0; k < N; k++) {
+      const a0 = (k / N) * Math.PI * 2, a1 = ((k + 1) / N) * Math.PI * 2;
+      arr.push(x, yc + dy + lift, z,
+        x + Math.cos(a1) * r, ys[(k + 1) % N] + dy + lift, z + Math.sin(a1) * r,
+        x + Math.cos(a0) * r, ys[k] + dy + lift, z + Math.sin(a0) * r);
+    }
+  };
   const roadUv = []; // UV de la chaussée : u en travers, v le long (asphalte)
   const cobble = [], cobbleUv = []; // ruelles pavées
   const ribbon = (arr, x1, z1, x2, z2, half, dy, v0 = null, uvTarget = null) => {
@@ -2890,13 +2923,16 @@ function buildOsmRoads(ctx, data, full = false) {
     const len = Math.hypot(dx, dz);
     if (len < 0.1) return len;
     const px = (-dz / len) * half, pz = (dx / len) * half;
-    const ya = yAt(x1, z1) + dy, yb = yAt(x2, z2) + dy;
+    // Hauteur prise à CHAQUE coin (pas seulement sur l'axe) : en travers
+    // d'une pente, le bord amont s'enterrait sous l'herbe et le bord aval
+    // flottait
+    const [a1, a2, b1, b2] = drape(x1 - px, z1 - pz, x1 + px, z1 + pz, x2 - px, z2 - pz, x2 + px, z2 + pz, dy);
     // Ordre des sommets ANTI-HORAIRE vu du ciel : face visible vers le haut.
     // (L'ordre inverse tournait la face vers le sol : avec le culling par
     // défaut, chaussées, trottoirs et marquages étaient invisibles d'en haut.)
     arr.push(
-      x1 - px, ya, z1 - pz, x2 + px, yb, z2 + pz, x2 - px, yb, z2 - pz,
-      x1 - px, ya, z1 - pz, x1 + px, ya, z1 + pz, x2 + px, yb, z2 + pz
+      x1 - px, a1, z1 - pz, x2 + px, b2, z2 + pz, x2 - px, b1, z2 - pz,
+      x1 - px, a1, z1 - pz, x1 + px, a2, z1 + pz, x2 + px, b2, z2 + pz
     );
     if (v0 != null && uvTarget) {
       const va = v0 / 9, vb = (v0 + len) / 9; // une tuile d'asphalte ≈ 9 m
@@ -2946,11 +2982,12 @@ function buildOsmRoads(ctx, data, full = false) {
   const strip = (arr, x1, z1, x2, z2, o1, o2, dy) => {
     const dx = x2 - x1, dz = z2 - z1, len = Math.hypot(dx, dz);
     const nx = -dz / len, nz = dx / len;
-    const ya = yAt(x1, z1) + dy, yb = yAt(x2, z2) + dy;
     const [lo, hi] = o1 < o2 ? [o1, o2] : [o2, o1];
+    const [a1, a2, b1, b2] = drape(x1 + nx * lo, z1 + nz * lo, x1 + nx * hi, z1 + nz * hi,
+      x2 + nx * lo, z2 + nz * lo, x2 + nx * hi, z2 + nz * hi, dy);
     arr.push(
-      x1 + nx * lo, ya, z1 + nz * lo, x2 + nx * hi, yb, z2 + nz * hi, x2 + nx * lo, yb, z2 + nz * lo,
-      x1 + nx * lo, ya, z1 + nz * lo, x1 + nx * hi, ya, z1 + nz * hi, x2 + nx * hi, yb, z2 + nz * hi
+      x1 + nx * lo, a1, z1 + nz * lo, x2 + nx * hi, b2, z2 + nz * hi, x2 + nx * lo, b1, z2 + nz * lo,
+      x1 + nx * lo, a1, z1 + nz * lo, x1 + nx * hi, a2, z1 + nz * hi, x2 + nx * hi, b2, z2 + nz * hi
     );
   };
   // Sur le relief, les tronçons OSM longs (jusqu'à 100 m entre deux
@@ -3000,6 +3037,13 @@ function buildOsmRoads(ctx, data, full = false) {
         // de mur à mur (roadfit.js), sous l'asphalte des carrefours
         const cl = Math.hypot(x2 - x1, z2 - z1);
         if (cl > 0.1) strip(cobble, x1, z1, x2, z2, -(half + swR), half + swL, -0.012);
+        // rotule pavée aux coudes : plus d'encoches entre deux rectangles
+        if (i > 0 && cl > 0.1) {
+          const px0 = road.p[i - 2], pz0 = road.p[i - 1];
+          const pl = Math.hypot(x1 - px0, z1 - pz0) || 1;
+          const cos = ((x1 - px0) * (x2 - x1) + (z1 - pz0) * (z2 - z1)) / (pl * cl);
+          if (cos < 0.99) joint(cobble, x1, z1, half + Math.min(swL, swR), -0.014);
+        }
         uvAcc += cl;
         continue;
       }
@@ -3232,13 +3276,21 @@ function buildGreenery(ctx, data, rand, full = false) {
         const x = road.p[i], z = road.p[i + 1];
         if (Math.abs(x) > ctx.worldBound - 8 || Math.abs(z) > ctx.worldBound - 8) continue;
         const side = (i % 32 === 0) ? 1 : -1; // alternance des côtés
-        spots.push([x + side * (roadHalf(road) + 2.2), z + (rand() - 0.5) * 2]);
+        // décalage PERPENDICULAIRE à la rue (avant : toujours en x, les
+        // arbres des rues est-ouest tombaient sur la chaussée)
+        const j = i + 3 < road.p.length ? i : i - 2;
+        const dx = road.p[j + 2] - road.p[j], dz = road.p[j + 3] - road.p[j + 1];
+        const l = Math.hypot(dx, dz) || 1;
+        const off = side * (roadHalf(road) + 2.2), along = (rand() - 0.5) * 2;
+        spots.push([x - (dz / l) * off + (dx / l) * along, z + (dx / l) * off + (dz / l) * along]);
         planted++;
       }
     }
   }
 
-  // Filtre : pas dans l'eau, pas dans une zone de jeu, pas dans un bâtiment
+  // Filtre : pas dans l'eau, pas dans une zone de jeu, pas dans un bâtiment,
+  // pas sur une chaussée (même tirage aléatoire consommé)
+  const onRoad = makeRoadTest(data.roads ?? [], 0.8);
   const valid = [];
   for (const [x, z] of spots) {
     if (inWater(x, z) || inReserved(x, z)) continue;
@@ -3249,7 +3301,9 @@ function buildGreenery(ctx, data, rand, full = false) {
     for (const b of near) {
       if (x > b.minX - 1 && x < b.maxX + 1 && z > b.minZ - 1 && z < b.maxZ + 1) { hit = true; break; }
     }
-    if (!hit) valid.push([x, z, 0.85 + rand() * 0.5, Math.max(0, ty)]);
+    if (hit) continue;
+    const sc = 0.85 + rand() * 0.5;
+    if (!onRoad(x, z)) valid.push([x, z, sc, Math.max(0, ty)]);
   }
   // Parcs (jardin du Rosaire…) : plantés dru, sans passer par le filtre des
   // zones réservées (le parc EST une zone réservée aux bâtiments)
@@ -3265,7 +3319,7 @@ function buildGreenery(ctx, data, rand, full = false) {
     for (let i = 0; i < 120; i++) {
       const x = r.minX + rand() * (r.maxX - r.minX);
       const z = r.minZ + rand() * (r.maxZ - r.minZ);
-      if (inWater(x, z) || onFicelle(x, z)) continue;
+      if (inWater(x, z) || onFicelle(x, z) || onRoad(x, z)) continue;
       const ty = ctx.terrainHeight?.(x, z) ?? 0;
       if (ty < -0.5) continue;
       valid.push([x, z, 0.8 + rand() * 0.6, Math.max(0, ty)]);
@@ -3300,7 +3354,7 @@ function buildGreenery(ctx, data, rand, full = false) {
       const x = r.minX + prand() * (r.maxX - r.minX);
       const z = r.minZ + prand() * (r.maxZ - r.minZ);
       const sc = 0.8 + prand() * 0.6;
-      if (inWater(x, z) || onFicelle(x, z) || ctx.pentesCovers?.(x, z)) continue;
+      if (inWater(x, z) || onFicelle(x, z) || ctx.pentesCovers?.(x, z) || onRoad(x, z)) continue;
       const ty = ctx.terrainHeight?.(x, z) ?? 0;
       if (ty < -0.5) continue;
       valid.push([x, z, sc, Math.max(0, ty)]);

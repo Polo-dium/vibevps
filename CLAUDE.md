@@ -51,8 +51,9 @@ npm start          # serveur de prod (sert client/dist)
     pente pour chaque `highway=steps` OSM (`data.steps` : p, w, n, inc ;
     repli : voies piétonnes à plus de 18 %), jardin en terrasses et balcon-
     panorama de la montée de la Grande-Côte (`planGrandeCote`, emprise
-    réservée avant les bâtiments), murs de soutènement le long des rues
-    taillées dans les pentes en ville. Marches et terrasses deviennent le
+    réservée avant les bâtiments). Les rubans de rue prennent la hauteur du
+    sol à CHAQUE coin (`drape` dans `buildOsmRoads`, plus de murs de
+    soutènement génériques), rotules pavées aux coudes. Marches et terrasses deviennent le
     sol (`ctx.terrainHeight`, index spatial), `ctx.pentesCovers` écarte les
     arbres.
   - `src/world/jardins.js` (vrai relief) : jardins clos des collines
@@ -81,6 +82,10 @@ npm start          # serveur de prod (sert client/dist)
     (jour : roche bleutée et neige ; nuit : silhouette au clair de lune).
     `buildOsmBuildings` saute les empreintes de moins de 1,6 m de large
     (ou 3 m posées sur une rue) : murs/auvents tagués building dans OSM.
+    Bord de l'eau : seul le vrai masque d'eau compte (±4 m) — l'ancienne
+    bande de 14 m autour du tracé rasait la 1re rangée des quais.
+    Arbres : jamais sur une chaussée (`makeRoadTest(roads, marge)`),
+    alignements décalés perpendiculairement à la rue.
     `sculpt.js` : modelage organique par champs de distance (union douce
     de volumes → maillage « surface nets » au chargement, mis en cache et
     partagé) — à utiliser pour tout personnage/statue/créature au lieu
@@ -184,7 +189,10 @@ npm start          # serveur de prod (sert client/dist)
     (InstancedMesh par tuile de ville).
   - `src/world/human.js` (humains sculptés, UN SkinnedMesh par humain = 1 draw
     call : pièces fusionnées, os = anciens pivots armL/armR/foreL/legL/kneeL…,
-    géométrie partagée, couleurs par sommet ; une arme se fixe sur l'os armR) et `src/world/statue.js` (Louis XIV,
+    géométrie partagée, couleurs par sommet ; une arme se fixe sur l'os armR ;
+    variantes `fem`, `veste`, `jupe`, `barbe`, coiffures court/casquette/
+    long/chignon/chauve, carrure ±6 % — déduites des couleurs si absentes,
+    figées pour les avatars des joueurs) et `src/world/statue.js` (Louis XIV,
     Saint-Exupéry et le Petit Prince).
   - Théâtre gallo-romain de Fourvière (ville OSM) : `theatre.js` (gradins
     praticables — `ctx.terrainHeight` réécrit dans l'emprise,
@@ -212,7 +220,8 @@ npm start          # serveur de prod (sert client/dist)
     `roadHalf(road)`. Le tracé n'est pas déplacé (réseau connecté).
   - Circulation (`traffic.js`) : en ville OSM, `buildTraffic(..., data.roads)`
     fait rouler une flotte recyclée autour du joueur sur le VRAI réseau
-    (rues ≥ 7 m, voie de droite, relief et tabliers de pont via
+    (rues ≥ 7 m, voie de droite, sens uniques OSM `road.o` = ±1 exportés
+    par fetch-osm (deux voies dans le même sens), relief et tabliers de pont via
     `ctx.terrainHeight`), berlines/décapotables conduisibles garées au bord
     des rues de 5,5 m ; les avenues de berge inventées ne servent plus qu'à
     la ville procédurale. Parapet des quais : `ctx.waterGuard` →
