@@ -120,7 +120,9 @@ npm start          # serveur de prod (sert client/dist)
     Réutilise le `Kit` exporté par `monuments.js`.
   - `src/world/funicular.js` : la ficelle Saint-Jean → Fourvière (ville OSM)
     à travers le parc du Rosaire, deux cabines contrepoids calées sur
-    `Date.now()` (même horaire chez tous), embarquement par E à quai. Le
+    `Date.now()` (même horaire chez tous), embarquement par E à quai ; à
+    bord, `ctx.rideFollow(fn)` → `controls.setRideFollow` : les contrôles
+    lisent la cabine à l'instant du rendu (ni physique ni lissage). Le
     couloir (`ctx.ficelle`) est réservé avant la plantation des arbres.
   - `src/world/bridge.js` : ponts de pierre de la ville OSM (arches
     surbaissées, piles à becs, balustres instanciés au palier Élevé,
@@ -232,9 +234,13 @@ npm start          # serveur de prod (sert client/dist)
   (whisper.cpp compilé par `tools/install-whisper.mjs`, `POST /api/stt` en
   WAV 16 kHz mono brut, prompt de vocabulaire lyonnais, une transcription à
   la fois, hallucinations « sous-titres » filtrées). Client : `ui/talk.js`
-  (`ctx.talkTo(id, { title, emoji, greet, fallback })`, bouton 🎤 / Tab :
-  MediaRecorder → OfflineAudioContext 16 kHz → WAV ; → false si l'IA est
-  coupée, le PNJ garde alors ses répliques fixes). `ws.js` : positions 15 Hz, PvP
+  (`ctx.talkTo(id, { title, emoji, greet, fallback })` → false si l'IA est
+  coupée, le PNJ garde alors ses répliques fixes). Micro : reconnaissance
+  NATIVE du navigateur si dispo (webkitSpeechRecognition, texte en direct ;
+  🎤 = mode conversation mémorisé : le micro se rouvre quand le PNJ a fini
+  de parler), sinon repli whisper (MediaRecorder → OfflineAudioContext
+  16 kHz → WAV). Piper démarre dès la réponse produite, sans attendre le
+  client. `ws.js` : positions 15 Hz, PvP
   autoritatif (dégâts/kills/regen), chat de proximité. `api.js` : REST
   (register, tags, scores, progression, génération de bornes par IA si
   `ANTHROPIC_API_KEY`).

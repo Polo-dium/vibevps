@@ -9,15 +9,26 @@ import { rainAmount } from '../world/weather.js';
 // Repli speechSynthesis : une hauteur de voix par PNJ
 const PITCH = { patron: 0.6, patronne: 1.25, marchand: 0.9, bouquiniste: 0.7 };
 
+// Reconnaissance vocale NATIVE (Chrome Android/PC, Safari) : texte en direct,
+// rien à envoyer au serveur. Sinon repli whisper.cpp (/api/stt).
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
 export function createTalk(ctx) {
   let available = false, sttOn = false;
   const canRecord = !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+  // Mode conversation (micro natif) : on parle, le PNJ répond à voix haute,
+  // puis le micro se rouvre tout seul. Mémorisé d'une conversation à l'autre.
+  let handsFree = false;
+  try { handsFree = !!SR && localStorage.getItem('lyon_talk_voice') === '1'; } catch { /* stockage indisponible */ }
   apiFetch('/npc/status').then((s) => {
     available = !!s.ai;
     sttOn = !!s.stt && canRecord;
-    mic.classList.toggle('hidden', !sttOn);
-    if (sttOn) input.placeholder = 'Dis-lui quelque chose… (Entrée, ou 🎤 / Tab pour parler)';
+    mic.classList.toggle('hidden', !(SR || sttOn));
+    if (SR || sttOn) input.placeholder = idleHint();
   }).catch(() => {});
+  const idleHint = () => (SR
+    ? (handsFree ? 'Parle, je t’écoute… (🎤 pour couper la voix)' : 'Dis-lui quelque chose… (Entrée, ou 🎤 / Tab pour parler)')
+    : 'Dis-lui quelque chose… (Entrée, ou 🎤 / Tab pour parler)');
 
   const el = document.createElement('div');
   el.id = 'talk';
@@ -55,6 +66,7 @@ export function createTalk(ctx) {
     if ('speechSynthesis' in window) speechSynthesis.cancel();
   }
 
+  // Résolue quand le PNJ a fini de parler (le micro peut alors se rouvrir)
   async function sayAloud(text, ttsId) {
     stopVoice();
     if (ttsId) {
@@ -66,15 +78,68 @@ export function createTalk(ctx) {
           if (!npc) return; // parti entre-temps
           const g = ac.createGain();
           g.gain.value = 1.6; // Piper sort assez bas face aux effets du jeu
-          source = ac.createBufferSource();
-          source.buffer = buf;
-          source.connect(g).connect(master);
-          source.start();
+          const src = ac.createBufferSource();
+          source = src;
+          src.buffer = buf;
+          src.connect(g).connect(master);
+          const done = new Promise((r) => { src.onended = r; });
+          src.start();
+          await done;
+          if (source === src) source = null;
           return;
         }
       } catch { /* repli navigateur */ }
     }
     audio.speak(text, { pitch: PITCH[npc?.id] ?? 1, rate: 1.02, volume: 1 });
+    // synthèse du navigateur : on attend qu'elle se taise
+    await new Promise((r) => setTimeout(r, 300));
+    while ('speechSynthesis' in window && speechSynthesis.speaking) await new Promise((r) => setTimeout(r, 200));
+  }
+
+  // --- Micro NATIF : résultats intermédiaires écrits en direct dans le
+  // champ, envoi automatique à la fin de la phrase
+  let recog = null;
+  function listenNative() {
+    if (!SR || recog || busy || !npc) return;
+    stopVoice();
+    const r = new SR();
+    recog = r;
+    r.lang = 'fr-FR';
+    r.interimResults = true;
+    r.continuous = false;
+    let finalText = '';
+    r.onresult = (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
+        else interim += e.results[i][0].transcript;
+      }
+      input.value = (finalText + interim).trim();
+    };
+    r.onerror = (e) => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        line('sys', 'Micro refusé par le navigateur.');
+        setHandsFree(false);
+      }
+    };
+    r.onend = () => {
+      if (recog === r) recog = null;
+      micState();
+      if (npc && !busy && input.value.trim()) form.requestSubmit();
+    };
+    try { r.start(); } catch { recog = null; }
+    micState();
+  }
+  function setHandsFree(on) {
+    handsFree = on;
+    try { localStorage.setItem('lyon_talk_voice', on ? '1' : '0'); } catch { /* stockage indisponible */ }
+    if (!on && recog) { recog.onend = null; recog.abort(); recog = null; }
+    micState();
+  }
+  function micState() {
+    mic.classList.toggle('rec', !!recog || !!rec);
+    mic.classList.toggle('on', handsFree);
+    input.placeholder = recog ? '🔴 Je t’écoute…' : idleHint();
   }
 
   // --- Micro : MediaRecorder → PCM 16 kHz mono (OfflineAudioContext) → WAV
@@ -164,7 +229,16 @@ export function createTalk(ctx) {
     return buf;
   }
 
-  mic.addEventListener('click', () => (rec ? stopRec() : startRec()));
+  // Natif : 🎤 allume/éteint le mode conversation. Repli : enregistrement
+  // manuel envoyé à whisper (/api/stt).
+  function micToggle() {
+    if (SR) {
+      if (handsFree) setHandsFree(false);
+      else { setHandsFree(true); listenNative(); }
+    } else if (rec) stopRec();
+    else startRec();
+  }
+  mic.addEventListener('click', micToggle);
 
   function open(id, opts) {
     npc = { id, ...opts };
@@ -174,11 +248,15 @@ export function createTalk(ctx) {
     el.classList.remove('hidden');
     state.overlayOpen = true;
     document.exitPointerLock?.();
-    setTimeout(() => input.focus(), 30);
+    micState();
+    // mode conversation : on écoute tout de suite (pas de clavier sur mobile)
+    if (handsFree) setTimeout(listenNative, 250);
+    else setTimeout(() => input.focus(), 30);
   }
 
   function close() {
     if (!npc) return;
+    if (recog) { recog.onend = null; recog.abort(); recog = null; }
     stopRec(true);
     stopVoice();
     el.classList.add('hidden');
@@ -208,7 +286,9 @@ export function createTalk(ctx) {
       wait.remove();
       if (npc !== cur) return;
       line('npc', out.reply);
-      sayAloud(out.reply, out.tts);
+      sayAloud(out.reply, out.tts).then(() => {
+        if (handsFree && npc === cur) listenNative(); // à toi de répondre
+      });
     } catch (err) {
       wait.remove();
       if (npc !== cur) return;
@@ -223,7 +303,10 @@ export function createTalk(ctx) {
   input.addEventListener('keydown', (e) => {
     e.stopPropagation(); // ZQSD, E, F… ne pilotent pas le jeu pendant la saisie
     if (e.key === 'Escape') close();
-    else if (e.key === 'Tab' && sttOn) { e.preventDefault(); if (rec) stopRec(); else startRec(); }
+    else if (recog && e.key.length === 1) { // on tape : le micro se tait
+      recog.onend = null; recog.abort(); recog = null; micState();
+    }
+    else if (e.key === 'Tab' && (SR || sttOn)) { e.preventDefault(); micToggle(); }
   });
   el.querySelector('.talk-close').addEventListener('click', close);
 

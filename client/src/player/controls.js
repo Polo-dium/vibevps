@@ -80,6 +80,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   let bobPhase = 0, bobAmt = 0, landDip = 0, eyeY = null;
   let bobOn = true;
   let waterGuard = null;
+  let rideFollow = null; // () => {x, y, z} pendant un trajet (setRideFollow)
   try { bobOn = localStorage.getItem('lyon_bob') !== '0'; } catch { /* stockage indisponible */ }
 
   if (!IS_TOUCH) {
@@ -195,6 +196,23 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   let hitWall = false;
 
   function update(dt) {
+    // Transporté (ficelle…) : la position vient du véhicule À CET INSTANT,
+    // ni gravité, ni collisions, ni lissage de l'œil — sinon la caméra
+    // traînait une image derrière la cabine et tressautait
+    if (rideFollow && !vehicle) {
+      const p = rideFollow();
+      if (p) {
+        pos.set(p.x, p.y, p.z);
+        vel.set(0, 0, 0);
+        onGround = true;
+        airTime = 0;
+        eyeY = pos.y + EYE_HEIGHT;
+        camera.position.set(pos.x, eyeY, pos.z);
+        camera.rotation.order = 'YXZ';
+        camera.rotation.set(pitch, yaw, 0);
+        return;
+      }
+    }
     const active = inputActive();
     if (colliders.nearby) {
       activeColliders = colliders.nearby(pos.x, pos.z, 4);
@@ -644,6 +662,8 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     get onGround() { return onGround; },
     // (x, z) → true si c'est le lit d'un fleuve (posé par la ville OSM)
     setWaterGuard(fn) { waterGuard = fn; },
+    // fn() → position des pieds à chaque image (null pour descendre)
+    setRideFollow(fn) { rideFollow = fn; },
     setTouchMove(fwd, strafe) {
       touchMove.fwd = fwd;
       touchMove.strafe = strafe;

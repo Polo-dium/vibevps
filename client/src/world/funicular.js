@@ -240,16 +240,19 @@ export function buildFuniculaire(ctx, A, B) {
     if (st.dock && st.dock !== riding.from) {
       const s = stations[st.dock];
       riding = null;
+      ctx.rideFollow?.(null);
       ctx.rideTick?.(s.x, s.y + 0.1, s.z);
       ctx.notify?.(st.dock === 'haut'
         ? '🚋 Terminus Fourvière ! La basilique est juste là, gone.'
         : '🚋 Terminus Saint-Jean — tout le monde descend, la cathédrale est en face !');
       return;
     }
-    const p = riding.cabin.g.position;
-    ctx.rideTick?.(p.x, p.y + 0.6, p.z);
+    if (!ctx.rideFollow) {
+      const p = riding.cabin.g.position;
+      ctx.rideTick?.(p.x, p.y + 0.6, p.z);
+    }
   });
-  ctx.abortRides?.push(() => { riding = null; });
+  ctx.abortRides?.push(() => { riding = null; ctx.rideFollow?.(null); });
 
   for (const [id, label] of [['bas', 'E — Monter à Fourvière en ficelle'], ['haut', 'E — Redescendre à Saint-Jean en ficelle']]) {
     const s = stations[id];
@@ -267,6 +270,12 @@ export function buildFuniculaire(ctx, A, B) {
           return;
         }
         riding = { cabin: c, from: id };
+        // Les contrôles lisent la cabine eux-mêmes, à l'instant du rendu
+        const off = c.offset, side = c.side;
+        ctx.rideFollow?.(() => {
+          const p = at(cabinState(sec(), off).t, side);
+          return { x: p.x, y: p.y + 0.7, z: p.z };
+        });
         ctx.notify?.(`🚋 En voiture ! Départ dans ${Math.ceil(c.st.left)} s, direction ${id === 'bas' ? 'Fourvière' : 'Saint-Jean'}.`);
       },
     });

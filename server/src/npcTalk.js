@@ -2,7 +2,7 @@
 // l'historique de la conversation reste côté serveur (par joueur et par
 // PNJ, oublié après 15 min), quotas par joueur et plafond global par jour.
 import { aiAvailable, anthropic } from './ai.js';
-import { registerLine } from './tts.js';
+import { registerLine, ttsFile } from './tts.js';
 
 const MODEL = process.env.AI_MODEL_PNJ || 'claude-haiku-5-5';
 const DAILY_CAP = Number(process.env.NPC_DAILY_CAP ?? 3000); // répliques / jour, tous joueurs
@@ -142,7 +142,10 @@ export async function npcTalk(player, npc, message, scene = {}) {
   convo.msgs = msgs.slice(-MAX_TURNS);
   convo.t = now;
   convos.set(key, convo);
-  return { reply, voice: persona.voice, tts: registerLine(reply, persona.voice) };
+  const tts = registerLine(reply, persona.voice);
+  // Piper démarre TOUT DE SUITE, sans attendre que le client demande l'audio
+  if (tts) ttsFile(tts).catch(() => {});
+  return { reply, voice: persona.voice, tts };
 }
 
 export function npcForget(player, npc) {
