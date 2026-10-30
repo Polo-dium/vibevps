@@ -20,7 +20,7 @@ import { sculpt, withDetails, paint } from '../render/sculpt.js';
 // Teintes (slots) des volumes
 const SHIRT = 0, SHIRT_DARK = 1, PANTS = 2, SKIN = 3, SKIN_DARK = 4, HAIR = 5,
   SHOE = 6, SOLE = 7, BELT = 8, METAL = 9, WHITE = 10, EYE = 11, LIP = 12, CAP = 13,
-  INNER = 14, SKIRT = 15;
+  INNER = 14, SKIRT = 15, IRIS = 16;
 
 const cache = new Map();
 function cached(key, build) {
@@ -101,20 +101,21 @@ function bodyShape(look, v = {}) {
     { t: 'ell', c: [0, 1.678, 0.008], r: [0.093, 0.112, 0.104], slot: SKIN, k: 0.03 },
     { t: 'ell', c: [0, 1.605, -0.03], r: f ? [0.064, 0.054, 0.066] : [0.072, 0.058, 0.072], slot: SKIN, k: 0.05 },
     { t: 'ell', c: [0, 1.572, -0.072], r: [0.03, 0.026, 0.028], slot: SKIN, k: 0.03 },
-    { t: 'ell', c: [-0.052, 1.648, -0.075], r: [0.03, 0.022, 0.025], slot: SKIN, k: 0.025 },
-    { t: 'ell', c: [0.052, 1.648, -0.075], r: [0.03, 0.022, 0.025], slot: SKIN, k: 0.025 },
+    // pommettes en SPHÈRES (distance exacte) : les petits ellipsoïdes
+    // faussaient les normales et tachaient les joues d'ombres
+    { t: 'sphere', c: [-0.05, 1.646, -0.066], r: 0.024, slot: SKIN, k: 0.025 },
+    { t: 'sphere', c: [0.05, 1.646, -0.066], r: 0.024, slot: SKIN, k: 0.025 },
     { t: 'cone', a: [-0.05, 1.703, -0.088], b: [0.05, 1.703, -0.088], r1: 0.016, r2: 0.016, slot: SKIN, k: 0.02 },
     { t: 'cone', a: [0, 1.682, -0.1], b: [0, 1.632, -0.124], r1: 0.011, r2: 0.017, slot: SKIN, k: 0.012 },
     { t: 'ell', c: [-0.094, 1.665, 0.012], r: [0.014, 0.032, 0.022], slot: SKIN_DARK, k: 0.01 },
     { t: 'ell', c: [0.094, 1.665, 0.012], r: [0.014, 0.032, 0.022], slot: SKIN_DARK, k: 0.01 },
     // Ailes du nez, lèvres en volume (lisibles avec la grille fine de la tête)
-    { t: 'ell', c: [-0.016, 1.636, -0.112], r: [0.012, 0.01, 0.011], slot: SKIN, k: 0.008 },
-    { t: 'ell', c: [0.016, 1.636, -0.112], r: [0.012, 0.01, 0.011], slot: SKIN, k: 0.008 },
-    { t: 'ell', c: [0, 1.603, -0.099], r: [f ? 0.027 : 0.026, f ? 0.009 : 0.007, 0.012], slot: LIP, k: 0.006 },
-    { t: 'ell', c: [0, 1.591, -0.097], r: [f ? 0.024 : 0.022, f ? 0.011 : 0.009, 0.012], slot: LIP, k: 0.006 },
-    // Orbites légèrement creusées
-    { t: 'sphere', c: [-0.038, 1.68, -0.106], r: 0.02, sub: true, k: 0.014 },
-    { t: 'sphere', c: [0.038, 1.68, -0.106], r: 0.02, sub: true, k: 0.014 },
+    // (sphères et capsules : distances exactes, normales propres)
+    { t: 'sphere', c: [-0.015, 1.636, -0.111], r: 0.0105, slot: SKIN, k: 0.008 },
+    { t: 'sphere', c: [0.015, 1.636, -0.111], r: 0.0105, slot: SKIN, k: 0.008 },
+    { t: 'cone', a: [-0.019, 1.603, -0.1], b: [0.019, 1.603, -0.1], r1: f ? 0.0075 : 0.0062, r2: f ? 0.0075 : 0.0062, slot: LIP, k: 0.006 },
+    { t: 'cone', a: [-0.016, 1.591, -0.098], b: [0.016, 1.591, -0.098], r1: f ? 0.0095 : 0.008, r2: f ? 0.0095 : 0.008, slot: LIP, k: 0.006 },
+
   ];
   // Veste ouverte : la chemise (INNER) se voit en V sur la poitrine, revers
   // plus sombres, pans de la veste qui couvrent la ceinture
@@ -146,29 +147,42 @@ function bodyShape(look, v = {}) {
     p.push({ t: 'ell', c: [0, 1.6, 0.052], r: [0.11, 0.15, 0.07], slot: HAIR, k: 0.04 });
     p.push({ t: 'ell', c: [-0.085, 1.62, 0.0], r: [0.035, 0.1, 0.06], slot: HAIR, k: 0.03 });
     p.push({ t: 'ell', c: [0.085, 1.62, 0.0], r: [0.035, 0.1, 0.06], slot: HAIR, k: 0.03 });
+    // frange (capsule : normales propres) — plus de casque lisse
+    p.push({ t: 'cone', a: [-0.068, 1.752, -0.084], b: [0.068, 1.752, -0.084], r1: 0.021, r2: 0.021, slot: HAIR, k: 0.015 });
   } else {
     p.push({ t: 'ell', c: [0, 1.645, 0.045], r: [0.09, 0.07, 0.07], slot: HAIR, k: 0.02 }); // nuque
+    // mèche coiffée sur le côté, qui casse la ligne du front
+    if (look === 'court') p.push({ t: 'cone', a: [-0.072, 1.775, -0.06], b: [0.045, 1.765, -0.09], r1: 0.024, r2: 0.018, slot: HAIR, k: 0.018 });
   }
   return p;
 }
 
 // Détails trop fins pour la grille : yeux, pupilles, sourcils, bouche, boucle
 function faceDetails() {
-  const at = (x, y, z, sx = 1, sy = 1, sz = 1, rz = 0) => new THREE.Matrix4().compose(
-    new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, rz)), new THREE.Vector3(sx, sy, sz));
-  const eye = new THREE.SphereGeometry(0.0145, 10, 8);
-  const pupil = new THREE.SphereGeometry(0.0085, 8, 6);
-  const brow = new THREE.BoxGeometry(0.044, 0.01, 0.012);
+  const at = (x, y, z, sx = 1, sy = 1, sz = 1, rz = 0, rx = 0) => new THREE.Matrix4().compose(
+    new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, 0, rz)), new THREE.Vector3(sx, sy, sz));
+  // Œil en amande, à fleur de l'orbite : blanc cassé, iris coloré, petite
+  // pupille, paupière supérieure (peau) qui coupe le haut du globe — plus
+  // de gros yeux ronds écarquillés
+  const eye = new THREE.SphereGeometry(0.0125, 12, 8);
+  const iris = new THREE.CircleGeometry(0.0068, 12);
+  const pupil = new THREE.CircleGeometry(0.0034, 10);
+  const lid = new THREE.SphereGeometry(0.0138, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.42);
+  const brow = new THREE.BoxGeometry(0.042, 0.0065, 0.01);
   const buckle = new THREE.BoxGeometry(0.055, 0.036, 0.016);
-  return [
-    { geometry: eye, slot: WHITE, matrix: at(-0.038, 1.68, -0.092, 1, 0.8, 0.7) },
-    { geometry: eye, slot: WHITE, matrix: at(0.038, 1.68, -0.092, 1, 0.8, 0.7) },
-    { geometry: pupil, slot: EYE, matrix: at(-0.038, 1.68, -0.1, 1, 1, 0.6) },
-    { geometry: pupil, slot: EYE, matrix: at(0.038, 1.68, -0.1, 1, 1, 0.6) },
-    { geometry: brow, slot: HAIR, matrix: at(-0.04, 1.707, -0.1, 1, 1, 1, 0.12) },
-    { geometry: brow, slot: HAIR, matrix: at(0.04, 1.707, -0.1, 1, 1, 1, -0.12) },
-    { geometry: buckle, slot: METAL, matrix: at(0, 0.985, -0.112) },
-  ];
+  const out = [];
+  for (const sx of [-1, 1]) {
+    const x = 0.036 * sx;
+    out.push({ geometry: eye, slot: WHITE, matrix: at(x, 1.681, -0.088, 1.15, 0.7, 0.62) });
+    // disques tournés vers l'avant (-z) : rotation x = π
+    out.push({ geometry: iris, slot: IRIS, matrix: at(x, 1.6805, -0.0961, 1, 1, 1, 0, Math.PI) });
+    out.push({ geometry: pupil, slot: EYE, matrix: at(x, 1.6805, -0.0963, 1, 1, 1, 0, Math.PI) });
+    // paupière : calotte de sphère couchée sur le haut de l'œil
+    out.push({ geometry: lid, slot: SKIN_DARK, matrix: at(x, 1.6835, -0.0885, 1.2, 0.55, 0.7, 0, -0.35) });
+    out.push({ geometry: brow, slot: HAIR, matrix: at(0.039 * sx, 1.705, -0.1, 1, 1, 1, -0.14 * sx) });
+  }
+  out.push({ geometry: buckle, slot: METAL, matrix: at(0, 0.985, -0.112) });
+  return out;
 }
 
 const legGeo = () => cached(`jambe|${cellSize()}`, () => sculpt(legShape(), { cell: cellSize() }));
@@ -292,8 +306,9 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
   palette[SOLE] = C(0xd8d4cc);
   palette[BELT] = C(0x2a211b);
   palette[METAL] = C(0xc9c2a8);
-  palette[WHITE] = C(0xf2efe8);
-  palette[EYE] = C(0x1b1d22);
+  palette[EYE] = C(0x101114);
+  palette[WHITE] = C(0xe6e0d4);
+  palette[IRIS] = C([0x5a3a22, 0x3b2a1c, 0x4a6a8a, 0x5d6b3a, 0x6b4a2a][bit(28, 5)]);
   palette[LIP] = C(skin).lerp(C(0xa0473d), 0.45);
   palette[CAP] = C(shirt).multiplyScalar(0.72);
   // Veste : le tronc et les manches prennent la couleur de la veste, la
@@ -376,7 +391,9 @@ export function buildHuman({ shirt = 0x6b7a8f, pants = 0x39404e, skin = 0xe8c39e
   group.traverse((o) => {
     if (o.isMesh) {
       o.castShadow = true;
-      o.receiveShadow = true;
+      // pas d'ombres REÇUES : sur des volumes aussi fins (nez, orbites), la
+      // carte d'ombre faisait des taches sombres sur les joues
+      o.receiveShadow = false;
     }
   });
 

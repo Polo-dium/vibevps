@@ -4,6 +4,7 @@ import { buildHuman } from './human.js';
 import { detail } from '../render/detail.js';
 import { makeRand } from './layout.js';
 import { rainAmount } from './weather.js';
+import { CROWD, preloadAvatars, buildAvatar, avatarsEnabled } from './avatars.js';
 
 // PASSANTS (ville OSM) : une petite troupe RECYCLÉE autour du joueur, qui
 // marche sur les trottoirs des vraies rues. Quand un passant s'éloigne trop
@@ -89,12 +90,46 @@ export function createPassersby(ctx, data) {
     h.group.visible = false;
     ctx.scene.add(h.group);
     const p = { h, seg: null, t: 0, dir: 1, speed: 1.2, phase: rand() * 10, flee: 0 };
-    // Touché : il s'enfuit en courant, puis disparaît au coin de la rue
-    for (const m of h.hitMeshes) {
+    arm(p);
+    people.push(p);
+  }
+  // Touché : il s'enfuit en courant, puis disparaît au coin de la rue
+  function arm(p) {
+    for (const m of p.h.hitMeshes) {
       m.userData.onHit = () => { p.flee = 6; p.speed = 4.2; say(p, pickBark('fuite')); };
       ctx.shootables.push(m);
     }
-    people.push(p);
+  }
+  // Avatars réalistes (avatars.js) : chargés en fond, chaque passant sculpté
+  // est remplacé par l'un d'eux à sa prochaine réapparition (hors champ)
+  let avatarNames = [];
+  if (avatarsEnabled()) {
+    const pool = [];
+    for (let i = 0; i < CROWD.f.length; i++) pool.push(CROWD.f[i], CROWD.m[i]);
+    const n = detail.level === 'eleve' ? pool.length : 6;
+    // un premier lot vite, le reste ensuite
+    setTimeout(async () => {
+      for (let i = 0; i < n; i += 2) avatarNames = avatarNames.concat(await preloadAvatars(pool.slice(i, i + 2)));
+    }, 4000);
+  }
+  let swapK = 0;
+  function upgrade(p) {
+    if (p.h.isAvatar || p.pending || !avatarNames.length) return;
+    p.pending = true;
+    buildAvatar(avatarNames[swapK++ % avatarNames.length]).then((a) => {
+      p.pending = false;
+      const old = p.h;
+      for (const m of old.hitMeshes) {
+        const i = ctx.shootables.indexOf(m);
+        if (i >= 0) ctx.shootables.splice(i, 1);
+      }
+      ctx.scene.remove(old.group);
+      a.group.visible = old.group.visible;
+      a.group.position.copy(old.group.position);
+      ctx.scene.add(a.group);
+      p.h = a;
+      arm(p);
+    }, () => { p.pending = false; });
   }
 
   // Bulle de parole partagée (une texture canvas redessinée à chaque phrase)
@@ -152,6 +187,7 @@ export function createPassersby(ctx, data) {
   // Réapparition : un tronçon à bonne distance, de préférence hors du champ
   // de vision (derrière le joueur ou de côté)
   function respawn(p, player, camDir, first) {
+    upgrade(p);
     const cand = nearbySegs(player.x, player.z, first ? 8 : NEAR, FAR);
     if (!cand.length) { p.seg = null; p.h.group.visible = false; return; }
     let pick = null;
@@ -196,6 +232,8 @@ export function createPassersby(ctx, data) {
         respawn(p, player, fwd, false);
         continue;
       }
+      // pas encore réaliste : on l'échange dès qu'il est loin (invisible à l'œil)
+      if (!p.h.isAvatar && avatarNames.length && Math.abs(x - player.x) + Math.abs(z - player.z) > 45) upgrade(p);
       const g = p.h.group;
       const y = Math.max(0, ctx.terrainHeight?.(x, z) ?? 0);
       g.userData.baseY = y;
@@ -203,6 +241,7 @@ export function createPassersby(ctx, data) {
       look.set(s.b[0] - s.a[0], 0, s.b[1] - s.a[1]).multiplyScalar(p.dir);
       g.rotation.y = Math.atan2(-look.x, -look.z); // regard vers -z au repos
       p.phase += dt * p.speed * 4.2;
+      g.userData.far = Math.abs(x - player.x) + Math.abs(z - player.z) > 40;
       p.h.animate(p.phase, p.speed * 2.6);
     }
     started = true;
@@ -227,5 +266,6 @@ export function createPassersby(ctx, data) {
       }
     }
   });
+  ctx.passersby = { people };
   return { people };
 }

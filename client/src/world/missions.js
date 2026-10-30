@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { state, apiFetch } from '../state.js';
 import { buildHuman } from './human.js';
+import { buildAvatar, avatarsEnabled } from './avatars.js';
 
 // MISSIONS DES PNJ : un PNJ (patron du bouchon, guide de Fourvière,
 // Guignol…) confie une petite course. Le serveur (Claude) choisit UN lieu
@@ -207,7 +208,7 @@ export function createMissions(ctx, { ui, audio, onXp }) {
 // --- PNJ causeurs de plein air ---------------------------------------------
 const TALKERS = [
   {
-    id: 'guide', poi: 'basilique', title: 'Lucie, guide de Fourvière', emoji: '🧭', short: 'Lucie',
+    id: 'guide', poi: 'basilique', avatar: 'business_female_01', title: 'Lucie, guide de Fourvière', emoji: '🧭', short: 'Lucie',
     look: { shirt: 0x2f7d5b, pants: 0x3b3f4a, skin: 0xf0cfb0, hair: 0x8a5a2b, style: 'long', fem: true, veste: 0x2a3a2e, jupe: true, barbe: false },
     greet: 'Bonjour ! Bienvenue sur la colline qui prie. Une question sur Lyon ?',
     lines: ['La basilique, on l’appelle l’éléphant renversé : regardez ses quatre tours !',
@@ -223,7 +224,7 @@ const TALKERS = [
       'Un pot de Beaujolais, une quenelle, et le monde va mieux !'],
   },
   {
-    id: 'conducteur', poi: 'ficelle', title: 'Marcel, conducteur de la ficelle', emoji: '🚡', short: 'Marcel',
+    id: 'conducteur', poi: 'ficelle', avatar: 'male_adult_06', title: 'Marcel, conducteur de la ficelle', emoji: '🚡', short: 'Marcel',
     look: { shirt: 0xe8e3d8, pants: 0x1f2f55, skin: 0xe8c39e, hair: 0x6b6b6b, style: 'casquette', fem: false, veste: 0x1f2f55, jupe: false, barbe: true },
     greet: 'Bonjour ! La ficelle part toutes les deux minutes, montez donc.',
     lines: ['Trente ans que je monte et descends cette colline, je connais chaque caillou.',
@@ -231,7 +232,7 @@ const TALKERS = [
       'Ça monte sec, Fourvière ! Heureusement que la ficelle est là.'],
   },
   {
-    id: 'supporter', poi: 'roi', title: 'Kévin, supporter de l’OL', emoji: '⚽', short: 'Kévin',
+    id: 'supporter', poi: 'roi', avatar: 'sports_male_01', title: 'Kévin, supporter de l’OL', emoji: '⚽', short: 'Kévin',
     look: { shirt: 0xf2f2f2, pants: 0x1d3c8f, skin: 0xc68e63, hair: 0x111111, style: 'casquette', fem: false, veste: false, jupe: false, barbe: false },
     greet: 'Wesh gone ! Allez l’OL ! Tu viens au match ce soir ?',
     lines: ['Allez l’OL, allez allez l’OL !', 'Les Verts ? Connais pas. À Lyon on est rouge et bleu.',
@@ -286,7 +287,22 @@ export function createTalkers(ctx) {
           ctx.notify?.(`${T.emoji} ${T.short} : « ${pick()} »`);
         },
       });
-      placed.push({ T, h, spot, bubble, yaw0: h.group.rotation.y, yaw: h.group.rotation.y, phase: Math.random() * 6, icon: '💬' });
+      const n = { T, h, spot, bubble, yaw0: h.group.rotation.y, yaw: h.group.rotation.y, phase: Math.random() * 6, icon: '💬' };
+      placed.push(n);
+      // Avatar réaliste (avatars.js) dès qu'il est chargé ; Guignol reste
+      // la marionnette sculptée
+      if (T.avatar && avatarsEnabled()) {
+        buildAvatar(T.avatar).then((a) => {
+          a.group.position.copy(h.group.position);
+          a.group.userData.baseY = y;
+          a.group.rotation.y = n.yaw;
+          ctx.scene.remove(h.group);
+          h.group.remove(bubble);
+          a.group.add(bubble);
+          ctx.scene.add(a.group);
+          n.h = a;
+        }).catch(() => {});
+      }
     }
   }
 
@@ -304,11 +320,17 @@ export function createTalkers(ctx) {
       let diff = ((want - n.yaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
       n.yaw += diff * Math.min(1, dt * 4);
       n.h.group.rotation.y = n.yaw;
-      // respiration / petit geste (Guignol gesticule)
+      // respiration / petit geste (Guignol gesticule) ; un avatar parle
+      // avec les mains quand on est tout près
       n.phase += dt;
-      const g = n.T.id === 'guignol' ? 0.5 : 0.08;
-      n.h.armR.rotation.x = -Math.max(0, Math.sin(n.phase * 1.7)) * g;
-      n.h.armL.rotation.x = -Math.max(0, Math.sin(n.phase * 1.3 + 1)) * g * 0.6;
+      if (n.h.isAvatar) {
+        n.h.talk(d < 5);
+        n.h.animate(0, 0);
+      } else {
+        const g = n.T.id === 'guignol' ? 0.5 : 0.08;
+        n.h.armR.rotation.x = -Math.max(0, Math.sin(n.phase * 1.7)) * g;
+        n.h.armL.rotation.x = -Math.max(0, Math.sin(n.phase * 1.3 + 1)) * g * 0.6;
+      }
       const icon = m && m.mission.npc === n.T.id ? (m.stage === 'back' ? '❗' : '⏳') : '💬';
       if (icon !== n.icon) { n.icon = icon; setLabel(n.bubble, icon); }
       if (m?.stage === 'back' && m.mission.npc === n.T.id && !m.npcPos) {

@@ -35,7 +35,9 @@ npm start          # serveur de prod (sert client/dist)
   être un modèle .glb (image → 3D, brief Grok dans le Drive
   `CallMeIt_rushs/Chanteuse_3D/`), chargé à l'approche du théâtre. Les
   musiques et clips de l'album sont aussi des fichiers (`public/music`,
-  `public/clips`).
+  `public/clips`). EXCEPTION validée par Polo (30/10/2026) : avatars
+  réalistes Microsoft Rocketbox (MIT) dans `public/avatars` (~650 Ko
+  chacun + `anim_f`/`anim_m` partagés), préparés par `tools/rocketbox/`.
   - `src/world/` — ville procédurale (`city.js`), vrai Lyon OSM optionnel
     (`cityReal.js`, activé si `client/public/lyon-osm.json` existe, généré par
     `tools/fetch-osm.mjs`), ciel (`sky.js`), PNJ (`npcs.js`).
@@ -187,7 +189,14 @@ npm start          # serveur de prod (sert client/dist)
     recyclés autour du joueur — `buildHuman({ seated: true })` ajoute des
     genoux). `roofs.js` : lucarnes et souches de cheminée en volume
     (InstancedMesh par tuile de ville).
-  - `src/world/human.js` (humains sculptés, UN SkinnedMesh par humain = 1 draw
+  - `src/world/avatars.js` : avatars Rocketbox (passants, Lucie, Marcel,
+    Kévin) — `buildAvatar(nom)` a l'interface de `buildHuman` (group,
+    hitMeshes, animate(phase, vitesse×2,6), clearTint, shirtMat) + talk(on) ;
+    clips idle/walk/talk par AnimationMixer (1 image sur 3 au-delà de 40 m),
+    modèles tournés de π (regard -z), Lambert hors palier Élevé, 3 draw
+    calls chacun. Chargés en fond (6 au palier Moyen, 12 en Élevé, aucun
+    en Bas) ; les passants sculptés sont échangés quand ils sont loin.
+  - `src/world/human.js` (humains sculptés, repli et autres PNJ, UN SkinnedMesh par humain = 1 draw
     call : pièces fusionnées, os = anciens pivots armL/armR/foreL/legL/kneeL…,
     géométrie partagée, couleurs par sommet ; une arme se fixe sur l'os armR ;
     variantes `fem`, `veste`, `jupe`, `barbe`, coiffures court/casquette/
