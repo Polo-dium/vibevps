@@ -305,7 +305,9 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     return out;
   }
 
-  return { update, count, showChat, getPos, nearest, list };
+  const colorOf = (id) => remotes.get(id)?.baseColor.getHex();
+
+  return { update, count, showChat, getPos, nearest, list, colorOf };
 }
 
 // Avion fantôme des pilotes distants (veh: 2), teinté à leur couleur

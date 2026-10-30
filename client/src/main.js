@@ -13,6 +13,8 @@ import { buildWeaponQuest } from './world/weaponQuest.js';
 import { buildBannerPlane, buildAirport } from './world/aviation.js';
 import { createMusicSource, TRACKS, gainForDistance } from './music.js';
 import { createPoiMap } from './ui/map.js';
+import { createMissions, createTalkers } from './world/missions.js';
+import { createRdv } from './world/rdv.js';
 import { createControls, IS_TOUCH } from './player/controls.js';
 import { createWeapon, WEAPON_IDS, buildWeaponModel } from './player/weapon.js';
 import { createArms } from './player/arms.js';
@@ -157,7 +159,17 @@ async function boot() {
   }
   const v0 = viewSize();
   renderer.setSize(v0.w, v0.h);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.preset.pixelRatio));
+  // Définition de base : celle du palier, plafonnée par un BUDGET de pixels.
+  // Les écrans denses (Fold, tablettes, 4K) dépassaient 4 à 8 millions de
+  // pixels par image pour une différence invisible à cette distance ; le
+  // téléphone chauffait et bridait le GPU. Mobile : ~2,1 Mpx, PC : ~3,7 Mpx.
+  const PIXEL_BUDGET = IS_TOUCH ? 2.1e6 : 3.7e6;
+  function basePixelRatio(preset = quality.preset) {
+    const { w, h } = viewSize();
+    const fit = Math.sqrt(PIXEL_BUDGET / Math.max(1, w * h));
+    return Math.max(0.75, Math.min(window.devicePixelRatio, preset.pixelRatio, fit));
+  }
+  renderer.setPixelRatio(basePixelRatio());
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.12;
   renderer.shadowMap.enabled = SHADOWS;
@@ -263,7 +275,7 @@ async function boot() {
   let aoOn = true;
   let aoCuts = 0;
   function applyRenderScale() {
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.preset.pixelRatio) * renderScale);
+    renderer.setPixelRatio(basePixelRatio() * renderScale);
     const { w, h } = viewSize();
     post.setSize(w, h);
   }
@@ -294,7 +306,7 @@ async function boot() {
     aoCuts = 0;
     post.setAO(true);
     viewScale = 1;   // …et la portée de vue
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatio));
+    renderer.setPixelRatio(basePixelRatio(preset));
     post.setEnabled(preset.postfx);
     post.setSize(viewSize().w, viewSize().h);
     renderer.shadowMap.enabled = preset.shadows;
@@ -974,6 +986,10 @@ async function boot() {
 
   // Momo l'armurier, au pied de la Grande Roue : quête persistante qui
   // s'appuie sur les armes déjà enregistrées dans l'inventaire du compte.
+  // Encart de quête partagé : mission d'un PNJ d'abord, sinon l'arsenal
+  let weaponQuestHud = null, missionQuestHud = null;
+  const showQuest = () => ui.setQuest(missionQuestHud ?? weaponQuestHud);
+  ctx.setMissionQuest = (q) => { missionQuestHud = q; showQuest(); };
   buildWeaponQuest(ctx, {
     getStatus: () => state.arsenalQuest,
     hasItem: (id) => state.inventory.includes(id),
@@ -996,7 +1012,7 @@ async function boot() {
       progress.refresh();
       return res;
     },
-    onProgress: (quest) => ui.setQuest(quest),
+    onProgress: (quest) => { weaponQuestHud = quest; showQuest(); },
     onReward: (res) => {
       if (!res.xpGain) return;
       ui.spawnConfetti(36);
@@ -1006,10 +1022,23 @@ async function boot() {
   });
 
   // Carte des points d'intérêt (M) : se remplit en explorant
+  // PNJ causeurs de plein air + missions confiées par les PNJ (Claude
+  // choisit un lieu réel). L'encart de quête montre la mission en priorité.
+  createTalkers(ctx);
+  createMissions(ctx, {
+    ui, audio,
+    onXp: (xp) => { ui.setXp(xp); progress.refresh(); },
+  });
+
+  // Rendez-vous posés sur la carte, vus par tous les joueurs
+  const rdv = createRdv(ctx, { send: (m) => net.send(m), notify: ui.toast, myName: () => state.auth?.name });
+  net.on('rdv', (msg) => rdv.receive(msg, remotes.colorOf(msg.id)));
+
   const poiMap = createPoiMap(ctx, {
     getPlayer: () => ({ x: controls.position.x, z: controls.position.z, yaw: controls.yaw }),
     getOthers: () => remotes.list(),
     onToast: ui.toast,
+    onPing: (x, z) => rdv.mine(x, z),
   });
 
   // La Quenelle dorée : chasse au trésor toutes les 5 min, calée sur
@@ -1866,6 +1895,8 @@ async function boot() {
     const { w, h } = viewSize();
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    // pliage/dépliage (Fold), rotation : le budget de pixels se recalcule
+    renderer.setPixelRatio(basePixelRatio() * renderScale);
     renderer.setSize(w, h);
     post.setSize(w, h);
   }

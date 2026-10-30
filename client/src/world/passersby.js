@@ -3,6 +3,7 @@ import { roadHalf } from './roadfit.js';
 import { buildHuman } from './human.js';
 import { detail } from '../render/detail.js';
 import { makeRand } from './layout.js';
+import { rainAmount } from './weather.js';
 
 // PASSANTS (ville OSM) : une petite troupe RECYCLÉE autour du joueur, qui
 // marche sur les trottoirs des vraies rues. Quand un passant s'éloigne trop
@@ -15,6 +16,19 @@ import { makeRand } from './layout.js';
 
 const CELL = 40;
 const NEAR = 30, FAR = 85, DROP = 110; // apparition entre NEAR et FAR, recyclage au-delà de DROP
+
+// Petites phrases des passants (bulle au-dessus de la tête quand on les
+// croise) : une bulle à la fois, toutes les ~9 s au plus.
+const BARKS = {
+  jour: ['Fait beau, on se fait une terrasse ?', 'Y a pas un bouchon dans le coin ?', 'Ça caille ce matin, gone !',
+    'T’as vu la ficelle ? Encore en retard…', 'Je file aux Halles, y a des quenelles !', 'Gnafron est déjà au comptoir, tu crois ?',
+    'Salut gone !', 'Le Rhône est haut, hein ?', 'On monte à Fourvière ce soir ?', 'Allez l’OL !',
+    'Faut que je passe chez le Mère Brazier…', 'Encore des travaux, quelle gabegie !', 'Bonjour la compagnie !'],
+  nuit: ['Ça brille, la basilique, la nuit…', 'Un dernier pot de Beaujolais ?', 'Tu rentres comment, toi ?',
+    'Bonne nuit gone !', 'Y a du monde au concert, là-haut !'],
+  pluie: ['Quel temps de chien !', 'Ça mouille, ça mouille…', 'Encore oublié mon pépin !', 'Vivement la Fête des Lumières.'],
+  fuite: ['Au secours !', 'Mais t’es fada ?!', 'Police !!'],
+};
 
 export function createPassersby(ctx, data) {
   const count = detail.level === 'eleve' ? 22 : detail.level === 'moyen' ? 12 : 6;
@@ -77,11 +91,45 @@ export function createPassersby(ctx, data) {
     const p = { h, seg: null, t: 0, dir: 1, speed: 1.2, phase: rand() * 10, flee: 0 };
     // Touché : il s'enfuit en courant, puis disparaît au coin de la rue
     for (const m of h.hitMeshes) {
-      m.userData.onHit = () => { p.flee = 6; p.speed = 4.2; };
+      m.userData.onHit = () => { p.flee = 6; p.speed = 4.2; say(p, pickBark('fuite')); };
       ctx.shootables.push(m);
     }
     people.push(p);
   }
+
+  // Bulle de parole partagée (une texture canvas redessinée à chaque phrase)
+  const bc = document.createElement('canvas');
+  bc.width = 512; bc.height = 96;
+  const btex = new THREE.CanvasTexture(bc);
+  btex.colorSpace = THREE.SRGBColorSpace;
+  const bubble = new THREE.Sprite(new THREE.SpriteMaterial({ map: btex, transparent: true, depthWrite: false, fog: false }));
+  bubble.center.set(0.5, 0);
+  bubble.visible = false;
+  bubble.userData.noShadow = true;
+  ctx.scene.add(bubble);
+  let barkT = 4, barkOwner = null, barkLeft = 0;
+  function say(p, text) {
+    const g = bc.getContext('2d');
+    g.clearRect(0, 0, 512, 96);
+    g.font = '600 30px system-ui, sans-serif';
+    const w = Math.min(500, g.measureText(text).width + 36);
+    const x0 = (512 - w) / 2;
+    g.fillStyle = 'rgba(255, 255, 255, 0.94)';
+    g.beginPath();
+    g.roundRect(x0, 4, w, 62, 22);
+    g.moveTo(246, 64); g.lineTo(256, 88); g.lineTo(268, 64);
+    g.fill();
+    g.fillStyle = '#18202a';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(text, 256, 36, 480);
+    btex.needsUpdate = true;
+    bubble.scale.set(4.2, 4.2 * 96 / 512, 1);
+    bubble.visible = true;
+    barkOwner = p;
+    barkLeft = 3.6;
+  }
+  const pickBark = (kind) => BARKS[kind][Math.floor(Math.random() * BARKS[kind].length)];
 
   const look = new THREE.Vector3();
   const fwd = new THREE.Vector3();
@@ -158,6 +206,26 @@ export function createPassersby(ctx, data) {
       p.h.animate(p.phase, p.speed * 2.6);
     }
     started = true;
+
+    // Bulle : suit son passant, puis une nouvelle phrase au plus proche
+    if (barkLeft > 0) {
+      barkLeft -= dt;
+      const g = barkOwner?.h.group;
+      if (barkLeft <= 0 || !g?.visible) { bubble.visible = false; barkLeft = 0; }
+      else bubble.position.set(g.position.x, g.position.y + 2.15, g.position.z);
+    } else if ((barkT -= dt) <= 0) {
+      barkT = 7 + Math.random() * 5;
+      let best = null, bd = 9;
+      for (const p of people) {
+        if (!p.seg || !p.h.group.visible) continue;
+        const d = Math.hypot(p.h.group.position.x - player.x, p.h.group.position.z - player.z);
+        if (d < bd) { bd = d; best = p; }
+      }
+      if (best) {
+        const kind = (ctx.env?.daylight ?? 1) < 0.35 ? 'nuit' : rainAmount() > 0.3 && Math.random() < 0.6 ? 'pluie' : 'jour';
+        say(best, pickBark(kind));
+      }
+    }
   });
   return { people };
 }

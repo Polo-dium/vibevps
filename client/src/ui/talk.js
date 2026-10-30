@@ -7,7 +7,7 @@ import { audio, getAudioGraph } from '../audio.js';
 import { rainAmount } from '../world/weather.js';
 
 // Repli speechSynthesis : une hauteur de voix par PNJ
-const PITCH = { patron: 0.6, patronne: 1.25, marchand: 0.9, bouquiniste: 0.7 };
+const PITCH = { patron: 0.6, patronne: 1.25, marchand: 0.9, bouquiniste: 0.7, guide: 1.2, guignol: 1.1, conducteur: 0.75, supporter: 1.0 };
 
 // Reconnaissance vocale NATIVE (Chrome Android/PC, Safari) : texte en direct,
 // rien à envoyer au serveur. Sinon repli whisper.cpp (/api/stt).
@@ -34,7 +34,7 @@ export function createTalk(ctx) {
   el.id = 'talk';
   el.className = 'hidden';
   el.innerHTML = `
-    <div class="talk-head"><span class="talk-who"></span><button class="talk-close" title="Partir (Échap)">✕</button></div>
+    <div class="talk-head"><span class="talk-who"></span><button class="talk-quest hidden" title="Demander une mission">📜 Mission</button><button class="talk-close" title="Partir (Échap)">✕</button></div>
     <div class="talk-log"></div>
     <form class="talk-form">
       <input type="text" maxlength="240" autocomplete="off" placeholder="Dis-lui quelque chose… (Entrée)">
@@ -47,6 +47,7 @@ export function createTalk(ctx) {
   const form = el.querySelector('.talk-form');
   const input = form.querySelector('input');
   const mic = form.querySelector('.talk-mic');
+  const questBtn = el.querySelector('.talk-quest');
 
   let npc = null, busy = false, source = null;
 
@@ -240,11 +241,67 @@ export function createTalk(ctx) {
   }
   mic.addEventListener('click', micToggle);
 
+  // Missions (world/missions.js) : bouton 📜 = demander une course ; en
+  // revenant avec l'objet, la remise se fait dès l'ouverture du dialogue.
+  function questState() {
+    const m = ctx.missions?.current();
+    const mine = m && m.mission.npc === npc?.id;
+    questBtn.classList.toggle('hidden', !ctx.missions || !state.auth || (m && !mine));
+    questBtn.textContent = mine ? '📜 Ma mission' : '📜 Mission';
+  }
+  questBtn.addEventListener('click', async () => {
+    if (!npc || busy) return;
+    const cur = npc;
+    const m = ctx.missions.current();
+    if (m && m.mission.npc === cur.id) {
+      line('npc', m.stage === 'back' ? m.mission.demande : `Alors, ${m.mission.objet} ? C’est à ${m.mission.placeNom}, suis la balise !`);
+      return;
+    }
+    busy = true;
+    const wait = line('npc wait', '…');
+    try {
+      const out = await ctx.missions.ask(cur.id);
+      wait.remove();
+      if (npc !== cur) return;
+      line('npc', out.demande);
+      line('sys', `📜 Mission : ${out.emoji} ${out.objet} — ${out.placeNom}`);
+      sayAloud(out.demande, out.tts);
+    } catch (err) {
+      wait.remove();
+      if (npc === cur) line('sys', err.message);
+    } finally {
+      busy = false;
+      questState();
+    }
+  });
+  async function giveBack(cur, p) {
+    busy = true;
+    const wait = line('npc wait', '…');
+    try {
+      const res = await p;
+      wait.remove();
+      if (npc !== cur) return;
+      line('npc', res.merci);
+      line('sys', `⭐ +${res.xpGain} XP`);
+      sayAloud(res.merci, res.tts);
+    } catch (err) {
+      wait.remove();
+      if (npc === cur) line('sys', err.message);
+    } finally {
+      busy = false;
+      questState();
+    }
+  }
+
   function open(id, opts) {
     npc = { id, ...opts };
     who.textContent = `${opts.emoji ?? '💬'} ${opts.title}`;
     log.innerHTML = '';
-    if (opts.greet) line('npc', opts.greet);
+    ctx.missions?.noteNpc(id);
+    const back = ctx.missions?.handIn(id);
+    if (back) giveBack(npc, back);
+    else if (opts.greet) line('npc', opts.greet);
+    questState();
     el.classList.remove('hidden');
     state.overlayOpen = true;
     document.exitPointerLock?.();
@@ -312,7 +369,10 @@ export function createTalk(ctx) {
 
   // ctx.talkTo('patron', { title, emoji, greet, fallback }) → true si ouvert
   ctx.talkTo = (id, opts) => {
-    if (!available || !state.auth || state.overlayOpen) return false;
+    if (!state.auth || state.overlayOpen) return false;
+    // sans IA, le panneau ne s'ouvre que pour rendre une mission
+    const m = ctx.missions?.current();
+    if (!available && !(m && m.stage === 'back' && m.mission.npc === id)) return false;
     open(id, opts);
     return true;
   };

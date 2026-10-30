@@ -23,6 +23,11 @@ export const VOICES = {
   patronne: { model: 'fr_FR-siwis-medium', lengthScale: 1.0 },
   marchand: { model: 'fr_FR-upmc-medium', speaker: 1, lengthScale: 0.92 },
   bouquiniste: { model: 'fr_FR-gilles-low', lengthScale: 1.08 },
+  // nouveaux venus : mêmes modèles (rien à télécharger), autres réglages
+  guide: { model: 'fr_FR-siwis-medium', lengthScale: 0.94 },
+  guignol: { model: 'fr_FR-tom-medium', lengthScale: 0.88 },
+  conducteur: { model: 'fr_FR-gilles-low', lengthScale: 1.0 },
+  supporter: { model: 'fr_FR-upmc-medium', speaker: 1, lengthScale: 0.85 },
 };
 export const VOICE_MODELS = [...new Set(Object.values(VOICES).map((v) => v.model))];
 

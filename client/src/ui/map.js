@@ -10,7 +10,7 @@ import { audio } from '../audio.js';
 const LS_KEY = 'vibevps_pois';
 const DISCOVER_R = 26; // distance de découverte (mètres)
 
-export function createPoiMap(ctx, { getPlayer, getOthers, onToast }) {
+export function createPoiMap(ctx, { getPlayer, getOthers, onToast, onPing }) {
   let found = new Set();
   try {
     found = new Set(JSON.parse(localStorage.getItem(LS_KEY) || '[]'));
@@ -29,12 +29,22 @@ export function createPoiMap(ctx, { getPlayer, getOthers, onToast }) {
         <span id="map-zoom-btns"><button id="map-zo">−</button><button id="map-zi">+</button></span>
       </div>
       <canvas id="map-canvas"></canvas>
-      <div id="map-hint">Explore la ville pour révéler les points d'intérêt · molette ou +/− pour zoomer · M ou Échap pour fermer</div>
+      <div id="map-hint">Explore la ville pour révéler les points d'intérêt · touche la carte pour donner rendez-vous · molette ou +/− pour zoomer · M ou Échap pour fermer</div>
     </div>`;
   document.body.appendChild(overlay);
   const canvas = overlay.querySelector('#map-canvas');
   const countEl = overlay.querySelector('#map-count');
   overlay.addEventListener('click', (e) => { if (e.target === overlay) toggle(false); });
+  // Toucher/cliquer la carte : rendez-vous pour tous les joueurs (📍)
+  let view = null, downAt = null;
+  canvas.addEventListener('pointerdown', (e) => { downAt = { x: e.clientX, y: e.clientY }; });
+  canvas.addEventListener('pointerup', (e) => {
+    if (!view || !onPing || !downAt || Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 8) return;
+    const r = canvas.getBoundingClientRect();
+    const k = view.half / (view.size / 2);
+    onPing(view.cx0 + (e.clientX - r.left - view.size / 2) * k, view.cz0 + (e.clientY - r.top - view.size / 2) * k);
+    draw();
+  });
 
   // --- Zoom : molette, boutons +/− et pincement tactile — centré joueur ---
   let zoom = 1; // 1 = toute la ville → 8 = quartier
@@ -108,6 +118,7 @@ export function createPoiMap(ctx, { getPlayer, getOthers, onToast }) {
     const cx0 = zoom > 1 && pv ? clampC(pv.x) : 0;
     const cz0 = zoom > 1 && pv ? clampC(pv.z) : 0;
     const sx = (x) => size / 2 + ((x - cx0) / half) * (size / 2);
+    view = { size, cx0, cz0, half };
     const sz = (z) => size / 2 + ((z - cz0) / half) * (size / 2);
 
     // Fond parchemin sombre + trame
@@ -185,6 +196,27 @@ export function createPoiMap(ctx, { getPlayer, getOthers, onToast }) {
       g.fillText(poi.nom, px, pz + (flip ? 22 : -16));
     }
     countEl.textContent = `· ${n} / ${(ctx.pois ?? []).length} lieux découverts`;
+
+    // Repères dynamiques (mission en cours, rendez-vous des joueurs…) :
+    // toujours affichés, même hors des lieux découverts
+    for (const m of ctx.mapMarks ?? []) {
+      if (m.hidden) continue;
+      const px = sx(m.x), pz = sz(m.z);
+      g.strokeStyle = m.color ?? '#ffd34d';
+      g.lineWidth = 2.5;
+      g.fillStyle = 'rgba(10, 16, 22, 0.85)';
+      g.beginPath();
+      g.arc(px, pz, 13, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+      g.font = '15px system-ui, sans-serif';
+      g.fillText(m.emoji ?? '📍', px, pz + 5);
+      if (m.label) {
+        g.font = '700 11px system-ui, sans-serif';
+        g.fillStyle = m.color ?? '#ffd34d';
+        g.fillText(m.label, px, pz - 18);
+      }
+    }
 
     // Les autres joueurs : pastille à leur couleur + pseudo
     g.font = '600 10px system-ui, sans-serif';

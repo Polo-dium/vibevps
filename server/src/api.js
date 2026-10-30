@@ -2,7 +2,7 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { db, q, insertTagWithLimit } from './db.js';
 import { aiAvailable, generateGame } from './ai.js';
-import { npcTalk, npcForget } from './npcTalk.js';
+import { npcTalk, npcForget, npcQuest, npcQuestDone, npcQuestCurrent, npcQuestCancel, MISSION_XP } from './npcTalk.js';
 import { ttsAvailable, ttsFile } from './tts.js';
 import { sttAvailable, transcribe, validWav } from './stt.js';
 import express from 'express';
@@ -390,6 +390,34 @@ api.post('/npc/talk', auth, async (req, res) => {
       nuit: scene.nuit === true, pluie: scene.pluie === true,
     });
     res.json(out);
+  } catch (err) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+// Missions confiées par les PNJ (lieux réels envoyés par le client)
+api.post('/npc/quest', auth, async (req, res) => {
+  try {
+    res.json(await npcQuest(req.player, String(req.body?.npc ?? ''), req.body?.places));
+  } catch (err) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+api.get('/npc/quest', auth, (req, res) => {
+  res.json({ mission: npcQuestCurrent(req.player) });
+});
+
+api.post('/npc/quest/cancel', auth, (req, res) => {
+  npcQuestCancel(req.player);
+  res.json({ ok: true });
+});
+
+api.post('/npc/quest/done', auth, (req, res) => {
+  try {
+    const out = npcQuestDone(req.player, String(req.body?.npc ?? ''));
+    q.addXp.run(MISSION_XP, req.player.id);
+    res.json({ ...out, xpGain: MISSION_XP, xp: q.playerProgress.get(req.player.id).xp });
   } catch (err) {
     res.status(err.status ?? 500).json({ error: err.message });
   }

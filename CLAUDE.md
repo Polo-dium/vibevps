@@ -217,6 +217,21 @@ npm start          # serveur de prod (sert client/dist)
     des rues de 5,5 m ; les avenues de berge inventées ne servent plus qu'à
     la ville procédurale. Parapet des quais : `ctx.waterGuard` →
     `controls.setWaterGuard` empêche de descendre à pied dans le lit.
+  - `src/world/missions.js` : PNJ causeurs de plein air (`createTalkers` :
+    Lucie la guide à Fourvière, Guignol au castelet, Marcel à la ficelle,
+    Kévin supporter de l'OL à Bellecour — posés à la 1re frame près de leur
+    POI) et MISSIONS : bouton 📜 du dialogue → `POST /api/npc/quest` (Claude
+    choisit un POI réel parmi ~10 envoyés + invente l'objet ; repli modèle
+    sans IA), balise dorée + repère carte (`ctx.mapMarks`), ramassage à 9 m,
+    retour au PNJ (remise à l'ouverture du dialogue) → `/npc/quest/done`
+    (+80 XP, délai mini 20 s côté serveur). Encart de quête : la mission
+    passe avant la quête de l'arsenal (`ctx.setMissionQuest`).
+    Passants (`passersby.js`) : bulles de petites phrases (jour/nuit/pluie).
+  - `src/world/rdv.js` : rendez-vous — toucher la carte (M) pose une balise
+    vue par tous 90 s (WS `t: 'rdv'`, relayé par le serveur, 1 / 8 s).
+  - Définition d'image plafonnée par un budget de pixels (`basePixelRatio`
+    dans main.js : 2,1 Mpx tactile, 3,7 Mpx PC), recalculé au redimension-
+    nement (Fold plié/déplié).
   - `src/player/` — contrôles FPS + tactile, arme (modèles détaillés dans
     `weaponModels.js`), joueurs distants, voix.
   - `src/games/` — bornes d'arcade : mini-jeux HTML autonomes en iframe
@@ -226,7 +241,8 @@ npm start          # serveur de prod (sert client/dist)
 - `server/` — Express + ws + better-sqlite3. `env.js` charge `.env` (racine)
   au démarrage. `ai.js` : client Anthropic partagé + bornes (Sonnet).
   `npcTalk.js` : dialogues libres des PNJ (Claude Haiku, personas `patron`,
-  `patronne`, `marchand`, `bouquiniste`, historique serveur 15 min, quotas
+  `patronne`, `marchand`, `bouquiniste`, `guide`, `guignol`, `conducteur`,
+  `supporter` ; missions `npcQuest`/`npcQuestDone`), historique serveur 15 min, quotas
   joueur + `NPC_DAILY_CAP`) → `POST /api/npc/talk`. `tts.js` : voix Piper
   (une voix par persona, `GET /api/tts/:id` seulement pour les répliques
   émises par le serveur, cache WAV dans `server/data/tts-cache`), installé

@@ -72,6 +72,45 @@ l'histoire de Lyon : Guignol créé par Laurent Mourguet, la révolte des canuts
 en 1831, les traboules, les frères Lumière en 1895, la Fête des Lumières du 8
 décembre. Tu proposes volontiers un vieux livre en rapport avec la question.`,
   },
+  guide: {
+    nom: 'la guide de Fourvière',
+    voice: 'guide',
+    role: `Tu es Lucie, guide conférencière sur l'esplanade de Fourvière, à
+côté de la basilique. Passionnée, précise et pleine d'humour, tu racontes la
+colline « qui prie » (Fourvière) face à la colline « qui travaille » (la
+Croix-Rousse), Lugdunum capitale des Gaules, le théâtre gallo-romain, la
+basilique et sa tour métallique, la Fête des Lumières et le vœu des
+échevins. Tu montres la vue : Bellecour, les deux fleuves, le Crayon, et les
+Alpes par temps clair.`,
+  },
+  guignol: {
+    nom: 'Guignol',
+    voice: 'guignol',
+    role: `Tu es Guignol, la marionnette lyonnaise, canut au grand cœur et à
+la langue bien pendue, devant ton castelet. Tu parles avec l'accent et les
+expressions du vieux Lyon (mon vieux, ça fait pas, quelle cagne, un pot,
+Madelon ta femme, ton ami Gnafron le savetier qui aime trop le Beaujolais,
+le gendarme que tu bastonnes). Toujours drôle, jamais méchant.`,
+  },
+  conducteur: {
+    nom: 'le conducteur de la ficelle',
+    voice: 'conducteur',
+    role: `Tu es Marcel, conducteur de la ficelle (le funiculaire) entre
+Saint-Jean et Fourvière depuis trente ans. Bourru mais tendre, tu connais
+par cœur l'horaire, la pente, l'histoire des funiculaires de Lyon (le plus
+ancien du monde, la « ficelle » de la Croix-Rousse en 1862) et tous les
+habitués. Tu râles gentiment contre les touristes qui ne tiennent pas la
+barre.`,
+  },
+  supporter: {
+    nom: 'le supporter de l\'OL',
+    voice: 'supporter',
+    role: `Tu es Kévin, supporter de l'Olympique lyonnais jusqu'au bout des
+ongles, maillot sur le dos, place Bellecour. Enthousiaste, chambreur, tu
+parles du Groupama Stadium, des grandes années, du derby contre
+Saint-Étienne (les Verts, à chambrer gentiment) et de Lyon, la meilleure
+ville du monde. Jamais d'insulte.`,
+  },
 };
 
 export const NPC_IDS = Object.keys(PERSONAS);
@@ -96,16 +135,7 @@ export async function npcTalk(player, npc, message, scene = {}) {
   if (!text) throw httpError(400, 'Message vide.');
 
   const now = Date.now();
-  const today = new Date(now).toISOString().slice(0, 10);
-  if (today !== day) { day = today; dayCount = 0; }
-  if (dayCount >= DAILY_CAP) throw httpError(429, 'Les PNJ ont trop causé aujourd’hui, ils reprennent demain !');
-  const qd = quotas.get(player.id) ?? { last: 0, hour: now, n: 0 };
-  if (now - qd.last < MIN_GAP_MS) throw httpError(429, 'Doucement gone, laisse-le finir sa phrase !');
-  if (now - qd.hour > 3600_000) { qd.hour = now; qd.n = 0; }
-  if (qd.n >= PER_HOUR) throw httpError(429, 'Tu as assez causé pour cette heure, va faire un tour !');
-  qd.last = now; qd.n++;
-  quotas.set(player.id, qd);
-  dayCount++;
+  const qd = gate(player);
 
   const key = `${player.id}:${npc}`;
   const convo = convos.get(key) ?? { msgs: [], t: now };
@@ -115,7 +145,11 @@ export async function npcTalk(player, npc, message, scene = {}) {
     scene.nuit ? 'il fait nuit' : 'il fait jour',
     scene.pluie ? 'il pleut' : null,
   ].filter(Boolean).join(', ');
-  const system = `${MONDE}\n\n${persona.role}\n\n${REGLES}\n\nEn ce moment, ${moment}. Le joueur qui te parle s'appelle ${player.name}.`;
+  const m = missions.get(player.id);
+  const mission = m && m.npc === npc
+    ? `\nTu as confié une mission à ce joueur : te rapporter « ${m.objet} » depuis « ${m.placeNom} ». Si on t'en parle, encourage-le (il revient te voir une fois l'objet trouvé).`
+    : '';
+  const system = `${MONDE}\n\n${persona.role}\n\n${REGLES}\n\nEn ce moment, ${moment}. Le joueur qui te parle s'appelle ${player.name}.${mission}`;
 
   let res;
   try {
@@ -152,6 +186,126 @@ export function npcForget(player, npc) {
   convos.delete(`${player.id}:${npc}`);
 }
 
+// Quotas : plafond global par jour + par joueur (écart mini, par heure)
+function gate(player) {
+  const now = Date.now();
+  const today = new Date(now).toISOString().slice(0, 10);
+  if (today !== day) { day = today; dayCount = 0; }
+  if (dayCount >= DAILY_CAP) throw httpError(429, 'Les PNJ ont trop causé aujourd’hui, ils reprennent demain !');
+  const qd = quotas.get(player.id) ?? { last: 0, hour: now, n: 0 };
+  if (now - qd.last < MIN_GAP_MS) throw httpError(429, 'Doucement gone, laisse-le finir sa phrase !');
+  if (now - qd.hour > 3600_000) { qd.hour = now; qd.n = 0; }
+  if (qd.n >= PER_HOUR) throw httpError(429, 'Tu as assez causé pour cette heure, va faire un tour !');
+  qd.last = now; qd.n++;
+  quotas.set(player.id, qd);
+  dayCount++;
+  return qd;
+}
+
 function httpError(status, message) {
   return Object.assign(new Error(message), { status });
+}
+
+// --- Missions confiées par les PNJ ---------------------------------------
+// Le client envoie des lieux RÉELS de la carte (id + nom) ; Claude en choisit
+// un et invente l'objet à rapporter, en restant dans son personnage. Une
+// mission à la fois par joueur, gardée en mémoire serveur (2 h).
+const MISSION_TTL = 2 * 3600_000;
+const MISSION_MIN_MS = 20_000; // on ne revient pas en 3 secondes
+export const MISSION_XP = 80;
+const missions = new Map(); // playerId → { npc, placeId, placeNom, objet, emoji, merci, t }
+
+const QUEST_RULES = `Propose au joueur une petite mission : aller chercher UN objet amusant
+dans UN des lieux de la liste ci-dessous, puis te le rapporter. L'objet est en
+rapport avec le lieu ET avec ton personnage (humour lyonnais bienvenu).
+Réponds UNIQUEMENT avec un objet JSON, sans texte autour :
+{"placeId": "<id exact d'un lieu de la liste>", "objet": "<l'objet, 2 à 5 mots>",
+ "emoji": "<un emoji>", "demande": "<ce que tu dis au joueur, 2 phrases, oral, sans emoji>",
+ "merci": "<ce que tu dis quand il te le rapporte, 1 ou 2 phrases, oral, sans emoji>"}`;
+
+function cleanPlaces(places) {
+  if (!Array.isArray(places)) return [];
+  const out = [];
+  for (const p of places.slice(0, 24)) {
+    const id = String(p?.id ?? '').slice(0, 60), nom = String(p?.nom ?? '').slice(0, 80);
+    if (id && nom && !out.some((o) => o.id === id)) out.push({ id, nom });
+  }
+  return out;
+}
+
+function fallbackQuest(npc, places) {
+  const p = places[Math.floor(Math.random() * places.length)];
+  return {
+    placeId: p.id, objet: 'un souvenir de là-bas', emoji: '🎁',
+    demande: `Rends-moi un service, gone : va jusqu'à ${p.nom} et rapporte-moi un petit souvenir. Je compte sur toi !`,
+    merci: 'Ah, merci mon gone, t\'es un vrai Lyonnais !',
+  };
+}
+
+export async function npcQuest(player, npc, placesIn) {
+  const persona = PERSONAS[npc];
+  if (!persona) throw httpError(400, 'PNJ inconnu.');
+  const cur = missions.get(player.id);
+  if (cur && Date.now() - cur.t < MISSION_TTL) {
+    if (cur.npc === npc) return { ...publicMission(cur), deja: true };
+    throw httpError(409, `Tu as déjà une mission en cours pour ${PERSONAS[cur.npc]?.nom ?? 'quelqu’un'} !`);
+  }
+  const places = cleanPlaces(placesIn);
+  if (!places.length) throw httpError(400, 'Aucun lieu proposé.');
+  gate(player);
+
+  let q = null;
+  if (aiAvailable()) {
+    try {
+      const list = places.map((p) => `- ${p.id} : ${p.nom}`).join('\n');
+      const res = await anthropic().messages.create({
+        model: MODEL,
+        max_tokens: 400,
+        thinking: { type: 'disabled' },
+        output_config: { effort: 'low' },
+        system: `${MONDE}\n\n${persona.role}\n\n${REGLES}`,
+        messages: [{ role: 'user', content: `${QUEST_RULES}\n\nLieux :\n${list}\n\nLe joueur s'appelle ${player.name}.` }],
+      });
+      const text = res.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+      const json = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+      if (places.some((p) => p.id === json.placeId) && json.objet && json.demande) q = json;
+    } catch (err) {
+      console.error('Mission PNJ : repli sur le modèle', err?.message ?? err);
+    }
+  }
+  q ??= fallbackQuest(npc, places);
+  const clip = (t, n) => String(t ?? '').replace(/[*_#`]/g, '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const place = places.find((p) => p.id === q.placeId);
+  const mission = {
+    npc, placeId: place.id, placeNom: place.nom,
+    objet: clip(q.objet, 40) || 'un souvenir', emoji: clip(q.emoji, 8) || '🎁',
+    demande: clip(q.demande, 300), merci: clip(q.merci, 240) || 'Merci gone !', t: Date.now(),
+  };
+  missions.set(player.id, mission);
+  return { ...publicMission(mission), tts: registerLine(mission.demande, persona.voice) };
+}
+
+// Mission rapportée au bon PNJ : renvoie le texte de remerciement (l'XP est
+// créditée par l'API, qui a accès à la base)
+export function npcQuestDone(player, npc) {
+  const m = missions.get(player.id);
+  if (!m || Date.now() - m.t > MISSION_TTL) throw httpError(404, 'Aucune mission en cours (elle a peut-être expiré).');
+  if (m.npc !== npc) throw httpError(400, `Cette mission est pour ${PERSONAS[m.npc]?.nom ?? 'quelqu’un d’autre'}.`);
+  if (Date.now() - m.t < MISSION_MIN_MS) throw httpError(429, 'Déjà ? Va d’abord chercher l’objet, petit malin !');
+  missions.delete(player.id);
+  const voice = PERSONAS[npc].voice;
+  return { merci: m.merci, objet: m.objet, emoji: m.emoji, tts: registerLine(m.merci, voice) };
+}
+
+export function npcQuestCurrent(player) {
+  const m = missions.get(player.id);
+  return m && Date.now() - m.t < MISSION_TTL ? publicMission(m) : null;
+}
+
+export function npcQuestCancel(player) {
+  missions.delete(player.id);
+}
+
+function publicMission(m) {
+  return { npc: m.npc, npcNom: PERSONAS[m.npc]?.nom, placeId: m.placeId, placeNom: m.placeNom, objet: m.objet, emoji: m.emoji, demande: m.demande };
 }

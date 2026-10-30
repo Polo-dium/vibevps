@@ -448,6 +448,17 @@ export function setupWs(httpServer) {
         return;
       }
 
+      // Rendez-vous posé sur la carte : relayé à TOUT le monde (balise 90 s)
+      if (msg.t === 'rdv') {
+        const now = Date.now();
+        if (now - (me.lastRdvAt ?? 0) < 8000) return;
+        const x = Number(msg.x), z = Number(msg.z);
+        if (![x, z].every((v) => Number.isFinite(v) && Math.abs(v) < 4000)) return;
+        me.lastRdvAt = now;
+        broadcast({ t: 'rdv', id, name: me.name, x: Math.round(x), z: Math.round(z) }, id);
+        return;
+      }
+
       // Chat de proximité : message visible par les joueurs proches uniquement
       if (msg.t === 'chat') {
         const now = Date.now();
