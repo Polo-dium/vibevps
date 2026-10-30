@@ -61,7 +61,7 @@ const NAMES = (process.argv[2] || 'Female_Adult_01').split(',');
         o.material = Array.isArray(o.material) ? mats : mats[0];
       });
       const clips = [];
-      if (ANIM) for (const [name, file, cut] of [['idle', 'idle', 5], ['walk', 'walk', 0], ['talk', 'talk', 5]]) {
+      if (ANIM) for (const [name, file, cut] of [['idle', 'idle', 5], ['walk', 'walk', 0], ['talk', 'talk', 5], ['sit', 'sit', 6]]) {
         const a = await new FBXLoader().loadAsync('/_pv/rb/anim/' + (fem ? 'f_' : 'm_') + file + '.fbx');
         let take = a.animations[0];
         // rotations de tous les os ; position du bassin (Bip01) seulement

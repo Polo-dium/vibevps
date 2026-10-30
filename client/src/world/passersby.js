@@ -42,37 +42,43 @@ export function createPassersby(ctx, data) {
   const blocked = (x, z) => {
     if (ctx.waterMask?.isWater(x, z) || ctx.theatre?.covers(x, z)) return true;
     for (const b of ctx.colliders.nearby ? ctx.colliders.nearby(x, z, 1) : []) {
-      if (x > b.minX - 0.4 && x < b.maxX + 0.4 && z > b.minZ - 0.4 && z < b.maxZ + 0.4 && b.maxY > 1.5) return true;
+      // tout obstacle de plus de 35 cm (bassins de fontaine, bancs, bornes)
+      if (x > b.minX - 0.4 && x < b.maxX + 0.4 && z > b.minZ - 0.4 && z < b.maxZ + 0.4 &&
+        b.maxY - b.minY > 0.35 && b.maxY > (ctx.terrainHeight?.(x, z) ?? 0) + 0.35) return true;
     }
     return false;
   };
-  for (const road of data.roads ?? []) {
-    if (road.w < 4) continue;
-    const off = roadHalf(road) + 1.2;
-    for (let i = 0; i + 3 < road.p.length; i += 2) {
-      const x1 = road.p[i], z1 = road.p[i + 1], x2 = road.p[i + 2], z2 = road.p[i + 3];
-      const len = Math.hypot(x2 - x1, z2 - z1);
-      if (len < 6) continue;
-      const nx = -(z2 - z1) / len, nz = (x2 - x1) / len;
-      for (const side of [-1, 1]) {
-        const a = [x1 + nx * off * side, z1 + nz * off * side];
-        const b = [x2 + nx * off * side, z2 + nz * off * side];
-        // tronçon praticable de bout en bout (sondes tous les 4 m)
-        let ok = true;
-        for (let t = 0; t <= 1; t += 4 / len) {
-          if (blocked(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)) { ok = false; break; }
+  // Calculés à la PREMIÈRE frame : les places et leurs fontaines sont bâties
+  // après les passants, il faut leurs obstacles pour tracer les trottoirs
+  function buildSegs() {
+    for (const road of data.roads ?? []) {
+      if (road.w < 4) continue;
+      const off = roadHalf(road) + 1.2;
+      for (let i = 0; i + 3 < road.p.length; i += 2) {
+        const x1 = road.p[i], z1 = road.p[i + 1], x2 = road.p[i + 2], z2 = road.p[i + 3];
+        const len = Math.hypot(x2 - x1, z2 - z1);
+        if (len < 6) continue;
+        const nx = -(z2 - z1) / len, nz = (x2 - x1) / len;
+        for (const side of [-1, 1]) {
+          const a = [x1 + nx * off * side, z1 + nz * off * side];
+          const b = [x2 + nx * off * side, z2 + nz * off * side];
+          // tronçon praticable de bout en bout (sondes tous les 4 m)
+          let ok = true;
+          for (let t = 0; t <= 1; t += 4 / len) {
+            if (blocked(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)) { ok = false; break; }
+          }
+          if (!ok) continue;
+          const seg = { a, b, len };
+          const idx = segs.push(seg) - 1;
+          const cx = Math.floor((a[0] + b[0]) / 2 / CELL), cz = Math.floor((a[1] + b[1]) / 2 / CELL);
+          const k = key(cx, cz);
+          if (!grid.has(k)) grid.set(k, []);
+          grid.get(k).push(idx);
         }
-        if (!ok) continue;
-        const seg = { a, b, len };
-        const idx = segs.push(seg) - 1;
-        const cx = Math.floor((a[0] + b[0]) / 2 / CELL), cz = Math.floor((a[1] + b[1]) / 2 / CELL);
-        const k = key(cx, cz);
-        if (!grid.has(k)) grid.set(k, []);
-        grid.get(k).push(idx);
       }
     }
   }
-  if (!segs.length) return null;
+  if (!data.roads?.length) return null;
 
   // --- La troupe ----------------------------------------------------------
   const SHIRTS = [0x2f6fb5, 0xc8423a, 0x6a9a4c, 0xe8e3d8, 0x2b2b30, 0xd9a441, 0x7b4a8e, 0x3c8d8a, 0xb5653d, 0x8c8f96];
@@ -214,6 +220,7 @@ export function createPassersby(ctx, data) {
   ctx.updatables.push((dt) => {
     const player = ctx.playerPos?.();
     if (!player) return;
+    if (!segs.length) { if (started) return; buildSegs(); }
     const cam = ctx.camera;
     fwd.set(0, 0, -1);
     if (cam) cam.getWorldDirection(fwd);

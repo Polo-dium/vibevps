@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { makeTextTexture } from './utils.js';
 import { buildHuman } from './human.js';
+import { CROWD, swapForAvatar } from './avatars.js';
 
 // Le Bouchon des Gones 🍷 : une guinguette de quai au pied du Vieux Lyon —
 // nappes vichy, PNJ à l'apéro, lanternes chaudes, et un patron qui cause
@@ -96,11 +97,13 @@ export function buildBouchon(ctx, { notify, speak } = {}) {
   patron.position.set(1.6, 0, D / 2 - 2.1);
   patron.rotation.y = Math.PI;
   group.add(patron);
+  swapForAvatar(ctx, patron, 'male_adult_05');
 
   // Tables vichy + convives debout (l'apéro lyonnais se prend debout)
   const vichy = new THREE.MeshLambertMaterial({ map: makeVichyTexture() });
   const legMat = new THREE.MeshLambertMaterial({ color: 0x2f2f34 });
   const rand = (() => { let s = 69001; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; })();
+  let guestN = 0; // choix des avatars sans toucher au tirage rand()
   for (const [txl, tzl] of [[-2.6, 0.6], [-0.2, -1.2], [2.4, 0.2]]) {
     add(new THREE.CylinderGeometry(0.62, 0.62, 0.06, 10), vichy, txl, 0.95, tzl);
     add(new THREE.CylinderGeometry(0.05, 0.07, 0.92, 6), legMat, txl, 0.48, tzl);
@@ -114,6 +117,7 @@ export function buildBouchon(ctx, { notify, speak } = {}) {
       guest.position.set(txl + Math.cos(a) * 1.05, 0, tzl + Math.sin(a) * 1.05);
       guest.rotation.y = -a + Math.PI / 2; // tourné vers la table
       group.add(guest);
+      swapForAvatar(ctx, guest, [...CROWD.m, ...CROWD.f][(guestN++ * 5) % 12], { talk: true });
     }
   }
 

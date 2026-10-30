@@ -15,6 +15,16 @@ export const CROWD = {
   m: ['male_adult_01', 'male_adult_08', 'male_adult_03', 'male_adult_04', 'male_adult_05', 'male_adult_06'],
 };
 const isFem = (name) => /female/.test(name);
+// Hors palier Élevé, on s'en tient à 3 femmes + 3 hommes (+ Lucie et
+// Kévin) : un autre nom est ramené au plus proche de ce jeu (même sexe)
+const LIGHT = new Set([...CROWD.f.slice(0, 3), ...CROWD.m.slice(0, 3), 'business_female_01', 'sports_male_01']);
+function pickName(name) {
+  if (detail.level === 'eleve' || LIGHT.has(name)) return name;
+  const list = (isFem(name) ? CROWD.f : CROWD.m).slice(0, 3);
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return list[h % list.length];
+}
 
 let loaderP = null;
 const getLoader = () => (loaderP ??= import('three/addons/loaders/GLTFLoader.js').then(({ GLTFLoader }) => new GLTFLoader()));
@@ -67,7 +77,9 @@ export async function preloadAvatars(names) {
 // Instance prête à poser : même interface que buildHuman() pour ce que les
 // passants et les PNJ utilisent (group, hitMeshes, animate, clearTint,
 // shirtMat pour le flash de dégâts) + talk(on) pour gesticuler.
-export async function buildAvatar(name) {
+// { seated: true } : assis à une table (clip `sit`, terrasses).
+export async function buildAvatar(name0, { seated = false } = {}) {
+  const name = pickName(name0);
   const [gltf, clips] = await Promise.all([loadModel(name), loadAnims(isFem(name) ? 'f' : 'm')]);
   const model = cloneSkinned(gltf.scene);
   // les modèles regardent +z ; convention du jeu : regard vers -z au repos
@@ -87,8 +99,9 @@ export async function buildAvatar(name) {
   const mixer = new THREE.AnimationMixer(model);
   const act = {};
   for (const c of clips) act[c.name] = mixer.clipAction(c);
-  act.idle?.play();
-  let cur = act.idle, talking = false;
+  const rest = (seated && act.sit) || act.idle;
+  rest?.play();
+  let cur = rest, talking = false;
   // décale chaque instance dans ses boucles (pas de foule synchronisée)
   mixer.setTime(Math.random() * 5);
   const to = (a, fade = 0.35) => {
@@ -106,7 +119,7 @@ export async function buildAvatar(name) {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     const v = speed / 2.6;
-    if (v > 0.3) {
+    if (seated) { /* reste assis */ } else if (v > 0.3) {
       to(act.walk, 0.25);
       if (act.walk) act.walk.timeScale = Math.max(0.6, Math.min(2.4, v / 1.35));
     } else to(talking ? act.talk : act.idle);
@@ -131,3 +144,45 @@ export async function buildAvatar(name) {
 
 // Avatars activés ? Pas au palier Bas (téléphones modestes) ni sans WebGL2
 export const avatarsEnabled = () => detail.level !== 'bas';
+
+// PNJ fixes (marchands, patrons, habitués) : remplace un humain sculpté
+// déjà posé par un avatar, au même endroit, dans le même parent, dès que
+// le modèle est chargé. Animés par UNE boucle commune (rien au-delà de
+// 70 m, une image sur trois au-delà de 25 m).
+const statics = [];
+let staticLoop = false;
+export function swapForAvatar(ctx, old, name, { seated = false, talk = false } = {}) {
+  if (!avatarsEnabled() || !old) return;
+  if (!staticLoop) {
+    staticLoop = true;
+    const w = new THREE.Vector3();
+    ctx.updatables.push(() => {
+      const p = ctx.playerPos?.();
+      if (!p) return;
+      for (const a of statics) {
+        if (!a.group.visible || !a.group.parent) continue;
+        a.group.getWorldPosition(w);
+        const d2 = (w.x - p.x) ** 2 + (w.z - p.z) ** 2;
+        if (d2 > 4900) continue;
+        a.group.userData.far = d2 > 625;
+        a.animate(0, 0);
+      }
+    });
+  }
+  buildAvatar(name, { seated }).then((a) => {
+    const parent = old.parent;
+    if (!parent) return;
+    a.group.position.copy(old.position);
+    a.group.rotation.copy(old.rotation);
+    a.group.userData.baseY = old.position.y;
+    a.group.visible = old.visible;
+    a.talk(talk);
+    parent.remove(old);
+    parent.add(a.group);
+    // les tirs visent le nouvel avatar
+    const sh = ctx.shootables;
+    old.traverse((o) => { const i = sh?.indexOf(o) ?? -1; if (i >= 0) sh.splice(i, 1); });
+    statics.push(a);
+    old.userData.avatar = a;
+  }).catch(() => {});
+}

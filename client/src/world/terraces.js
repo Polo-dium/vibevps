@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { roadHalf } from './roadfit.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildHuman } from './human.js';
+import { CROWD, preloadAvatars, buildAvatar, avatarsEnabled } from './avatars.js';
 import { detail } from '../render/detail.js';
 import { makeRand } from './layout.js';
 
@@ -213,6 +214,35 @@ export function createTerraces(ctx, spots, roads) {
     ctx.scene.add(h.group);
     crowd.push({ h, chair: null, phase: i * 1.7 });
   }
+  // Clients réalistes (avatars.js, clip « assis à table ») : chargés en
+  // fond, ils remplacent les clients sculptés une fois prêts
+  if (count && avatarsEnabled()) {
+    const pool = [];
+    for (let i = 0; i < CROWD.f.length; i++) pool.push(CROWD.m[i], CROWD.f[i]);
+    setTimeout(async () => {
+      const names = await preloadAvatars(pool.slice(0, detail.level === 'eleve' ? 12 : 6));
+      if (!names.length) return;
+      crowd.forEach((m, i) => buildAvatar(names[i % names.length], { seated: true }).then((a) => {
+        a.group.position.copy(m.h.group.position);
+        a.group.rotation.y = m.h.group.rotation.y;
+        a.group.visible = m.h.group.visible;
+        ctx.scene.remove(m.h.group);
+        ctx.scene.add(a.group);
+        m.h = a;
+        if (m.chair) place(m);
+      }).catch(() => {}));
+    }, 9000);
+  }
+  // Pose sur la chaise : les avatars ont l'origine au sol (le clip les
+  // assoit lui-même) ; SEAT recale la hauteur de l'assise
+  const SEAT = 0;
+  const place = (m) => {
+    const c = m.chair;
+    m.h.group.position.set(c.x, m.h.isAvatar ? c.y - SEAT : c.y - 0.31, c.z);
+    m.h.group.userData.baseY = m.h.group.position.y;
+    // les humains regardent -z au repos
+    m.h.group.rotation.y = c.yaw;
+  };
 
   let timer = 0, time = 0;
   ctx.updatables.push((dt) => {
@@ -243,10 +273,7 @@ export function createTerraces(ctx, spots, roads) {
           m.chair = near.find((c) => !taken.has(c)) ?? null;
           if (m.chair) {
             taken.add(m.chair);
-            const c = m.chair;
-            m.h.group.position.set(c.x, c.y - 0.31, c.z);
-            // les humains regardent -z au repos
-            m.h.group.rotation.y = c.yaw;
+            place(m);
           }
           m.h.group.visible = !!m.chair;
         }
@@ -255,6 +282,11 @@ export function createTerraces(ctx, spots, roads) {
     // De temps en temps, on lève son verre
     for (const m of crowd) {
       if (!m.chair) continue;
+      if (m.h.isAvatar) {
+        m.h.group.userData.far = (m.chair.x - p.x) ** 2 + (m.chair.z - p.z) ** 2 > 1600;
+        m.h.animate(0, 0);
+        continue;
+      }
       const s = Math.sin(time * 0.6 + m.phase);
       const sip = Math.max(0, s - 0.85) / 0.15; // 0..1, ~10 % du temps
       m.h.armR.rotation.x = 0.35 + sip * 0.5;

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Kit } from './monuments.js';
 import { makePocket } from './traboules.js';
 import { buildHuman } from './human.js';
+import { CROWD, swapForAvatar } from './avatars.js';
 import { makeGlowSprite, makeTextTexture } from './utils.js';
 
 // L'INTÉRIEUR DES CAFÉS (ville OSM) : une poignée de devantures « café » /
@@ -146,6 +147,7 @@ function buildSalle(ctx) {
       h.armL.rotation.x = h.armR.rotation.x = 0.6;
       h.foreL.rotation.x = h.foreR.rotation.x = 0.9;
       ctx.scene.add(h.group);
+      swapForAvatar(ctx, h.group, (side > 0 ? CROWD.m : CROWD.f)[i % 6], { seated: true });
     }
   });
   const patron = buildHuman({ shirt: 0xf2efe8, pants: 0x1c1c22, fem: true, style: 'chignon', jupe: false, veste: false }); // la patronne
@@ -153,6 +155,7 @@ function buildSalle(ctx) {
   patron.group.position.set(px, pocket.y, pz);
   patron.group.rotation.y = Math.PI / 2; // face au comptoir et à la salle
   ctx.scene.add(patron.group);
+  swapForAvatar(ctx, patron.group, 'female_adult_04');
   const [ix, iz] = k.world(8, cv + 1.2);
   ctx.interactables.push({
     x: ix, z: iz, r: 2.4, label: 'E — Causer avec le patron',

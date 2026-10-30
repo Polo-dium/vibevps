@@ -4,6 +4,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { riverCx, makeRand } from './layout.js';
 import { edgeDist, insidePoly } from './passerelles.js';
 import { buildHuman } from './human.js';
+import { CROWD, swapForAvatar } from './avatars.js';
 
 // LES MARCHÉS (ville OSM) : le marché du quai Saint-Antoine, le long de la
 // Saône face à Saint-Jean, et celui du boulevard de la Croix-Rousse. Étals
@@ -174,13 +175,19 @@ export function buildMarches(ctx, data) {
       h.foreL.rotation.x = h.foreR.rotation.x = 0.9;
       ctx.scene.add(h.group);
       vendors.push(h.group);
+      // marchand réaliste (avatar), qui interpelle le client
+      const g0 = h.group;
+      swapForAvatar(ctx, g0, (k % 2 ? CROWD.f : CROWD.m)[vendors.length % 6], { talk: k % 2 === 0 });
     }
   }
   // installés le jour, remballés la nuit
   ctx.updatables.push(() => {
     const on = (ctx.env?.daylight ?? 1) > 0.35;
     frameMesh.visible = roofMesh.visible = crateMesh.visible = on;
-    for (const g of vendors) g.visible = on;
+    for (const g of vendors) {
+      g.visible = on;
+      if (g.userData.avatar) g.userData.avatar.group.visible = on; // remplacé par un avatar
+    }
   });
   // le cri du marché (E près d'un marchand)
   const CRIS = ['🥕 « Elles sont belles mes tomates, elles sont belles ! »',

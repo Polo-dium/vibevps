@@ -192,7 +192,11 @@ npm start          # serveur de prod (sert client/dist)
   - `src/world/avatars.js` : avatars Rocketbox (passants, Lucie, Marcel,
     Kévin) — `buildAvatar(nom)` a l'interface de `buildHuman` (group,
     hitMeshes, animate(phase, vitesse×2,6), clearTint, shirtMat) + talk(on) ;
-    clips idle/walk/talk par AnimationMixer (1 image sur 3 au-delà de 40 m),
+    clips idle/walk/talk/sit par AnimationMixer (1 image sur 3 au-delà de 40 m),
+    `{ seated: true }` = assis à table (terrasses, habitués des cafés) ;
+    `swapForAvatar(ctx, objet, nom, opts)` remplace un PNJ sculpté déjà posé
+    (marchands, patron du bouchon et convives, patronne) ; hors Élevé les noms
+    sont ramenés à 3 femmes + 3 hommes (`pickName`) pour limiter le poids,
     modèles tournés de π (regard -z), Lambert hors palier Élevé, 3 draw
     calls chacun. Chargés en fond (6 au palier Moyen, 12 en Élevé, aucun
     en Bas) ; les passants sculptés sont échangés quand ils sont loin.
@@ -246,7 +250,9 @@ npm start          # serveur de prod (sert client/dist)
     retour au PNJ (remise à l'ouverture du dialogue) → `/npc/quest/done`
     (+80 XP, délai mini 20 s côté serveur). Encart de quête : la mission
     passe avant la quête de l'arsenal (`ctx.setMissionQuest`).
-    Passants (`passersby.js`) : bulles de petites phrases (jour/nuit/pluie).
+    Passants (`passersby.js`) : bulles de petites phrases (jour/nuit/pluie) ;
+    trottoirs calculés à la 1re frame (les fontaines des places existent
+    alors), tout obstacle de plus de 35 cm les coupe.
   - `src/world/rdv.js` : rendez-vous — toucher la carte (M) pose une balise
     vue par tous 90 s (WS `t: 'rdv'`, relayé par le serveur, 1 / 8 s).
   - Définition d'image plafonnée par un budget de pixels (`basePixelRatio`
