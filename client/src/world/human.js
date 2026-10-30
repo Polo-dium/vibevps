@@ -28,6 +28,12 @@ function cached(key, build) {
   return cache.get(key);
 }
 const cellSize = () => (detail.high ? 0.023 : 0.038);
+// La TÊTE a sa propre grille, bien plus fine (petit volume : quelques
+// milliers de triangles, partagés par tous les humains du même modèle) :
+// nez, arcades, mâchoire et oreilles se lisent enfin hors palier Élevé
+const headCell = () => (detail.high ? 0.0135 : 0.017);
+// Pièce de la tête : tout ce qui est au-dessus du cou
+const isHeadPrim = (q) => (q.t === 'cone' ? Math.min(q.a[1], q.b[1]) : q.c?.[1] ?? 0) >= 1.55;
 
 // Jambe, repère du pivot (hanche à l'origine) : cuisse galbée, genou,
 // mollet, cheville, chaussure à bout rond sur semelle claire
@@ -93,7 +99,7 @@ function bodyShape(look, v = {}) {
     { t: 'cone', a: [0, 1.45, 0.012], b: [0, 1.585, 0.0], r1: f ? 0.045 : 0.054, r2: f ? 0.042 : 0.05, slot: SKIN, k: 0.02 },
     // Tête : crâne, mâchoire, menton, pommettes, arcades, nez, oreilles
     { t: 'ell', c: [0, 1.678, 0.008], r: [0.093, 0.112, 0.104], slot: SKIN, k: 0.03 },
-    { t: 'ell', c: [0, 1.605, -0.03], r: [0.072, 0.058, 0.072], slot: SKIN, k: 0.05 },
+    { t: 'ell', c: [0, 1.605, -0.03], r: f ? [0.064, 0.054, 0.066] : [0.072, 0.058, 0.072], slot: SKIN, k: 0.05 },
     { t: 'ell', c: [0, 1.572, -0.072], r: [0.03, 0.026, 0.028], slot: SKIN, k: 0.03 },
     { t: 'ell', c: [-0.052, 1.648, -0.075], r: [0.03, 0.022, 0.025], slot: SKIN, k: 0.025 },
     { t: 'ell', c: [0.052, 1.648, -0.075], r: [0.03, 0.022, 0.025], slot: SKIN, k: 0.025 },
@@ -101,6 +107,11 @@ function bodyShape(look, v = {}) {
     { t: 'cone', a: [0, 1.682, -0.1], b: [0, 1.632, -0.124], r1: 0.011, r2: 0.017, slot: SKIN, k: 0.012 },
     { t: 'ell', c: [-0.094, 1.665, 0.012], r: [0.014, 0.032, 0.022], slot: SKIN_DARK, k: 0.01 },
     { t: 'ell', c: [0.094, 1.665, 0.012], r: [0.014, 0.032, 0.022], slot: SKIN_DARK, k: 0.01 },
+    // Ailes du nez, lèvres en volume (lisibles avec la grille fine de la tête)
+    { t: 'ell', c: [-0.016, 1.636, -0.112], r: [0.012, 0.01, 0.011], slot: SKIN, k: 0.008 },
+    { t: 'ell', c: [0.016, 1.636, -0.112], r: [0.012, 0.01, 0.011], slot: SKIN, k: 0.008 },
+    { t: 'ell', c: [0, 1.603, -0.099], r: [f ? 0.027 : 0.026, f ? 0.009 : 0.007, 0.012], slot: LIP, k: 0.006 },
+    { t: 'ell', c: [0, 1.591, -0.097], r: [f ? 0.024 : 0.022, f ? 0.011 : 0.009, 0.012], slot: LIP, k: 0.006 },
     // Orbites légèrement creusées
     { t: 'sphere', c: [-0.038, 1.68, -0.106], r: 0.02, sub: true, k: 0.014 },
     { t: 'sphere', c: [0.038, 1.68, -0.106], r: 0.02, sub: true, k: 0.014 },
@@ -148,7 +159,6 @@ function faceDetails() {
   const eye = new THREE.SphereGeometry(0.0145, 10, 8);
   const pupil = new THREE.SphereGeometry(0.0085, 8, 6);
   const brow = new THREE.BoxGeometry(0.044, 0.01, 0.012);
-  const lip = new THREE.BoxGeometry(0.046, 0.011, 0.012);
   const buckle = new THREE.BoxGeometry(0.055, 0.036, 0.016);
   return [
     { geometry: eye, slot: WHITE, matrix: at(-0.038, 1.68, -0.092, 1, 0.8, 0.7) },
@@ -157,7 +167,6 @@ function faceDetails() {
     { geometry: pupil, slot: EYE, matrix: at(0.038, 1.68, -0.1, 1, 1, 0.6) },
     { geometry: brow, slot: HAIR, matrix: at(-0.04, 1.707, -0.1, 1, 1, 1, 0.12) },
     { geometry: brow, slot: HAIR, matrix: at(0.04, 1.707, -0.1, 1, 1, 1, -0.12) },
-    { geometry: lip, slot: LIP, matrix: at(0, 1.598, -0.103) },
     { geometry: buckle, slot: METAL, matrix: at(0, 0.985, -0.112) },
   ];
 }
@@ -233,8 +242,17 @@ function skinnedGeo(seated, look, v) {
   });
 }
 
-const bodyGeo = (look, v) => cached(`corps|${look}|${v.fem}|${v.veste}|${v.jupe}|${v.barbe}|${cellSize()}`,
-  () => withDetails(sculpt(bodyShape(look, v), { cell: cellSize() }), faceDetails()));
+const bodyGeo = (look, v) => cached(`corps|${look}|${v.fem}|${v.veste}|${v.jupe}|${v.barbe}|${cellSize()}`, () => {
+  const prims = bodyShape(look, v);
+  const torso = prims.filter((q) => !isHeadPrim(q));
+  // la tête garde un bout de cou, un peu plus fin, noyé dans celui du tronc
+  const head = [
+    { t: 'cone', a: [0, 1.56, 0.006], b: [0, 1.62, 0.002], r1: v.fem ? 0.039 : 0.046, r2: v.fem ? 0.038 : 0.045, slot: SKIN, k: 0.01 },
+    ...prims.filter(isHeadPrim),
+  ];
+  const headGeo = sculpt(head, { cell: headCell() });
+  return withDetails(sculpt(torso, { cell: cellSize() }), [{ geometry: headGeo }, ...faceDetails()]);
+});
 
 // Vestes et jupes (teintes de la garde-robe lyonnaise)
 const JACKETS = [0x1f2a44, 0x2a2a2e, 0xa8865a, 0x5b6068, 0x4a5a3a, 0x6d2430, 0x8a8f96];

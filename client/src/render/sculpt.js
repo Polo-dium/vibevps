@@ -329,6 +329,8 @@ export function sculpt(primsIn, { cell = 0.02 } = {}) {
 export function withDetails(geo, details) {
   const parts = [geo];
   for (const { geometry, slot, matrix } of details) {
+    // pièce déjà sculptée (attribut slot) : fusionnée telle quelle
+    if (geometry.attributes.slot && geometry.index && !matrix) { parts.push(geometry); continue; }
     let g = geometry.index ? geometry : geometry.clone();
     if (matrix) g = g.clone().applyMatrix4(matrix);
     const out = new THREE.BufferGeometry();

@@ -192,7 +192,9 @@ npm start          # serveur de prod (sert client/dist)
     géométrie partagée, couleurs par sommet ; une arme se fixe sur l'os armR ;
     variantes `fem`, `veste`, `jupe`, `barbe`, coiffures court/casquette/
     long/chignon/chauve, carrure ±6 % — déduites des couleurs si absentes,
-    figées pour les avatars des joueurs) et `src/world/statue.js` (Louis XIV,
+    figées pour les avatars des joueurs ; la TÊTE est sculptée sur sa propre
+    grille fine `headCell` — 1,7 cm, 1,35 cm au palier Élevé — et fusionnée au
+    tronc) et `src/world/statue.js` (Louis XIV,
     Saint-Exupéry et le Petit Prince).
   - Théâtre gallo-romain de Fourvière (ville OSM) : `theatre.js` (gradins
     praticables — `ctx.terrainHeight` réécrit dans l'emprise,
