@@ -7,7 +7,9 @@ tirés de la [Microsoft Rocketbox Avatar Library](https://github.com/microsoft/M
 1. `ROOT=$(pwd) bash tools/rocketbox/download.sh` : FBX + textures 512 px
    (PNG) dans `client/public/_pv/rb/<Nom>/` (+ animations dans `anim/`, voir
    les `curl` du README d'origine : `*_idle_neutral_01`, `*_walk_neutral_01`,
-   `*_gestic_talk_neutral_01`, `*_sit_table_idle_neutral_01` → `sit`). Dossier de
+   `*_gestic_talk_neutral_01`, `*_sit_table_idle_neutral_01` → `sit`,
+   `*_run_neutral_01` → `run`, `*_crouch_idle` → `crouch` ; fichiers nommés
+   `anim/m_idle.fbx`, `anim/f_run.fbx`…). Dossier de
    travail : ne pas versionner. Liste des fichiers du dépôt sans tout télécharger :
    `git clone --depth 1 --filter=blob:none --no-checkout` puis `git ls-tree -r HEAD`.
 2. Copier `_pv.js` dans `client/src/` (le temps de la conversion) et lancer

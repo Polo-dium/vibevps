@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { hashColor } from '../world/utils.js';
 import { buildHuman } from '../world/human.js';
-import { buildAvatar, avatarsEnabled } from '../world/avatars.js';
+import { buildAvatar, avatarsEnabled, avatarFor } from '../world/avatars.js';
 import { buildMirageModel, buildPlaneModel } from '../world/aviation.js';
 import { buildVelovModel } from '../world/velov.js';
 import { createMusicSource, gainForDistance } from '../music.js';
@@ -12,9 +12,7 @@ import { state } from '../state.js';
 const INTERP_DELAY = 0.12; // secondes de retard de rendu pour interpoler
 
 const PANTS = [0x39404e, 0x4e4439, 0x2e3a4e, 0x44394e];
-// Distribution des avatars réalistes des joueurs et des bots (4 modèles
-// pour limiter le poids chargé ; le même pseudo a toujours le même)
-const AVATAR_CAST = ['sports_male_01', 'male_adult_01', 'female_adult_01', 'male_adult_08'];
+
 
 export function createRemotePlayers(scene, shootables, { onHitRemote, getListenerPos } = {}) {
   const remotes = new Map();
@@ -54,9 +52,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     // Personnage réaliste (avatars Rocketbox) : l'humain sculpté tient la
     // place le temps du chargement, puis on l'échange (sauf palier Bas)
     if (avatarsEnabled()) {
-      let h = 0;
-      for (const ch of name) h = (h * 31 + ch.codePointAt(0)) >>> 0;
-      buildAvatar(AVATAR_CAST[h % AVATAR_CAST.length]).then((av) => swapIn(id, human, av)).catch(() => {});
+      buildAvatar(avatarFor(name)).then((av) => swapIn(id, human, av)).catch(() => {});
     }
 
     remotes.set(id, {
@@ -154,6 +150,18 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     remotes.delete(id);
   }
 
+  // MORT : le personnage s'écroule sur place (2,6 s) au lieu de disparaître
+  // d'un coup — sa position est figée là où il est tombé pendant ce temps.
+  function fall(id) {
+    const r = remotes.get(id);
+    const t = performance.now() / 1000;
+    if (!r || (r.deadUntil ?? 0) > t) return;
+    r.deadAt = t;
+    r.deadUntil = t + 2.6;
+    r.deadPos = r.human.group.position.clone();
+    r.deadRy = r.human.group.rotation.y;
+  }
+
   function flash(id) {
     const r = remotes.get(id);
     if (!r) return;
@@ -168,6 +176,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     const r = remotes.get(id);
     if (!r?.muzzle) return;
     r.muzzleUntil = performance.now() / 1000 + 0.06;
+    r.human.kickShot?.(); // secousse de recul dans les bras
   }
   net.on('shot', (msg) => { if (!msg.melee) muzzleFlash(msg.id); });
 
@@ -177,7 +186,8 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
   net.on('pjoin', (msg) => spawn(msg.id, msg.name, msg.p, msg.ry));
   net.on('pleave', (msg) => remove(msg.id));
   net.on('hp', (msg) => flash(msg.id));
-  net.on('death', (msg) => flash(msg.id));
+  net.on('death', (msg) => { flash(msg.id); fall(msg.id); });
+  net.on('akill', (msg) => fall(msg.v));
   net.on('chat', (msg) => showChat(msg.id, msg.text));
   net.on('states', (msg) => {
     const now = performance.now() / 1000;
@@ -275,8 +285,22 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
       // Arme tenue en main : on voit un autre joueur la sortir, la ranger,
       // et l'éclair de bouche quand il tire (voir muzzleFlash/net.on('shot')).
       // Rien en véhicule/avion — les mains sont sur les commandes.
-      // Accroupi : silhouette tassée (les impacts suivent le maillage)
-      const squat = !veh && (b.cr ?? 0) ? 0.7 : 1;
+      // Mort récente : figé à l'endroit de la chute, le corps bascule en arrière
+      const dead = (r.deadUntil ?? 0) > nowSec;
+      if (dead) {
+        g.position.copy(r.deadPos);
+        const k = Math.min(1, (nowSec - r.deadAt) / 0.5);
+        g.rotation.order = 'YXZ';
+        g.rotation.set(-k * k * 1.5, r.deadRy, 0);
+        g.position.y += k * 0.12; // le dos repose sur le sol, pas dedans
+      } else if (r.deadUntil) {
+        r.deadUntil = 0;
+        g.rotation.x = 0;
+      }
+      // Accroupi : vraie posture pour les avatars, silhouette tassée sinon
+      const crouching = !veh && !dead && Boolean(b.cr ?? 0);
+      g.userData.crouch = crouching;
+      const squat = crouching && !r.human.isAvatar ? 0.7 : 1;
       if (Math.abs(g.scale.y - squat) > 0.005) g.scale.y += (squat - g.scale.y) * 0.3;
       const wpnCode = veh ? 0 : (b.wpn ?? a.wpn ?? 0);
       if (wpnCode !== (r.weaponCode ?? 0)) {
@@ -364,10 +388,10 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
       if (r.human.isAvatar) {
         // avatar réaliste : bras en position de tir si l'arme est sortie,
         // animation allégée au-delà de 40 m, vitesse au format des avatars
-        r.human.setArmed(Boolean(r.weapon));
+        r.human.setArmed(Boolean(r.weapon) && !dead);
         const lp = getListenerPos?.();
         g.userData.far = lp ? g.position.distanceToSquared(lp) > 1600 : false;
-        r.human.animate(r.animTime, veh ? 0 : speed * 2.6);
+        r.human.animate(r.animTime, veh || dead ? 0 : speed * 2.6);
       } else {
         r.human.animate(r.animTime, veh ? 0 : speed);
       }

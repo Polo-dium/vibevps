@@ -61,7 +61,7 @@ const NAMES = (process.argv[2] || 'Female_Adult_01').split(',');
         o.material = Array.isArray(o.material) ? mats : mats[0];
       });
       const clips = [];
-      if (ANIM) for (const [name, file, cut] of [['idle', 'idle', 5], ['walk', 'walk', 0], ['talk', 'talk', 5], ['sit', 'sit', 6]]) {
+      if (ANIM) for (const [name, file, cut] of [['idle', 'idle', 5], ['walk', 'walk', 0], ['talk', 'talk', 5], ['sit', 'sit', 6], ['run', 'run', 0], ['crouch', 'crouch', 4]]) {
         const a = await new FBXLoader().loadAsync('/_pv/rb/anim/' + (fem ? 'f_' : 'm_') + file + '.fbx');
         let take = a.animations[0];
         // rotations de tous les os ; position du bassin (Bip01) seulement
@@ -83,7 +83,7 @@ const NAMES = (process.argv[2] || 'Female_Adult_01').split(',');
         }
         // sur place : la marche n'avance pas (le jeu déplace le personnage)
         const root = clip.tracks.find((t) => t.name === 'Bip01.position');
-        if (root && name === 'walk') { const v = root.values, x = v[0], z = v[2]; for (let i = 0; i < v.length; i += 3) { v[i] = x; v[i + 2] = z; } }
+        if (root && (name === 'walk' || name === 'run')) { const v = root.values, x = v[0], z = v[2]; for (let i = 0; i < v.length; i += 3) { v[i] = x; v[i + 2] = z; } }
         clips.push(clip);
         console.log('CV', n, name, clip.duration.toFixed(2), clip.tracks.length);
       }

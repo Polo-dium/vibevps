@@ -43,6 +43,7 @@ import { createKoth } from './world/koth.js';
 import { createHiFi } from './world/hifi.js';
 import { createArenaMatch } from './world/arenaMatch.js';
 import { createKillcam } from './world/killcam.js';
+import { createSelfBody } from './world/selfBody.js';
 import { buildGuignol } from './world/guignol.js';
 import { createNeons } from './world/neons.js';
 import { createSkylife } from './world/skylife.js';
@@ -1270,7 +1271,9 @@ async function boot() {
   });
   if (window.__game) window.__game.arenaMatch = arenaMatch;
   // Killcam : rejeu des 2 s avant / 1 s après la mort (arène)
-  const killcam = createKillcam(ctx, { camera, remotes, controls, net, fx: weapon.fx });
+  const killcam = createKillcam(ctx, { camera, remotes, controls, net, fx: weapon.fx, getName: () => state.auth?.name ?? '' });
+  // Ton propre corps (même personnage que chez les autres), vu en baissant les yeux
+  const selfBody = createSelfBody(ctx, { controls, getName: () => state.auth?.name ?? '' });
   ctx.stopKillcam = () => killcam.stop();
   if (window.__game) window.__game.killcam = killcam;
   // Entrée PERMANENTE de l'arène : un portail doré au pied de Louis XIV
@@ -2214,6 +2217,7 @@ async function boot() {
       ui.setInfo({ fps: fpsValue, players: remotes.count(), pos: controls.position, cpu: Math.round(cpuMs) });
     }
 
+    selfBody.update(dt);
     killcam.update(); // après controls/remotes : rejoue la scène si besoin
     ui.setCompass(camera.rotation.y);
     tutorial.update(controls.position, ARCADE);

@@ -26,6 +26,16 @@ function pickName(name) {
   return list[h % list.length];
 }
 
+// Distribution des avatars des JOUEURS et des bots (4 modèles pour limiter
+// le poids chargé) : le même pseudo donne toujours le même personnage, chez
+// tout le monde — y compris pour soi (corps à la 1re personne, killcam).
+const PLAYER_CAST = ['sports_male_01', 'male_adult_01', 'female_adult_01', 'male_adult_08'];
+export function avatarFor(pseudo) {
+  let h = 0;
+  for (const ch of String(pseudo)) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return PLAYER_CAST[h % PLAYER_CAST.length];
+}
+
 let loaderP = null;
 const getLoader = () => (loaderP ??= import('three/addons/loaders/GLTFLoader.js').then(({ GLTFLoader }) => new GLTFLoader()));
 const models = new Map(); // nom → Promise<{ scene }>
@@ -119,9 +129,16 @@ export async function buildAvatar(name0, { seated = false } = {}) {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     const v = speed / 2.6;
-    if (seated) { /* reste assis */ } else if (v > 0.3) {
+    if (seated) { /* reste assis */ } else if (group.userData.crouch && act.crouch) {
+      // accroupi (capture de mouvement : le bassin descend vraiment)
+      to(act.crouch, 0.18);
+    } else if (v > 2.7 && act.run) {
+      // course (≈ 3,8 m/s à vitesse de lecture 1) : la foulée suit la vitesse
+      to(act.run, 0.18);
+      act.run.timeScale = Math.max(0.8, Math.min(1.7, v / 3.8));
+    } else if (v > 0.3) {
       to(act.walk, 0.25);
-      if (act.walk) act.walk.timeScale = Math.max(0.6, Math.min(2.4, v / 1.35));
+      if (act.walk) act.walk.timeScale = Math.max(0.6, Math.min(2.0, v / 1.35));
     } else to(talking ? act.talk : act.idle);
     // loin du joueur : animation mise à jour une image sur trois
     if (group.userData.far && (skip = (skip + 1) % 3) !== 0) return;
@@ -142,7 +159,7 @@ export async function buildAvatar(name0, { seated = false } = {}) {
   const armR = new THREE.Group();
   armR.position.set(0.16, 1.25, -0.3);
   group.add(armR);
-  let armed = false;
+  let armed = false, kick = 0;
   const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3();
   const _q = new THREE.Quaternion(), _qw = new THREE.Quaternion(), _qp = new THREE.Quaternion(), _qg = new THREE.Quaternion();
   function aimBone(b, child, x, y, z) {
@@ -160,10 +177,13 @@ export async function buildAvatar(name0, { seated = false } = {}) {
     if (!armed || !canPose) return;
     group.getWorldQuaternion(_qg);
     // (repère du groupe : -z = devant, +x = à droite du personnage)
-    aimBone(arm.r[0], arm.r[1], 0.12, -0.72, -0.68);
-    aimBone(arm.r[1], arm.r[2], -0.42, 0.18, -0.89);
-    aimBone(arm.l[0], arm.l[1], 0.1, -0.5, -0.86);
-    aimBone(arm.l[1], arm.l[2], 0.62, 0.22, -0.75);
+    // + secousse de recul à chaque coup (kick, retombe en ~0,15 s)
+    const k = kick;
+    kick = Math.max(0, kick - 0.14);
+    aimBone(arm.r[0], arm.r[1], 0.12, -0.72, -0.68 + k * 0.25);
+    aimBone(arm.r[1], arm.r[2], -0.42, 0.18 + k * 0.5, -0.89);
+    aimBone(arm.l[0], arm.l[1], 0.1, -0.5, -0.86 + k * 0.2);
+    aimBone(arm.l[1], arm.l[2], 0.62, 0.22 + k * 0.5, -0.75);
     // support de l'arme : calé sur la main droite (poignée ≈ origine du modèle)
     arm.r[2].updateWorldMatrix(true, false);
     arm.r[2].getWorldPosition(_a);
@@ -176,6 +196,8 @@ export async function buildAvatar(name0, { seated = false } = {}) {
   return {
     armR,
     setArmed(on) { armed = Boolean(on); },
+    kickShot() { kick = 1; },
+    model, bone,
     animateArmed(phase, speed) { animate0(phase, speed); poseArmed(); },
     group,
     mesh: meshes[0],

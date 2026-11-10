@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { state } from '../state.js';
 import { buildHuman } from './human.js';
+import { buildAvatar, avatarsEnabled, avatarFor } from './avatars.js';
 
 // KILLCAM 🎥 — à ta mort dans l'arène, on te REJOUE la scène par-dessus
 // l'épaule de celui qui t'a eu : les 2 dernières secondes avant le coup
@@ -18,7 +19,7 @@ import { buildHuman } from './human.js';
 const BEFORE = 2, AFTER = 1, KEEP = 7;
 const nowS = () => performance.now() / 1000;
 
-export function createKillcam(ctx, { camera, remotes, controls, net, fx }) {
+export function createKillcam(ctx, { camera, remotes, controls, net, fx, getName }) {
   const tracks = new Map(); // id -> [{ t, x, y, z, ry }]
   const mine = [];
   const shots = [];
@@ -60,8 +61,19 @@ export function createKillcam(ctx, { camera, remotes, controls, net, fx }) {
     return out;
   }
 
-  // Ton corps, vu de l'extérieur (construit à la première mort)
+  // Ton corps, vu de l'extérieur : le même personnage que les autres voient
+  // (avatar chargé en fond ; sculpté en attendant, ou au palier Bas)
   let ghost = null;
+  if (avatarsEnabled()) {
+    setTimeout(() => buildAvatar(avatarFor(getName?.() ?? '')).then((av) => {
+      if (active) return; // pas d'échange en plein rejeu
+      if (ghost) ctx.scene.remove(ghost.group);
+      av.group.visible = false;
+      av.group.traverse((o) => { o.frustumCulled = false; });
+      ctx.scene.add(av.group);
+      ghost = av;
+    }).catch(() => {}), 4000);
+  }
   function ensureGhost() {
     if (ghost) return ghost;
     ghost = buildHuman({ shirt: 0xe8e2d0, pants: 0x39404e, fem: false, veste: false, jupe: false, barbe: false });
@@ -147,7 +159,13 @@ export function createKillcam(ctx, { camera, remotes, controls, net, fx }) {
     const fall = Math.max(0, Math.min(1, (sim - active.t0) / 0.45));
     gh.rotation.x = -fall * fall * 1.45;
     gh.rotation.order = 'YXZ';
-    try { ghost.animate(sim * 9, fall > 0 ? 0 : 6); } catch { /* avatar sans animation */ }
+    // vitesse d'alors (pour marcher ou courir comme à ce moment-là)
+    const v = Math.hypot(_m.x - (active.px ?? _m.x), _m.z - (active.pz ?? _m.z)) / Math.max(0.001, sim - active.lastSim);
+    active.px = _m.x; active.pz = _m.z;
+    active.v = (active.v ?? 0) * 0.8 + Math.min(v, 12) * 0.2;
+    gh.userData.baseY = _m.y;
+    gh.position.y += fall * 0.12;
+    try { ghost.animate(sim * 9, fall > 0 ? 0 : active.v * 2.6); } catch { /* avatar sans animation */ }
 
     // Caméra par-dessus l'épaule du tireur, braquée sur moi
     if (sample(tracks.get(active.killerId), sim, _k)) {

@@ -207,6 +207,12 @@ npm start          # serveur de prod (sert client/dist)
     ramènent les bras en position de tir après l'animation (`aimBone`, sans
     hypothèse sur le repère des os), l'arme se pose sur le support `armR`
     recalé sur la main droite.
+    Clips supplémentaires (captures Rocketbox, `tools/rocketbox`) : `run`
+    (au-delà de 2,7 m/s) et `crouch` (`group.userData.crouch`). Mort : le
+    corps bascule sur place 2,6 s (`fall` dans remotes.js, messages `death` /
+    `akill`). `world/selfBody.js` : son propre corps à la 1re personne (même
+    avatar `avatarFor(pseudo)`, tête et bras escamotés), aussi utilisé comme
+    corps dans la killcam.
   - `src/world/human.js` (humains sculptés, repli et autres PNJ, UN SkinnedMesh par humain = 1 draw
     call : pièces fusionnées, os = anciens pivots armL/armR/foreL/legL/kneeL…,
     géométrie partagée, couleurs par sommet ; une arme se fixe sur l'os armR ;
