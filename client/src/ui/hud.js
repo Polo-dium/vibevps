@@ -20,7 +20,9 @@ export function createUi() {
     <div id="hud-range" class="hidden"></div>
     <div id="hud-ammo" class="hidden"></div>
     <div id="toasts"></div>
-    <div id="hud-hp">❤ 100</div>
+    <div id="hud-compass"><div id="compass-strip"></div><i></i><span id="compass-deg">000</span></div>
+    <div id="hud-contact" class="hidden"><div id="contact-arc"></div><div id="contact-label"></div></div>
+    <div id="hud-hp"><span class="hp-label">VITAL</span><span id="hp-num">100</span><div id="hp-bar"><i></i></div></div>
     <div id="hud-xp">
       <span id="xp-level">NIV 1</span>
       <div id="xp-bar"><div id="xp-fill"></div></div>
@@ -231,8 +233,64 @@ export function createUi() {
     }
   }
 
+  const hpNumEl = hud.querySelector('#hp-num');
+  const hpFillEl = hud.querySelector('#hp-bar i');
   function setHp(hp) {
-    hpEl.textContent = `❤ ${Math.max(0, hp)}`;
+    const v = Math.max(0, Math.round(hp));
+    hpNumEl.textContent = v;
+    hpFillEl.style.width = `${Math.min(100, v)}%`;
+    hpEl.classList.toggle('low', v <= 35);
+  }
+
+  // BOUSSOLE : ruban gradué en haut de l'écran. Trois tours de cadran bout
+  // à bout, on ne déplace que le ruban (transform) — et seulement quand le
+  // cap a bougé d'un demi-degré.
+  const PX_DEG = 3; // pixels par degré
+  const stripEl = hud.querySelector('#compass-strip');
+  const degEl = hud.querySelector('#compass-deg');
+  {
+    const names = { 0: 'N', 45: 'NE', 90: 'E', 135: 'SE', 180: 'S', 225: 'SO', 270: 'O', 315: 'NO' };
+    let html = '';
+    for (let turn = 0; turn < 3; turn++) {
+      for (let d = 0; d < 360; d += 15) {
+        const x = (turn * 360 + d) * PX_DEG;
+        html += names[d] != null
+          ? `<b class="${d % 90 ? '' : 'card'}" style="left:${x}px">${names[d]}</b>`
+          : `<s style="left:${x}px"></s>`;
+      }
+    }
+    stripEl.innerHTML = html;
+  }
+  let lastHeading = -999;
+  // yaw : rotation de la caméra (0 = regard vers -z = nord, positif = gauche)
+  function setCompass(yaw) {
+    const heading = ((-yaw * 180 / Math.PI) % 360 + 360) % 360;
+    if (Math.abs(heading - lastHeading) < 0.5) return;
+    lastHeading = heading;
+    stripEl.style.transform = `translate3d(${-(360 + heading) * PX_DEG}px,0,0)`;
+    degEl.textContent = String(Math.round(heading) % 360).padStart(3, '0');
+  }
+
+  // CONTACT : arc rouge autour du réticule, tourné vers le tireur, et sa
+  // direction cardinale en clair (« CONTACT — SUD-EST »).
+  const contactEl = hud.querySelector('#hud-contact');
+  const contactArcEl = hud.querySelector('#contact-arc');
+  const contactLabelEl = hud.querySelector('#contact-label');
+  const CARDINALS = ['NORD', 'NORD-EST', 'EST', 'SUD-EST', 'SUD', 'SUD-OUEST', 'OUEST', 'NORD-OUEST'];
+  let contactTimer = null;
+  // dx, dz : vecteur joueur → tireur (monde) ; yaw : rotation de la caméra
+  function contact(dx, dz, yaw) {
+    const bearing = Math.atan2(dx, -dz); // 0 = nord, sens horaire
+    const rel = bearing + yaw;           // par rapport au regard
+    const idx = ((Math.round(bearing / (Math.PI / 4)) % 8) + 8) % 8;
+    contactArcEl.style.transform = `rotate(${rel}rad)`;
+    contactLabelEl.textContent = `CONTACT — ${CARDINALS[idx]}`;
+    contactEl.classList.remove('hidden');
+    contactEl.style.animation = 'none';
+    void contactEl.offsetWidth; // relance l'animation CSS
+    contactEl.style.animation = '';
+    clearTimeout(contactTimer);
+    contactTimer = setTimeout(() => contactEl.classList.add('hidden'), 1800);
   }
 
   function damageFlash(strong = false) {
@@ -319,9 +377,18 @@ export function createUi() {
       return;
     }
     ammoEl.classList.remove('hidden');
-    if (reloading) ammoEl.textContent = 'RECHARGE…';
-    else if (spec?.melee) ammoEl.textContent = `${spec.emoji} ${spec.nom}`;
-    else ammoEl.textContent = `${spec ? spec.emoji + ' ' : ''}${ammo} / ${spec?.mag ?? 30}`;
+    const nom = spec ? `<div class="ammo-name">${spec.emoji ?? ''} ${escapeHtml(String(spec.nom ?? ''))}</div>` : '';
+    if (spec?.melee) {
+      ammoEl.innerHTML = nom;
+      return;
+    }
+    const mag = spec?.mag ?? 30;
+    const pct = Math.max(0, Math.min(100, (ammo / mag) * 100));
+    ammoEl.classList.toggle('low', !reloading && ammo <= mag * 0.25);
+    ammoEl.innerHTML = reloading
+      ? `<span class="ammo-reload">RECHARGE</span><div class="ammo-ticks reloading"><i></i></div>${nom}`
+      : `<span class="ammo-num">${ammo}</span><span class="ammo-mag">/ ${mag}</span>` +
+        `<div class="ammo-ticks"><i style="width:${pct}%"></i></div>${nom}`;
   }
 
   function toast(message) {
@@ -750,7 +817,7 @@ export function createUi() {
 
   return {
     ensureAuth, invite, toast, setPrompt, onPromptTap, setInfo, setQuest, setRange, setBanner, setAmmo,
-    setHp, damageFlash, killBanner, setTagMode, hitmarker, deathScreen, showCrosshair, setScope,
+    setHp, setCompass, contact, damageFlash, killBanner, setTagMode, hitmarker, deathScreen, showCrosshair, setScope,
     setXp, spawnConfetti, achievementUnlocked, bindProgress, setDaily,
     toggleLeaderboards, leaderboardsOpen, openCreator, toggleAdmin, closeTopOverlay,
     openChat, onChatSend, addChatLine, setMicState,

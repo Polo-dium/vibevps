@@ -8,7 +8,17 @@ import { currentSeason } from './seasons.js';
 // sous l'averse, jamais deux cycles identiques.
 const CYCLE_MS = 40 * 60 * 1000;
 
+// Plancher local de pluie : l'arène de Bellecour (world/hifi.js) vit sous un
+// orage permanent — même météo pour tous ceux qui s'y trouvent, la ville
+// garde son averse partagée.
+let rainFloor = 0;
+export function setRainFloor(v) { rainFloor = Math.max(0, Math.min(1, v || 0)); }
+
 export function rainAmount(now = Date.now()) {
+  return Math.max(rainFloor, sharedRain(now));
+}
+
+function sharedRain(now) {
   const cycle = Math.floor(now / CYCLE_MS);
   const t = (now % CYCLE_MS) / CYCLE_MS;
   const h1 = ((cycle * 2654435761) >>> 16 & 1023) / 1023;

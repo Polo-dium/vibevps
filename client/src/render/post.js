@@ -17,6 +17,11 @@ import { AOPass } from './ao.js';
 //    ombres froides / hautes lumières chaudes, vignette, puis netteté
 //    adaptative (type AMD CAS) : textures et arêtes nettes comme dans un
 //    shooter moderne, sans halos — 4 lectures, quasi gratuit
+//  - « look caméra » dans la MÊME passe (aucune cible de rendu en plus) :
+//    légère distorsion en barillet, aberration chromatique qui ne naît
+//    que vers les bords, grain de film animé, noirs relevés vers le
+//    bleu-vert ; sous l'orage (averse partagée, arène) l'image se
+//    désature et se refroidit, les hautes lumières restent chaudes
 // Bas et Moyen gardent le rendu direct : zéro coût ajouté sur mobile.
 
 const GradeShader = {
@@ -28,6 +33,11 @@ const GradeShader = {
     night: { value: 0 },
     texel: { value: new THREE.Vector2(1, 1) },
     sharpness: { value: 0.55 },
+    time: { value: 0 },
+    storm: { value: 0 },
+    grain: { value: 0.045 },
+    fringe: { value: 0.003 },
+    barrel: { value: 0.03 },
   },
   vertexShader: /* glsl */`
     varying vec2 vUv;
@@ -38,9 +48,20 @@ const GradeShader = {
   fragmentShader: /* glsl */`
     uniform sampler2D tDiffuse;
     uniform float contrast, saturation, vignette, night, sharpness;
+    uniform float time, storm, grain, fringe, barrel;
     uniform vec2 texel;
     varying vec2 vUv;
+    float filmHash(vec2 p) {
+      vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+      p3 += dot(p3, p3.yzx + 33.33);
+      return fract((p3.x + p3.y) * p3.z);
+    }
     void main() {
+      // Objectif : barillet discret (le centre grossit de 3 %, les coins
+      // ne bougent pas : jamais de lecture hors de l'image)
+      vec2 dc = vUv - 0.5;
+      float r2 = dot(dc, dc);
+      vec2 vUv = 0.5 + dc * (1.0 - barrel * (0.5 - r2) * 2.0);
       // Netteté adaptative : le poids négatif des voisins est modulé par
       // le contraste local (fort dans les zones plates, faible sur les
       // arêtes déjà dures — pas de liseré blanc autour des silhouettes)
@@ -54,18 +75,30 @@ const GradeShader = {
       vec3 amp = sqrt(clamp(min(mn, 1.0 - mx) / max(mx, vec3(1e-4)), 0.0, 1.0));
       vec3 wgt = -amp * mix(0.125, 0.2, sharpness) * sharpness;
       c = clamp((c + (cn + cs + ce + cw) * wgt) / (1.0 + 4.0 * wgt), 0.0, 1.0);
+      // Aberration chromatique : rouge et bleu glissent en sens opposés,
+      // nulle au centre (le réticule reste net), franche dans les coins
+      vec2 ca = dc * r2 * fringe * 4.0;
+      float fr = smoothstep(0.02, 0.3, r2);
+      c.r = mix(c.r, texture2D(tDiffuse, vUv + ca).r, fr);
+      c.b = mix(c.b, texture2D(tDiffuse, vUv - ca).b, fr);
       float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
       // Saturation puis contraste en S autour du gris moyen
-      c = mix(vec3(l), c, saturation);
-      c = clamp((c - 0.5) * contrast + 0.5, 0.0, 1.0);
+      c = mix(vec3(l), c, saturation * (1.0 - 0.24 * storm));
+      c = clamp((c - 0.5) * (contrast + 0.06 * storm) + 0.5, 0.0, 1.0);
       c = c * c * (3.0 - 2.0 * c) * 0.18 + c * 0.82;
       // Virage : ombres bleutées, hautes lumières chaudes (moins la nuit)
-      vec3 shadowTint = vec3(0.95, 1.0, 1.07);
-      vec3 highTint = mix(vec3(1.04, 1.0, 0.94), vec3(1.0), night);
+      // Sous l'orage, le virage s'accentue (ombres sarcelle, lueurs ambrées)
+      vec3 shadowTint = mix(vec3(0.95, 1.0, 1.07), vec3(0.86, 1.0, 1.1), storm);
+      vec3 highTint = mix(mix(vec3(1.04, 1.0, 0.94), vec3(1.09, 1.0, 0.88), storm), vec3(1.0), night);
       c *= mix(shadowTint, highTint, smoothstep(0.15, 0.85, l));
+      // Noirs de pellicule : jamais tout à fait bouchés, tirant sur le bleu-vert
+      c = c * (1.0 - 0.022) + vec3(0.012, 0.02, 0.026) * (1.0 - l);
       // Vignette douce
       vec2 d = vUv - 0.5;
-      c *= 1.0 - vignette * smoothstep(0.25, 0.85, dot(d, d) * 2.2);
+      c *= 1.0 - (vignette + 0.1 * storm) * smoothstep(0.25, 0.85, dot(d, d) * 2.2);
+      // Grain de film : fin, animé, plus présent dans les tons moyens et sombres
+      float g = filmHash(gl_FragCoord.xy + fract(time * 7.13) * vec2(311.0, 173.0)) - 0.5;
+      c += g * grain * (1.0 - 0.6 * l);
       gl_FragColor = vec4(c, 1.0);
     }`,
 };
@@ -111,7 +144,10 @@ export function createPost(renderer, scene, camera) {
       grade.uniforms.night.value = night;
       grade.uniforms.vignette.value = 0.32 + 0.12 * night;
     },
+    // Orage 0..1 : étalonnage plus froid et désaturé (voir main.js)
+    setStorm(v) { grade.uniforms.storm.value = v; },
     render() {
+      grade.uniforms.time.value = (performance.now() / 1000) % 600;
       if (enabled) composer.render();
       else renderer.render(scene, camera);
     },

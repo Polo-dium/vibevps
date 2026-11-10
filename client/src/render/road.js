@@ -17,6 +17,14 @@ export function tickRoadWetness(dt) {
   wet.value += Math.sign(target - wet.value) * Math.min(Math.abs(target - wet.value), dt * rate);
 }
 
+// Chaussée détrempée d'un coup (arrivée dans l'arène sous l'orage) : rend
+// l'ancienne valeur, à rétablir en repartant.
+export function setRoadWetness(v) {
+  const prev = wet.value;
+  wet.value = Math.max(0, Math.min(1, v));
+  return prev;
+}
+
 const NOISE = /* glsl */ `
 uniform float roadWet;
 float roadHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -47,7 +55,7 @@ float roadPuddle = 0.0;
 #endif`)
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = normalize(mix(normal, nonPerturbedNormal, roadPuddle));')
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-roughnessFactor = mix(roughnessFactor, 0.35, roadWet * 0.7);
+roughnessFactor = mix(roughnessFactor, 0.26, roadWet * 0.8);
 roughnessFactor = mix(roughnessFactor, 0.03, roadPuddle);`)
       // Reflet rasant = les façades d'en face, pas le ciel : on l'assombrit
       // (le ciel ne se reflète que vers le haut de la flaque)

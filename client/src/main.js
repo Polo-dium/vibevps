@@ -26,7 +26,7 @@ import { createNpcs } from './world/npcs.js';
 import { createQuenelle } from './world/quenelle.js';
 import { createRace } from './world/race.js';
 import { createAirRace } from './world/airrace.js';
-import { createWeather } from './world/weather.js';
+import { createWeather, rainAmount } from './world/weather.js';
 import { buildVelovStations } from './world/velov.js';
 import { createPetanque } from './world/petanque.js';
 import { buildBouchon } from './world/bouchon.js';
@@ -200,10 +200,21 @@ async function boot() {
     sun: new THREE.Color(0xb8c8f0),
   };
   const DUSK_TINT = new THREE.Color(0xff8a4d);
+  // CIEL D'ORAGE (averse partagée, ou orage permanent de l'arène) : plafond
+  // plombé, brume ardoise, et une trouée chaude au ras de l'horizon — la
+  // lumière de fin d'averse. Uniquement des lerps de plus par frame.
+  const ENV_STORM = {
+    top: new THREE.Color(0x2c333d), mid: new THREE.Color(0x56606b),
+    horizon: new THREE.Color(0xd2bc98), fog: new THREE.Color(0x8a9199),
+    hemiSky: new THREE.Color(0x9aa6b4), sun: new THREE.Color(0xffd9a8),
+  };
+  const _stormColor = new THREE.Color();
+  let storm = 0;
   const DAY_SHARE = 0.8;
   // phase 0..1 → position du soleil. La demi-orbite visible est parcourue
   // sur 80 % du temps, la demi-orbite sous l'horizon sur les 20 % restants.
   function envPhase() {
+    if (globalThis.__forcePhase != null) return globalThis.__forcePhase; // (débogage)
     const raw = (Date.now() % DAY_CYCLE_MS) / DAY_CYCLE_MS;
     return raw < DAY_SHARE
       ? (raw / DAY_SHARE) * 0.5
@@ -533,6 +544,18 @@ async function boot() {
     u.horizonColor.value.copy(ENV_NIGHT.horizon).lerp(ENV_DAY.horizon, daylight)
       .lerp(DUSK_TINT, dusk * 0.35);
     u.sunTint.value.set(0xffe0b0).lerp(DUSK_TINT, dusk * 0.8);
+    // Orage : le ciel se plombe en ~8 s quand l'averse arrive (et d'un coup
+    // en changeant de lieu). La nuit, les teintes d'orage sont assombries.
+    const stormTarget = Math.min(1, rainAmount() * 1.25);
+    storm = Math.abs(stormTarget - storm) > 0.5 ? stormTarget
+      : storm + Math.sign(stormTarget - storm) * Math.min(Math.abs(stormTarget - storm), 0.002);
+    env.storm = storm;
+    const sk = storm * 0.9, sLum = 0.12 + 0.88 * daylight;
+    if (sk > 0.001) {
+      u.topColor.value.lerp(_stormColor.copy(ENV_STORM.top).multiplyScalar(sLum), sk);
+      u.midColor.value.lerp(_stormColor.copy(ENV_STORM.mid).multiplyScalar(sLum), sk);
+      u.horizonColor.value.lerp(_stormColor.copy(ENV_STORM.horizon).multiplyScalar(sLum), sk * 0.75);
+    }
     u.sunDir.value.copy(env.sunDir);
     u.starAmount.value = THREE.MathUtils.clamp(env.night * 1.3 - 0.3, 0, 1);
     // Cœur HDR du soleil + lune du dôme : mêmes directions que les astres 3D
@@ -542,6 +565,7 @@ async function boot() {
 
     // Brume + fond raccordés à l'horizon
     _envColor.copy(ENV_NIGHT.fog).lerp(ENV_DAY.fog, daylight).lerp(DUSK_TINT, dusk * 0.18);
+    if (sk > 0.001) _envColor.lerp(_stormColor.copy(ENV_STORM.fog).multiplyScalar(sLum), sk * 0.8);
     scene.fog.color.copy(_envColor);
     scene.background.copy(_envColor);
 
@@ -558,6 +582,13 @@ async function boot() {
     sun.intensity = SUN_MAX * daylight + 0.65 * env.night; // clair de lune la nuit
     sun.color.copy(ENV_DAY.sun).lerp(DUSK_TINT, dusk * 0.7)
       .lerp(ENV_NIGHT.sun, env.night);
+    if (sk > 0.001) {
+      // Soleil voilé : moins de lumière directe (ombres douces), ciel gris
+      // qui éclaire davantage — le contraste vient de l'étalonnage
+      hemi.color.lerp(_stormColor.copy(ENV_STORM.hemiSky).multiplyScalar(sLum), sk * 0.8);
+      sun.intensity *= 1 - 0.55 * sk;
+      sun.color.lerp(ENV_STORM.sun, sk * 0.5 * daylight);
+    }
     if (shadowsEnabled) sun.castShadow = daylight > 0.04;
     fill.intensity = FILL_MAX * daylight + 0.1 * env.night;
     fill.color.copy(hemi.color).lerp(sun.color, 0.25);
@@ -572,6 +603,7 @@ async function boot() {
     // crépuscule) où l'on regarde à travers le plus d'air
     setAtmosphere(env.sunDir, u.sunTint.value, daylight * (0.75 + 0.5 * dusk));
     post.setNight(env.night);
+    post.setStorm(storm);
 
     // Astres visibles : orbite centrée sur Lyon et assez large pour que les
     // levers/couchers aient lieu AU-DELÀ des limites jouables. Avant, les
@@ -1696,6 +1728,9 @@ async function boot() {
       ui.setHp(msg.hp);
       if (!msg.regen) {
         ui.damageFlash();
+        // D'où vient le tir : arc rouge + direction cardinale
+        const from = msg.by != null ? remotes.getPos(msg.by) : null;
+        if (from) ui.contact(from.x - controls.position.x, from.z - controls.position.z, camera.rotation.y);
         navigator.vibrate?.(45);
         // Dogfight : avion criblé sous 35 HP → éjection d'urgence, l'avion
         // part en balistique et explose, la voile s'ouvre toute seule.
@@ -2127,6 +2162,7 @@ async function boot() {
       ui.setInfo({ fps: fpsValue, players: remotes.count(), pos: controls.position, cpu: Math.round(cpuMs) });
     }
 
+    ui.setCompass(camera.rotation.y);
     tutorial.update(controls.position, ARCADE);
     freezer.update(); // après toutes les animations de la frame, avant le rendu
     post.render();

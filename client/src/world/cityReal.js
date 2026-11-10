@@ -3722,7 +3722,7 @@ function shopCellUv(k) {
 // multipliée par la teinte (vertex color) de chaque bâtiment.
 // Cellule d'étage haussmannien (1 fenêtre, répétée tous les 3 m). Quasi
 // blanche : multipliée par la teinte (vertex color) de chaque immeuble.
-function makeFacadeTexture() {
+export function makeFacadeTexture() {
   const S = 256;
   const k = S / 128; // facteur d'échelle des détails « en pixels »
   const canvas = document.createElement('canvas');
@@ -3853,7 +3853,7 @@ function makeFacadeTexture() {
 // chaque fenêtre soit allumée — comme en vrai. La grille se répète toutes
 // les GRID fenêtres (repeat 1/GRID aligné sur les cellules de la façade).
 const EMI_GRID = 6;
-function makeFacadeEmissive() {
+export function makeFacadeEmissive() {
   const cell = 42;
   const S = cell * EMI_GRID;
   const canvas = document.createElement('canvas');

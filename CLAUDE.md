@@ -253,6 +253,20 @@ npm start          # serveur de prod (sert client/dist)
     Passants (`passersby.js`) : bulles de petites phrases (jour/nuit/pluie) ;
     trottoirs calculés à la 1re frame (les fontaines des places existent
     alors), tout obstacle de plus de 35 cm les coupe.
+  - `src/world/hifi.js` + `arena.js` : ARÈNE DE BELLECOUR (carte fermée bâtie
+    à x = 20000, entrée par la zone du Roi de la colline, sortie par le
+    portail doré). Dépôt de conteneurs autour de Louis XIV (UN InstancedMesh
+    + colliders, disposition symétrique par demi-tour, `makeRand`), décor
+    fixe cuit (`flattenColored`), immeubles avec les façades de la ville
+    (`facadeShaderPatch`, mêmes conventions d'UV) + toits Mansart cuits :
+    ~10 draw calls. Orage permanent dans l'arène : `setRainFloor` (weather.js,
+    plancher LOCAL de `rainAmount`) + `setRoadWetness` (road.js).
+  - Orage (`env.storm`, main.js) : sous l'averse, ciel/brume/lumières virent
+    vers `ENV_STORM`, `post.setStorm` refroidit l'étalonnage. Look caméra
+    (grain, aberration chromatique, barillet) dans la passe d'étalonnage de
+    `post.js` — aucune passe ajoutée. HUD « tactique » : bloc en fin de
+    `ui/styles.css` ; `ui.setCompass(yaw)`, `ui.contact(dx, dz, yaw)`
+    (direction du tireur, champ `by` du message `hp`).
   - `src/world/rdv.js` : rendez-vous — toucher la carte (M) pose une balise
     vue par tous 90 s (WS `t: 'rdv'`, relayé par le serveur, 1 / 8 s).
   - Définition d'image plafonnée par un budget de pixels (`basePixelRatio`
