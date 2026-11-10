@@ -163,6 +163,7 @@ export async function buildAvatar(name0, { seated = false } = {}) {
   armR.position.set(0.16, 1.25, -0.3);
   group.add(armR);
   let armed = false, kick = 0;
+  const bands = [];
   const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3();
   const _q = new THREE.Quaternion(), _qw = new THREE.Quaternion(), _qp = new THREE.Quaternion(), _qg = new THREE.Quaternion();
   function aimBone(b, child, x, y, z) {
@@ -199,6 +200,31 @@ export async function buildAvatar(name0, { seated = false } = {}) {
   return {
     armR,
     setArmed(on) { armed = Boolean(on); },
+    // BRASSARD D'ÉQUIPE : un anneau de couleur franche autour de chaque bras
+    // (null = retiré). Posé sur l'os du bras, orienté le long du segment
+    // bras → avant-bras, dimensionné d'après l'échelle monde de l'os.
+    setBand(hex) {
+      if (hex == null) { for (const b of bands) b.visible = false; return; }
+      if (!bands.length && canPose) {
+        const mat = new THREE.MeshBasicMaterial({ color: hex });
+        const up = new THREE.Vector3(0, 1, 0), s = new THREE.Vector3();
+        for (const side of [arm.r, arm.l]) {
+          const [upper, fore] = side;
+          upper.updateWorldMatrix(true, false);
+          const k = 1 / (upper.getWorldScale(s).x || 1); // mètres → unités de l'os
+          const band = new THREE.Mesh(new THREE.CylinderGeometry(0.062 * k, 0.062 * k, 0.07 * k, 12, 1, true), mat);
+          band.material.side = THREE.DoubleSide;
+          const dir = fore.position.clone();
+          band.position.copy(dir).multiplyScalar(0.45);
+          band.quaternion.setFromUnitVectors(up, dir.normalize());
+          band.userData.noShadow = true;
+          band.frustumCulled = false;
+          upper.add(band);
+          bands.push(band);
+        }
+      }
+      for (const b of bands) { b.visible = true; b.material.color.setHex(hex); }
+    },
     kickShot() { kick = 1; },
     model, bone,
     animateArmed(phase, speed) { animate0(phase, speed); poseArmed(); },

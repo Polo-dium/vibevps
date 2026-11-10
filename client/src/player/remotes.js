@@ -95,12 +95,13 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     scene.remove(og);
     scene.add(g);
     r.human = av;
+    if (r.team >= 0) av.setBand(TEAM_COLORS[r.team].getHex());
     r.glow = -1; // lueur (nuit, équipe) à reposer sur les nouveaux matériaux
   }
 
-  // ÉQUIPES DE L'ARÈNE : lueur rouge ou bleue sur tout le personnage (émissif,
-  // le matériau est unique) + losange de couleur au-dessus de la tête, qui
-  // lui ne traverse pas les murs. L'étiquette de nom se voit à travers tout :
+  // ÉQUIPES DE L'ARÈNE : losange de couleur au-dessus de la tête (il ne
+  // traverse pas les murs) + brassard aux deux bras sur les avatars. Plus
+  // de lueur sur le corps. L'étiquette de nom se voit à travers tout :
   // on la cache aux adversaires (hideName) pour ne pas offrir un radar.
   const TEAM_COLORS = [new THREE.Color(0xe23a2e), new THREE.Color(0x2f76f0)];
   function setTeam(id, team, hideName = false) {
@@ -110,6 +111,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     if (r.team === team) return;
     r.team = team;
     r.glow = -1; // force le recalcul de la lueur (voir update)
+    r.human.setBand?.(team >= 0 ? TEAM_COLORS[team].getHex() : null);
     if (team >= 0 && !r.teamMark) {
       r.teamMark = new THREE.Sprite(new THREE.SpriteMaterial({ rotation: Math.PI / 4 }));
       r.teamMark.scale.setScalar(0.2);
@@ -217,8 +219,9 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     for (const r of remotes.values()) {
       if (r.glow !== glow) {
         r.glow = glow;
-        if (r.team >= 0) r.human.shirtMat.emissive.copy(TEAM_COLORS[r.team]).multiplyScalar(Math.max(glow * 0.6, 0.16));
-        else r.human.shirtMat.emissive.copy(r.baseColor).multiplyScalar(glow);
+        // lueur de nuit : seulement les personnages sculptés hors équipe
+        // (ni halo d'équipe, ni halo sur les avatars réalistes)
+        r.human.shirtMat.emissive.copy(r.baseColor).multiplyScalar(r.team >= 0 || r.human.isAvatar ? 0 : glow);
       }
       if (r.flashUntil && nowSec > r.flashUntil) {
         r.human.clearTint();

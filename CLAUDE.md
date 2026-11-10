@@ -219,6 +219,8 @@ npm start          # serveur de prod (sert client/dist)
     d'objet (PNJ de `npcs.js`, Momo, toits-terrasses, cyclistes, habitués) —
     à préférer pour tout nouveau PNJ. Restent sculptés exprès : zombies de
     l'invasion, public du concert (bras animés os par os, perf).
+    Équipes : losange au-dessus de la tête + brassard aux deux bras
+    (`setBand`, anneau posé sur l'os du bras) — plus aucune lueur sur le corps.
     Arène : couleurs RELATIVES (rouge = ennemi, bleu = allié, tout le monde
     rouge en mêlée), tir ami autorisé — un coéquipier tué coûte 1 élimination,
     1 point et la « quenelle du karma » (−50 PV, `aevt` `tk`).
