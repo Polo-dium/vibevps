@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildHuman } from './human.js';
+import { CROWD, upgradeInPlace } from './avatars.js';
 import { flattenColored, makeGlowSprite } from './utils.js';
 
 // Rooftop bars : sur quelques grands toits, une terrasse festive — comptoir,
@@ -180,6 +181,7 @@ export function buildRooftopBar(ctx, { x, z, y, w, d, rand }) {
     }
     // Shootable pour l'ambiance (réagit aux tirs comme les autres PNJ)
     for (const mesh of human.hitMeshes) ctx.shootables.push(mesh);
+    upgradeInPlace(ctx, human, (i % 2 ? CROWD.f : CROWD.m)[i % 6], { selfAnimated: false });
     g.add(hg);
     people.push({ human, phase: rand() * 10, lounging: s.lounging });
   }

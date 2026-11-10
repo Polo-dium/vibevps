@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { hashColor } from '../world/utils.js';
+import { hashColor, makeGlowSprite } from '../world/utils.js';
 import { buildHuman } from '../world/human.js';
 import { buildAvatar, avatarsEnabled, avatarFor } from '../world/avatars.js';
 import { buildMirageModel, buildPlaneModel } from '../world/aviation.js';
@@ -314,11 +314,8 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
             r.weapon.position.set(0.02, -0.5, -0.06);
             r.weapon.rotation.set(-1.15, 0, 0);
           }
-          r.muzzle = new THREE.Sprite(new THREE.SpriteMaterial({
-            color: 0xfff2b0, transparent: true, opacity: 0, depthWrite: false,
-            blending: THREE.AdditiveBlending,
-          }));
-          r.muzzle.scale.set(0.35, 0.35, 1);
+          // lueur ronde (texture de halo partagée), pas un carré blanc
+          r.muzzle = makeGlowSprite(0xfff2b0, 0.4, 0);
           r.muzzle.position.set(0, 0, -0.5);
           r.muzzle.userData.noShadow = true;
           r.weapon.add(r.muzzle);

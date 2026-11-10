@@ -804,9 +804,11 @@ async function boot() {
     window.__game.weapon = weapon;
     window.__game.net = net;
   }
+  let lastHit = { id: null, headshot: false, at: 0 }; // pour le son d'élimination
   const remotes = createRemotePlayers(scene, ctx.shootables, {
     getListenerPos: () => controls.position, // enceintes des autres joueurs
     onHitRemote: (id, hit, headshot) => {
+      lastHit = { id, headshot, at: performance.now() };
       audio.hitmarker(headshot);
       ui.hitmarker(headshot);
       navigator.vibrate?.(headshot ? 30 : 18);
@@ -1829,6 +1831,8 @@ async function boot() {
       killTimes = killTimes.filter((t) => now - t < 9000);
       killTimes.push(now);
       const idx = Math.min(killTimes.length, STREAK_LABELS.length) - 1;
+      // son d'élimination — différent si le coup fatal était à la tête
+      audio.kill(lastHit.id === msg.id && lastHit.headshot && performance.now() - lastHit.at < 600);
       ui.killBanner(STREAK_LABELS[idx]);
       audio.announce(STREAK_VOICE[idx]);
       if (!hifi.active) ui.toast(`🎯 Tu as abattu ${msg.victimName} ! +${msg.xp ?? 50} XP (${msg.kills} kill${msg.kills > 1 ? 's' : ''} cette session)`);

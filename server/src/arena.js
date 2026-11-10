@@ -474,15 +474,22 @@ export function createArena({ players, broadcast, q }) {
     victim.d++;
     dropFlagOf(victim.id, now);
     const counted = killer && killer !== victim && round?.st === 'play';
-    if (counted) {
+    // TIR AMI : descendre un coéquipier coûte une élimination et un point…
+    const tk = Boolean(counted && info().teams && killer.team === victim.team);
+    if (counted && tk) {
+      killer.k = Math.max(0, killer.k - 1);
+      if (round.mode !== 'ctf') round.sc[killer.team] = Math.max(0, round.sc[killer.team] - 1);
+    } else if (counted) {
       killer.k++;
       if (info().teams && round.mode !== 'ctf' && killer.team >= 0) round.sc[killer.team]++;
     }
     sendArena({
       t: 'akill', by: killer?.id ?? null, byName: killer?.name ?? null,
       v: victim.id, vName: victim.name, w: weapon ?? 0,
-      bt: killer?.team ?? -1, vt: victim.team,
+      bt: killer?.team ?? -1, vt: victim.team, tk: tk ? 1 : undefined,
     });
+    // … et la QUENELLE DU KARMA s'abat sur le traître (50 points de vie)
+    if (tk && !killer.bot) karma(killer, now);
     snapshot(now, true);
     if (victim.bot) {
       victim.alive = false;
@@ -494,6 +501,23 @@ export function createArena({ players, broadcast, q }) {
     const sp = spawnFor(victim);
     return { p: [sp.x + OX, 0.2, sp.z], ry: sp.ry };
   }
+
+  const KARMA = 'la quenelle du karma';
+  function karma(part, now) {
+    const e = players.get(part.id);
+    if (!e) return;
+    sendArena({ t: 'aevt', k: 'tk', id: part.id, name: part.name });
+    e.hp -= 50;
+    e.lastDamagedAt = now;
+    if (e.hp > 0) {
+      sendArena({ t: 'hp', id: part.id, hp: e.hp });
+      return;
+    }
+    e.hp = 100;
+    const sp = registerKill(null, part, now, 0);
+    sendTo(part.id, { t: 'death', id: part.id, by: null, byName: KARMA, victimName: part.name, kills: 0, sp });
+  }
+  const OUCH = ['Hé ! C\'est moi, banane !', 'Oh le gone, on est ensemble !', 'Vise les autres, fenotte !', 'Aïe ! Change de lunettes !', 'Traître ! Je le dirai à Guignol.'];
 
   function damageHuman(bot, part, dmg, now) {
     const e = players.get(part.id);
@@ -513,6 +537,11 @@ export function createArena({ players, broadcast, q }) {
   }
   function damageBot(killer, b, dmg, now, weapon) {
     if (!b.alive || now < (b.shieldUntil ?? 0)) return;
+    // un coéquipier lui tire dessus : il râle (bulle au-dessus de sa tête)
+    if (killer && !killer.bot && info().teams && killer.team === b.team && now - (b.lastOuchAt ?? 0) > 2500) {
+      b.lastOuchAt = now;
+      sendArena({ t: 'chat', id: b.id, name: b.name, text: pick(OUCH) });
+    }
     b.hp -= dmg;
     b.lastDamagedAt = now;
     b.hurtBy = killer?.id ?? null;
@@ -520,8 +549,9 @@ export function createArena({ players, broadcast, q }) {
       sendArena({ t: 'hp', id: b.id, hp: b.hp, by: killer?.id ?? null });
       return;
     }
+    const mate = Boolean(killer && info().teams && killer.team === b.team);
     registerKill(killer, b, now, weapon);
-    if (killer && !killer.bot) {
+    if (killer && !killer.bot && !mate) { // (pas de récompense pour un tir ami)
       const e = players.get(killer.id);
       const xp = DIFFS[cfg.diff].xp;
       try { if (e) q.addXp.run(xp, e.playerId); } catch { /* tant pis */ }
@@ -786,7 +816,7 @@ export function createArena({ players, broadcast, q }) {
       const a = parts.get(attackerId), t = parts.get(targetId);
       if (!a && !t) return true; // rien à voir avec l'arène
       if (!a || !t || !round || round.st !== 'play') return false;
-      if (!enemies(a, t)) return false;
+      if (a === t) return false; // (tir ami autorisé : voir la quenelle du karma)
       if (now < (t.shieldUntil ?? 0)) return false;
       const e = players.get(attackerId);
       if (round.mode === 'sniper' && e?.wpn !== WPN.sniper) return false;

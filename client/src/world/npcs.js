@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { audio } from '../audio.js';
 import { SAONE, RHONE } from './layout.js';
 import { buildHuman } from './human.js';
+import { CROWD, upgradeInPlace } from './avatars.js';
 import { rainAmount } from './weather.js';
 
 // Parapluie de gone : un manche + une calotte colorée, sorti dès que
@@ -145,6 +146,8 @@ export function createNpcs(ctx, { getPlayerPos, onNpcHit, onNpcAttack }) {
       lungeCd: 0, // cadence d'attaque en mode Garde Royale
     };
 
+    // personnage réaliste dès qu'il est chargé (même groupe, mêmes réactions)
+    upgradeInPlace(ctx, human, (i % 2 ? CROWD.m : CROWD.f)[(i >> 1) % 6], { speedScale: 2.6 });
     for (const mesh of human.hitMeshes) {
       mesh.userData.onHit = () => hitNpc(npc);
       ctx.shootables.push(mesh);

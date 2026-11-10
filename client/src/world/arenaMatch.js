@@ -24,8 +24,10 @@ const MODE_GOALS = {
   sniper: 'Une balle, un gone', couteau: 'Au corps à corps',
 };
 const DIFF_LABELS = ['Facile', 'Normal', 'Difficile', 'Réaliste'];
-const TEAM_LABELS = ['ROUGE', 'BLEUE'];
-const TEAM_CSS = ['#ff5a4d', '#5b9bff'];
+// Couleurs RELATIVES : le rouge, c'est toujours l'adversaire ; le bleu, ton
+// équipe — quelle que soit l'équipe (0 ou 1) où le serveur t'a mis. En
+// mêlée générale, tout le monde est rouge.
+const FOE_CSS = '#ff5a4d', ALLY_CSS = '#5b9bff';
 const WPN_ICON = { 1: '🔫', 2: '🔨', 3: '💥', 4: '🌀', 5: '🚀', 6: '🔫', 7: '🏏', 8: '🎯', 9: '🔪' };
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -66,7 +68,9 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     clearTimeout(bannerTimer);
     bannerTimer = setTimeout(() => bannerEl.classList.add('hidden'), ms);
   }
-  const nameHtml = (name, team) => `<b style="color:${team >= 0 ? TEAM_CSS[team] : '#eef1ee'}">${esc(name)}</b>`;
+  const isAlly = (team) => team >= 0 && team === myTeam;
+  const css = (team) => (isAlly(team) ? ALLY_CSS : FOE_CSS);
+  const nameHtml = (name, team) => `<b style="color:${css(team)}">${esc(name)}</b>`;
   function feed(html) {
     const line = document.createElement('div');
     line.innerHTML = html;
@@ -81,13 +85,12 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     modeEl.textContent = `${MODE_LABELS[snap.mode] ?? snap.mode} · ${snap.st === 'play' ? mmss(snap.left) : 'manche terminée'}`;
     if (snap.teams) {
       const flag = (t) => (snap.f ? ['', ' ⚑', ' ⚐'][snap.f[t][0]] : '');
+      const mine = Math.max(0, myTeam), theirs = 1 - mine;
       scoreEl.innerHTML =
-        `<span style="color:${TEAM_CSS[0]}">ROUGE${flag(0)} <b>${snap.sc[0]}</b></span>` +
+        `<span style="color:${ALLY_CSS}">TON ÉQUIPE${flag(mine)} <b>${snap.sc[mine]}</b></span>` +
         `<i>${snap.lim}</i>` +
-        `<span style="color:${TEAM_CSS[1]}"><b>${snap.sc[1]}</b> BLEUE${flag(1)}</span>`;
-      subEl.innerHTML = myTeam >= 0
-        ? `Tu es <b style="color:${TEAM_CSS[myTeam]}">${TEAM_LABELS[myTeam]}</b> · ${me ? `${me[3]} élim.` : ''}`
-        : '';
+        `<span style="color:${FOE_CSS}"><b>${snap.sc[theirs]}</b> ADVERSAIRES${flag(theirs)}</span>`;
+      subEl.innerHTML = `Alliés en <b style="color:${ALLY_CSS}">bleu</b>, ennemis en <b style="color:${FOE_CSS}">rouge</b> · ${me ? `${me[3]} élim.` : ''}`;
     } else {
       const ranked = [...snap.b].sort((a, b) => b[3] - a[3] || a[4] - b[4]);
       const lead = ranked[0];
@@ -108,8 +111,9 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     const head = `<tr><th>Gone</th><th>Élim.</th><th>Morts</th>${snap.mode === 'ctf' ? '<th>⚑</th>' : ''}</tr>`;
     let body;
     if (snap.teams) {
-      body = [0, 1].map((t) => `
-        <table class="t${t}"><caption style="color:${TEAM_CSS[t]}">${TEAM_LABELS[t]} — ${snap.sc[t]}</caption>
+      const mine = Math.max(0, myTeam);
+      body = [mine, 1 - mine].map((t) => `
+        <table class="t${t}"><caption style="color:${css(t)}">${isAlly(t) ? 'TON ÉQUIPE' : 'ADVERSAIRES'} — ${snap.sc[t]}</caption>
         ${head}${rows.filter((r) => r[2] === t).map(line).join('')}</table>`).join('');
     } else {
       body = `<table>${head}${rows.map(line).join('')}</table>`;
@@ -119,7 +123,7 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     if (snap.st === 'inter') {
       const w = snap.win;
       title = !w || w.draw ? 'Égalité !'
-        : w.team != null ? `Victoire des <span style="color:${TEAM_CSS[w.team]}">${TEAM_LABELS[w.team]}S</span>`
+        : w.team != null ? (isAlly(w.team) ? `<span style="color:${ALLY_CSS}">Victoire de ton équipe !</span>` : `<span style="color:${FOE_CSS}">Les adversaires l'emportent</span>`)
           : `${esc(w.name)} remporte la manche`;
       foot = `Prochaine manche : <b>${MODE_LABELS[snap.next] ?? ''}</b> dans ${snap.left} s`;
     }
@@ -133,7 +137,7 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     for (const [id, , team] of snap.b) {
       if (id === myId) continue;
       const foe = !snap.teams || team !== myTeam;
-      remotes.setTeam(id, snap.teams ? team : -1, foe);
+      remotes.setTeam(id, foe ? 0 : 1, foe); // 0 = rouge (ennemi), 1 = bleu (allié)
     }
   }
   function applyLoadout() {
@@ -147,7 +151,7 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
 
   // --- Drapeaux (capture) ---------------------------------------------------------
   const flags = BASES.map((b, t) => {
-    const color = t ? 0x2f6fe0 : 0xd8362c;
+    const color = 0xffffff;
     const base = new THREE.Mesh(
       new THREE.RingGeometry(1.6, 2.5, 28),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false })
@@ -172,6 +176,9 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     flags.forEach((fl, i) => {
       fl.base.visible = fl.g.visible = on;
       if (!on) return;
+      const hex = isAlly(i) ? 0x2f76f0 : 0xe23a2e; // le sien en bleu, l'autre en rouge
+      fl.base.material.color.setHex(hex);
+      fl.cloth.material.color.setHex(hex);
       const [st, x, z, by] = snap.f[i];
       let y = 0.05;
       if (st === 1 && by) {
@@ -356,18 +363,31 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
   });
   net.on('akill', (msg) => {
     if (!ctx.inHiFi) return;
-    const who = msg.by ? `${nameHtml(msg.byName, msg.bt)} <i>${WPN_ICON[msg.w] ?? '☠'}</i> ` : '<i>☠</i> ';
+    if (msg.tk) {
+      feed(`🤡 ${nameHtml(msg.byName, msg.bt)} a descendu son collègue ${nameHtml(msg.vName, msg.vt)}`);
+      return;
+    }
+    const who = msg.by ? `${nameHtml(msg.byName, msg.bt)} <i>${WPN_ICON[msg.w] ?? '☠'}</i> ` : '<i>🥖</i> ';
     feed(who + nameHtml(msg.vName, msg.vt));
   });
   net.on('aevt', (msg) => {
     if (!ctx.inHiFi) return;
-    const team = msg.team != null ? `<b style="color:${TEAM_CSS[msg.team]}">${TEAM_LABELS[msg.team]}</b>` : '';
-    if (msg.k === 'take') feed(`⚑ ${esc(msg.name)} a pris le drapeau ${team}`);
-    else if (msg.k === 'drop') feed(`⚐ Drapeau ${team} à terre`);
-    else if (msg.k === 'back') feed(`↩ Drapeau ${team} rentré à la base`);
+    const whose = msg.team != null
+      ? (isAlly(msg.team) ? `<b style="color:${ALLY_CSS}">TON drapeau</b>` : `<b style="color:${FOE_CSS}">le drapeau ennemi</b>`)
+      : '';
+    if (msg.k === 'take') feed(`⚑ ${esc(msg.name)} a pris ${whose}`);
+    else if (msg.k === 'drop') feed(`⚐ ${whose} est à terre`);
+    else if (msg.k === 'back') feed(`↩ ${whose} est rentré à la base`);
     else if (msg.k === 'cap') {
-      banner(`<small>${esc(msg.name)}</small>Drapeau capturé<small>point pour les ${TEAM_LABELS[msg.team]}S</small>`);
+      banner(`<small>${esc(msg.name)}</small>Drapeau capturé<small>${isAlly(msg.team) ? 'point pour ton équipe' : 'point pour les adversaires'}</small>`);
       audio?.reward?.();
+    } else if (msg.k === 'tk') {
+      // tir ami : la quenelle du karma s'abat sur le traître
+      if (msg.id === getMyId()) {
+        banner('<small>on ne tire pas sur les collègues, gone !</small>Quenelle du karma<small>−50 PV · −1 élimination</small>', 3200);
+        audio?.announce?.('Traître !');
+        ui.damageFlash(true);
+      }
     } else if (msg.k === 'cfg') feed(`🎮 ${esc(msg.name)} a relancé la partie`);
   });
 

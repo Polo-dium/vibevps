@@ -4,10 +4,10 @@
 #   ROOT=$(pwd) bash tools/rocketbox/download.sh   (liste des avatars dans la boucle)
 
 set -e
-for path in Adults/Male_Adult_08; do
+for path in ${AVATARS:-Adults/Male_Adult_08}; do
   n=${path##*/}; mkdir -p $ROOT/client/public/_pv/rb/$n/Export $ROOT/client/public/_pv/rb/$n/Textures
   [ -s $ROOT/client/public/_pv/rb/$n/Export/$n.fbx ] || curl -sf -m 120 -o $ROOT/client/public/_pv/rb/$n/Export/$n.fbx https://raw.githubusercontent.com/microsoft/Microsoft-Rocketbox/master/Assets/Avatars/$path/Export/$n.fbx
-  for t in $(strings $ROOT/client/public/_pv/rb/$n/Export/$n.fbx | grep -ioE "[a-z0-9_]+_(body_color|head_color|opacity_color)\.tga" | sort -u); do
+  for t in $(strings $ROOT/client/public/_pv/rb/$n/Export/$n.fbx | grep -ioE "[a-z0-9_]+_color(_[a-z0-9]+)?\.tga" | sort -u); do
     b=${t%.tga}
     [ -s $ROOT/client/public/_pv/rb/$n/Textures/$b.png ] && continue
     curl -sf -m 180 -o /tmp/rocketbox.tga https://raw.githubusercontent.com/microsoft/Microsoft-Rocketbox/master/Assets/Avatars/$path/Textures/$t

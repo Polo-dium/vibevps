@@ -17,19 +17,22 @@ export const CROWD = {
 const isFem = (name) => /female/.test(name);
 // Hors palier Élevé, on s'en tient à 3 femmes + 3 hommes (+ Lucie et
 // Kévin) : un autre nom est ramené au plus proche de ce jeu (même sexe)
-const LIGHT = new Set([...CROWD.f.slice(0, 3), ...CROWD.m.slice(0, 3), 'business_female_01', 'sports_male_01']);
+const LIGHT = new Set([...CROWD.f.slice(0, 4), ...CROWD.m.slice(0, 4), 'business_female_01', 'sports_male_01', 'military_male_02']);
 function pickName(name) {
   if (detail.level === 'eleve' || LIGHT.has(name)) return name;
-  const list = (isFem(name) ? CROWD.f : CROWD.m).slice(0, 3);
+  if (/military/.test(name)) return 'military_male_02';
+  const list = (isFem(name) ? CROWD.f : CROWD.m).slice(0, 4);
   let h = 0;
   for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return list[h % list.length];
 }
 
-// Distribution des avatars des JOUEURS et des bots (4 modèles pour limiter
-// le poids chargé) : le même pseudo donne toujours le même personnage, chez
-// tout le monde — y compris pour soi (corps à la 1re personne, killcam).
-const PLAYER_CAST = ['sports_male_01', 'male_adult_01', 'female_adult_01', 'male_adult_08'];
+// Distribution des avatars des JOUEURS et des bots : des militaires en
+// treillis (Rocketbox « Professions »). Le même pseudo donne toujours le
+// même personnage, chez tout le monde — y compris pour soi (corps à la 1re
+// personne, killcam). Hors palier Élevé, pickName les ramène tous au modèle
+// le plus léger (military_male_02 : 8 000 triangles, 2 textures).
+const PLAYER_CAST = ['military_male_02', 'military_male_04', 'military_female_01', 'military_male_01'];
 export function avatarFor(pseudo) {
   let h = 0;
   for (const ch of String(pseudo)) h = (h * 31 + ch.codePointAt(0)) >>> 0;
@@ -220,6 +223,62 @@ export async function buildAvatar(name0, { seated = false } = {}) {
 
 // Avatars activés ? Pas au palier Bas (téléphones modestes) ni sans WebGL2
 export const avatarsEnabled = () => detail.level !== 'bas';
+
+// REMPLACEMENT SUR PLACE : l'humain sculpté `human` (objet rendu par
+// buildHuman) devient un avatar SANS changer de groupe ni d'objet — le code
+// qui le déplace, l'anime, le teinte ou lui a accroché une bulle, un
+// parapluie ou une étiquette n'y voit que du feu. On retire son maillage,
+// on glisse le modèle de l'avatar dans le même groupe et on rebranche
+// animate / shirtMat / clearTint / hitMeshes (les réactions aux tirs
+// passent sur les nouveaux maillages). speedScale : 2,6 si l'appelant
+// passe des m/s à animate (human.js n'en faisait qu'une amplitude).
+// selfAnimated : false → animé par la boucle commune des PNJ fixes.
+const inPlace = [];
+let inPlaceLoop = false, inPlaceQueued = 0;
+export function upgradeInPlace(ctx, human, name, { seated = false, talk = false, speedScale = 1, selfAnimated = true } = {}) {
+  if (!avatarsEnabled() || !human || human.isAvatar) return;
+  if (!inPlaceLoop) {
+    inPlaceLoop = true;
+    const w = new THREE.Vector3();
+    ctx.updatables.push(() => {
+      const p = ctx.playerPos?.();
+      if (!p) return;
+      for (const e of inPlace) {
+        const g = e.human.group;
+        if (!g.parent) continue;
+        g.getWorldPosition(w);
+        const d2 = (w.x - p.x) ** 2 + (w.z - p.z) ** 2;
+        g.userData.far = d2 > 900;
+        if (!e.selfAnimated && g.visible && d2 < 4900) e.human.animate(0, 0);
+      }
+    });
+  }
+  // (échelonné après le démarrage : les modèles se chargent en fond)
+  const delay = 5000 + inPlaceQueued++ * 180;
+  new Promise((r) => setTimeout(r, delay)).then(() => buildAvatar(name, { seated })).then((av) => {
+    const g = human.group;
+    const old = human.hitMeshes ?? [];
+    const proto = old[0]?.userData ?? {};
+    g.remove(human.mesh);
+    for (const c of [...av.group.children]) g.add(c);
+    av.group.userData = g.userData; // far / crouch / baseY lus par l'animation
+    for (const m of av.hitMeshes) {
+      if (proto.onHit) m.userData.onHit = proto.onHit;
+      if (proto.aimPoint) m.userData.aimPoint = proto.aimPoint;
+    }
+    const sh = ctx.shootables;
+    let shot = false;
+    for (const m of old) { const i = sh?.indexOf(m) ?? -1; if (i >= 0) { sh.splice(i, 1); shot = true; } }
+    if (shot) sh.push(...av.hitMeshes);
+    av.talk(talk);
+    Object.assign(human, {
+      mesh: av.mesh, hitMeshes: av.hitMeshes, shirtMat: av.shirtMat, clearTint: av.clearTint,
+      animate: speedScale === 1 ? av.animate : (t, s) => av.animate(t, s * speedScale),
+      talk: av.talk, isAvatar: true,
+    });
+    inPlace.push({ human, selfAnimated });
+  }).catch(() => {});
+}
 
 // PNJ fixes (marchands, patrons, habitués) : remplace un humain sculpté
 // déjà posé par un avatar, au même endroit, dans le même parent, dès que

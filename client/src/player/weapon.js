@@ -729,7 +729,6 @@ export function createWeapon(camera, scene, shootables, {
         s.vel.x *= 0.55;
         s.vel.z *= 0.55;
         s.spin.multiplyScalar(0.5);
-        if (s.bounces < 2) audio.shellBounce();
         s.bounces += 1;
         if (s.bounces > 3) s.vel.set(0, 0, 0);
       }

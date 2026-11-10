@@ -117,13 +117,6 @@ export const audio = {
     tone(2400, 0.02, { type: 'sine', gain: 0.1 });
   },
 
-  // Douille qui tinte au sol (appelé au rebond visuel)
-  shellBounce() {
-    if (!ctx) return;
-    const f = 3800 + Math.random() * 1600;
-    tone(f, 0.05, { type: 'triangle', gain: 0.06 });
-    tone(f * 1.3, 0.04, { type: 'triangle', gain: 0.04, at: 0.06 });
-  },
 
   reload() {
     if (!ctx) return;
@@ -135,11 +128,34 @@ export const audio = {
     noise(0.06, { type: 'highpass', freq: 1500, gain: 0.12, at: 1.3 });
   },
 
+  // Touche au corps : « tk » mat et sec. À la tête : le casque sonne
+  // (deux partiels métalliques, bien distincts du corps).
   hitmarker(headshot = false) {
     if (!ctx) return;
-    tone(1300, 0.04, { type: 'sine', gain: 0.1 });
-    // « ding » aigu en plus pour un tir à la tête
-    if (headshot) tone(2100, 0.07, { type: 'triangle', gain: 0.09, at: 0.03 });
+    if (headshot) {
+      tone(2640, 0.16, { type: 'triangle', gain: 0.13 });
+      tone(3960, 0.11, { type: 'sine', gain: 0.07, at: 0.005 });
+      noise(0.025, { type: 'highpass', freq: 3000, gain: 0.08 });
+    } else {
+      tone(880, 0.035, { type: 'triangle', gain: 0.12, slideTo: 520 });
+      noise(0.02, { type: 'bandpass', freq: 1400, q: 2, gain: 0.07 });
+    }
+  },
+  // Élimination confirmée : coup sourd + deux notes qui montent. D'une balle
+  // dans la tête : claquement, cloche aiguë qui tient, petite octave au-dessus.
+  kill(headshot = false) {
+    if (!ctx) return;
+    if (headshot) {
+      noise(0.05, { type: 'highpass', freq: 2200, gain: 0.22 });
+      tone(170, 0.14, { type: 'sine', gain: 0.26, slideTo: 60 });
+      tone(3136, 0.45, { type: 'triangle', gain: 0.15, at: 0.03 });
+      tone(4186, 0.3, { type: 'sine', gain: 0.08, at: 0.11 });
+    } else {
+      tone(190, 0.16, { type: 'sine', gain: 0.3, slideTo: 62 });
+      noise(0.07, { type: 'lowpass', freq: 600, gain: 0.2 });
+      tone(660, 0.08, { type: 'triangle', gain: 0.12, at: 0.07 });
+      tone(990, 0.14, { type: 'triangle', gain: 0.12, at: 0.15 });
+    }
   },
 
   // Coup de tonnerre : craquement sec puis long grondement grave

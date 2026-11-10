@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { audio } from '../audio.js';
 import { buildHuman } from './human.js';
+import { CROWD, upgradeInPlace } from './avatars.js';
 
 export const QUEST_HAMMER_SPOT = { x: 28, z: 18 };
 const NPC_SPOT = { x: 31.5, z: 19 };
@@ -30,6 +31,7 @@ export function buildWeaponQuest(ctx, {
   const human = buildHuman({
     shirt: 0xd89a2b, pants: 0x273244, hair: 0x24201c, skin: 0xd8aa7f,
   });
+  upgradeInPlace(ctx, human, CROWD.m[3], { talk: true }); // Momo en chair et en os
   const group = human.group;
   group.position.set(NPC_SPOT.x, y, NPC_SPOT.z);
   group.userData.baseY = y;

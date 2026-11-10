@@ -4,6 +4,7 @@ import { plantTrees } from './trees.js';
 import { addBox, addInvisibleWall, makeTextTexture } from './utils.js';
 import { buildTraffic } from './traffic.js';
 import { buildHuman } from './human.js';
+import { CROWD, upgradeInPlace } from './avatars.js';
 import { buildRoyalStatue, buildSaintExupery } from './statue.js';
 import { buildStoneBridge } from './bridge.js';
 import { audio } from '../audio.js';
@@ -1467,8 +1468,10 @@ export function buildTerrasse(ctx, x, z, ry, nom, trackId, rand = makeRand(nom.l
     h.group.position.set(tx + 0.9, 0.3, tz + 0.5);
     h.group.rotation.y = Math.atan2(tx + 0.9 - tx, tz + 0.5 - tz) + Math.PI; // face à la table
     g.add(h.group);
+    upgradeInPlace(ctx, h, (i % 2 ? CROWD.f : CROWD.m)[i % 6], { talk: true, selfAnimated: false });
   });
   const barman = buildHuman({ shirt: 0xe8e3d8 });
+  upgradeInPlace(ctx, barman, CROWD.m[4], { selfAnimated: false });
   barman.group.position.set(-0.8, 0.3, 4.4);
   barman.group.rotation.y = Math.PI; // face aux clients
   g.add(barman.group);

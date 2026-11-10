@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildHuman } from './human.js';
+import { CROWD, upgradeInPlace } from './avatars.js';
 import { buildVelovModel } from './velov.js';
 import { detail } from '../render/detail.js';
 import { makeRand } from './layout.js';
@@ -53,6 +54,7 @@ export function createCyclistes(ctx, data) {
     h.group.rotation.x = -0.22;
     h.armL.rotation.x = h.armR.rotation.x = 0.95;
     h.foreL.rotation.x = h.foreR.rotation.x = 0.35;
+    upgradeInPlace(ctx, h, (i % 2 ? CROWD.f : CROWD.m)[(i + 2) % 6], { seated: true, selfAnimated: false });
     g.add(bike, h.group);
     g.visible = false;
     ctx.scene.add(g);

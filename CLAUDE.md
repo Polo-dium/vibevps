@@ -213,6 +213,15 @@ npm start          # serveur de prod (sert client/dist)
     `akill`). `world/selfBody.js` : son propre corps à la 1re personne (même
     avatar `avatarFor(pseudo)`, tête et bras escamotés), aussi utilisé comme
     corps dans la killcam.
+    Joueurs et bots : militaires en treillis (`PLAYER_CAST`, ramenés à
+    `military_male_02` hors Élevé). `upgradeInPlace(ctx, human, nom, opts)` :
+    remplace un humain sculpté par un avatar SANS changer de groupe ni
+    d'objet (PNJ de `npcs.js`, Momo, toits-terrasses, cyclistes, habitués) —
+    à préférer pour tout nouveau PNJ. Restent sculptés exprès : zombies de
+    l'invasion, public du concert (bras animés os par os, perf).
+    Arène : couleurs RELATIVES (rouge = ennemi, bleu = allié, tout le monde
+    rouge en mêlée), tir ami autorisé — un coéquipier tué coûte 1 élimination,
+    1 point et la « quenelle du karma » (−50 PV, `aevt` `tk`).
   - `src/world/human.js` (humains sculptés, repli et autres PNJ, UN SkinnedMesh par humain = 1 draw
     call : pièces fusionnées, os = anciens pivots armL/armR/foreL/legL/kneeL…,
     géométrie partagée, couleurs par sommet ; une arme se fixe sur l'os armR ;
