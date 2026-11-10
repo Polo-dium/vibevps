@@ -1394,7 +1394,9 @@ html, body {
   background:
     linear-gradient(rgba(255,255,255,.85), rgba(255,255,255,.85)) 0 0 / 7px 100% no-repeat,
     linear-gradient(rgba(255,255,255,.85), rgba(255,255,255,.85)) 100% 0 / 7px 100% no-repeat;
-  width: 34px; height: 1.5px; margin: -0.75px -17px;
+  width: calc(34px + var(--gap, 0px) * 2); height: 1.5px;
+  margin: -0.75px calc(-17px - var(--gap, 0px));
+  transition: width 0.06s linear, margin 0.06s linear;
   filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.9));
 }
 #crosshair::after { transform: rotate(90deg); }
@@ -1619,3 +1621,20 @@ body.aircraft-touch-mode #hud-compass { display: none; }
   #arena-board { padding: 10px 12px 8px; }
   .arena-tables table { font-size: 11.5px; }
 }
+
+/* Tactile, arme en main : VISER / BAS remplacent emotes et tampon */
+#tb-aim, #tb-crouch { display: none; font-size: 13px; }
+#touch-ui.armed-mode #tb-aim, #touch-ui.armed-mode #tb-crouch { display: block; }
+#touch-ui.armed-mode #tb-emote, #touch-ui.armed-mode #tb-stamp { display: none; }
+#touch-ui.armed-mode.no-ads #tb-aim { visibility: hidden; }
+#tb-aim.active, #tb-crouch.active { background: rgba(240, 182, 72, 0.4); border-color: #f0b648; color: #fff; }
+#touch-ui.plane-mode #tb-aim, #touch-ui.plane-mode #tb-crouch { display: none !important; }
+
+/* Killcam : bandes noires + légende */
+#killcam { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; justify-content: space-between; font-family: var(--hud-font); }
+#killcam .kc-bar { height: 9vh; background: #000; }
+#killcam .kc-label { position: absolute; left: 50%; bottom: 11vh; transform: translateX(-50%); text-align: center; white-space: nowrap; text-shadow: 0 1px 4px #000; }
+#killcam .kc-label b { display: block; font-size: 11px; letter-spacing: 6px; color: var(--hud-red); }
+#killcam .kc-label span { display: block; font-size: 26px; font-weight: 700; letter-spacing: 3px; color: var(--hud-ink); }
+#killcam .kc-label i { display: block; margin-top: 3px; font-style: normal; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--hud-dim); }
+body:has(#killcam:not(.hidden)) #hud, body:has(#killcam:not(.hidden)) #touch-ui { opacity: 0; }

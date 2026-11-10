@@ -350,6 +350,7 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
   net.on('arenaTop', (msg) => { top = msg; drawTop(); });
   net.on('arenaSpawn', (msg) => {
     if (!ctx.inHiFi) return;
+    ctx.stopKillcam?.(); // nouvelle manche : le rejeu s'efface
     controls.teleport(msg.p[0], msg.p[1], msg.p[2], msg.ry);
     ui.setHp(100);
   });

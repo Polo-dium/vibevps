@@ -41,7 +41,8 @@ export function createUi() {
     </div>
     <div id="tagmode-hint" class="hidden"></div>
     <div id="help">
-      ZQSD bouger (sprint auto) · Espace saut · E interagir · clic tirer<br>
+      ZQSD bouger (sprint auto) · Espace saut · Maj s'accroupir (en course : glissade) · E interagir<br>
+      clic tirer · clic droit viser à l'épaule · Tab scores (arène)<br>
       F bombe de peinture (clic = graffiti, molette = couleur) · G poser ton tag<br>
       T éditeur de tags · 1 arme · 2 changer d'arme · R recharger · 3/4/5 emotes<br>
       M carte · B enceinte · J jetpack (ranger/sortir) · L classements/succès · C photo · O graphismes · P admin
@@ -189,6 +190,15 @@ export function createUi() {
     if (on === crosshairShown) return;
     crosshairShown = on;
     crosshairEl.style.display = on ? '' : 'none';
+  }
+
+  // Réticule dynamique : les repères s'écartent avec la dispersion de l'arme
+  let lastGap = -1;
+  function setSpread(px) {
+    const gap = Math.round(Math.min(60, px));
+    if (gap === lastGap) return;
+    lastGap = gap;
+    crosshairEl.style.setProperty('--gap', `${gap}px`);
   }
 
   // Écran de mort : voile rouge sombre + nom du tueur, disparaît tout seul
@@ -817,7 +827,7 @@ export function createUi() {
 
   return {
     ensureAuth, invite, toast, setPrompt, onPromptTap, setInfo, setQuest, setRange, setBanner, setAmmo,
-    setHp, setCompass, contact, damageFlash, killBanner, setTagMode, hitmarker, deathScreen, showCrosshair, setScope,
+    setHp, setCompass, contact, setSpread, damageFlash, killBanner, setTagMode, hitmarker, deathScreen, showCrosshair, setScope,
     setXp, spawnConfetti, achievementUnlocked, bindProgress, setDaily,
     toggleLeaderboards, leaderboardsOpen, openCreator, toggleAdmin, closeTopOverlay,
     openChat, onChatSend, addChatLine, setMicState,

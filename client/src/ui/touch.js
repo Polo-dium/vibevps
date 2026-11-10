@@ -103,6 +103,8 @@ export function createTouchControls({
       </div>
     </div>
     <div class="touch-actions" id="touch-actions">
+      <button class="tbtn" id="tb-aim">VISER</button>
+      <button class="tbtn" id="tb-crouch">BAS</button>
       <button class="tbtn" id="tb-emote">😜</button>
       <button class="tbtn" id="tb-stamp">🖼</button>
       <button class="tbtn" id="tb-spray">TAG</button>
@@ -288,6 +290,11 @@ export function createTouchControls({
     root.classList.toggle('akimbo-mode', Boolean(state.weaponEquipped && weapon.spec?.akimbo && !isPlane));
     root.classList.toggle('sniper-mode', Boolean(state.weaponEquipped && weapon.spec?.sniper && !isPlane));
     // Jetpack : bouton HOLD visible en vol, allumé quand l'altitude est tenue
+    // Arme en main : VISER et BAS prennent la place des emotes et du tampon
+    root.classList.toggle('armed-mode', Boolean(state.weaponEquipped && !isPlane && !controls.flying));
+    root.classList.toggle('no-ads', !weapon.canAds);
+    root.querySelector('#tb-aim')?.classList.toggle('active', weapon.ads > 0.5);
+    root.querySelector('#tb-crouch')?.classList.toggle('active', Boolean(controls.crouched));
     root.classList.toggle('fly-mode', Boolean(controls.flying));
     root.querySelector('#tb-hold')?.classList.toggle('active', Boolean(controls.hovering));
     requestAnimationFrame(syncPlaneUi);
@@ -498,6 +505,8 @@ export function createTouchControls({
   jumpBtn.addEventListener('touchcancel', jumpEnd, { passive: true });
   bind('#tb-hold', () => controls.setHover(!controls.hovering));
   bind('#tb-use', () => interact());
+  bind('#tb-aim', () => weapon.toggleAds());
+  bind('#tb-crouch', () => controls.toggleCrouch());
   bind('#tb-spray', () => spray.toggleMode()); // mode bombe de peinture
   bind('#tb-stamp', () => spray.stampTag());
   bind('#tb-color', () => setSprayPaletteOpen(sprayPalette.classList.contains('hidden')));

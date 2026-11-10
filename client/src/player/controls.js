@@ -74,6 +74,13 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   let slide = 0;
   const slideDir = new THREE.Vector3();
   let slideCrouch = 0; // abaissement de caméra lissé
+  // ACCROUPI : Maj maintenue (ou bouton BAS en tactile). Corps plus bas
+  // (on passe sous la ligne de tir derrière une glissière béton), marche
+  // lente, tir plus précis (weapon.js). Enclenché en pleine course, il
+  // lance une glissade.
+  const CROUCH_H = 1.15, CROUCH_DROP = 0.62;
+  let crouched = false, crouchTouch = false, crouchWas = false, crouchAmt = 0;
+  let bodyH = HEIGHT;
   let airTime = 0;
   // Sensation de marche : balancement de tête calé sur les pas, amorti à
   // l'atterrissage, marches lissées (localStorage lyon_bob = '0' pour couper)
@@ -142,9 +149,20 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   function overlaps(box) {
     return (
       pos.x + bodyHalf > box.minX && pos.x - bodyHalf < box.maxX &&
-      pos.y + HEIGHT > box.minY && pos.y < box.maxY &&
+      pos.y + bodyH > box.minY && pos.y < box.maxY &&
       pos.z + bodyHalf > box.minZ && pos.z - bodyHalf < box.maxZ
     );
+  }
+  // Assez de place pour se relever ? (rien entre la tête accroupie et debout)
+  function canStandUp() {
+    for (const box of activeColliders) {
+      if (
+        pos.x + bodyHalf > box.minX && pos.x - bodyHalf < box.maxX &&
+        pos.y + HEIGHT > box.minY && pos.y + CROUCH_H < box.maxY &&
+        pos.z + bodyHalf > box.minZ && pos.z - bodyHalf < box.maxZ
+      ) return false;
+    }
+    return true;
   }
 
   function resolveAxis(axis, delta) {
@@ -158,7 +176,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
           vel.y = 0;
           onGround = true;
         } else {
-          pos.y = box.minY - HEIGHT;
+          pos.y = box.minY - bodyH;
           vel.y = 0;
         }
       } else {
@@ -562,6 +580,19 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       return;
     }
 
+    // Accroupi ? (au sol seulement ; on ne se relève pas sous un obstacle)
+    const wantCrouch = active && onGround && (keys.has('ShiftLeft') || keys.has('ShiftRight') || crouchTouch);
+    if (wantCrouch && !crouchWas && fwd > 0.4 && slide <= 0 && Math.hypot(vel.x, vel.z) > 7) {
+      // en pleine course : glissade
+      slide = SLIDE_TIME;
+      slideDir.set(vel.x, 0, vel.z).normalize();
+    }
+    crouchWas = wantCrouch;
+    if (wantCrouch) crouched = true;
+    else if (crouched && canStandUp()) crouched = false;
+    bodyH = crouched ? CROUCH_H : HEIGHT;
+    const moveSpeed = MOVE_SPEED * (crouched && slide <= 0 ? 0.45 : 1) * (state.moveScale ?? 1);
+
     const sin = Math.sin(yaw), cos = Math.cos(yaw);
     let dx = (-sin * fwd + cos * strafe);
     let dz = (-cos * fwd - sin * strafe);
@@ -580,11 +611,14 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       vel.z += (slideDir.z * boost - vel.z) * k;
       if (fwd <= 0.05) slide = 0; // on cesse de pousser → fin de glissade
     } else {
-      vel.x += (dx * MOVE_SPEED - vel.x) * k;
-      vel.z += (dz * MOVE_SPEED - vel.z) * k;
+      vel.x += (dx * moveSpeed - vel.x) * k;
+      vel.z += (dz * moveSpeed - vel.z) * k;
     }
 
-    if (active && (keys.has('Space') || wantJump) && onGround) {
+    if (active && (keys.has('Space') || wantJump) && onGround && (!crouched || canStandUp())) {
+      crouched = false;
+      crouchTouch = false;
+      bodyH = HEIGHT;
       vel.y = JUMP_SPEED;
       onGround = false;
       slide = 0;
@@ -631,7 +665,8 @@ export function createControls(camera, domElement, colliders, terrain = null) {
       (1 - Math.exp(-(slide > 0 ? 10 : 16) * dt));
     // Œil : suit en douceur les petites montées (marches, trottoirs,
     // gradins), immédiat sinon (sauts, chutes, téléportations)
-    const eyeTarget = pos.y + EYE_HEIGHT - slideCrouch;
+    crouchAmt += ((crouched ? CROUCH_DROP : 0) - crouchAmt) * (1 - Math.exp(-14 * dt));
+    const eyeTarget = pos.y + EYE_HEIGHT - Math.max(slideCrouch, crouchAmt);
     if (eyeY === null || !onGround || Math.abs(eyeTarget - eyeY) > 0.75) eyeY = eyeTarget;
     else {
       eyeY += (eyeTarget - eyeY) * (1 - Math.exp(-26 * dt));
@@ -660,6 +695,15 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     isMoving() { return Math.hypot(vel.x, vel.z) > 0.5; },
     speed() { return Math.hypot(vel.x, vel.z); },
     get onGround() { return onGround; },
+    get crouched() { return crouched && !vehicle && !flying; },
+    get sliding() { return slide > 0; },
+    // Bouton BAS (tactile) : bascule accroupi / debout
+    toggleCrouch() { crouchTouch = !crouchTouch; return crouchTouch; },
+    // Recul de l'arme : la visée monte (et dévie) — au joueur de compenser
+    kick(dPitch, dYaw) {
+      pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch + dPitch));
+      yaw += dYaw;
+    },
     // (x, z) → true si c'est le lit d'un fleuve (posé par la ville OSM)
     setWaterGuard(fn) { waterGuard = fn; },
     // fn() → position des pieds à chaque image (null pour descendre)
@@ -784,6 +828,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
         ry: Math.round(yaw * 1000) / 1000,
         m: this.isMoving() ? 1 : 0,
       };
+      if (crouched && !vehicle && !flying) s.cr = 1; // accroupi (champ optionnel)
       // Au volant : les autres joueurs voient la voiture (champs optionnels,
       // ignorés par les anciens clients/serveurs). 2 = avion.
       if (vehicle && !vehicle.remoteControl) {

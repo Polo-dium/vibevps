@@ -32,7 +32,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     // headshot = impact au-dessus du cou (tête : 1,50 → 1,82 m)
     for (const mesh of human.hitMeshes) {
       mesh.userData.onHit = (hit) => onHitRemote?.(
-        id, hit, Boolean(hit?.point) && hit.point.y - human.group.position.y > 1.5
+        id, hit, Boolean(hit?.point) && hit.point.y - human.group.position.y > 1.5 * human.group.scale.y
       );
       shootables?.push(mesh);
     }
@@ -136,13 +136,13 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
   net.on('chat', (msg) => showChat(msg.id, msg.text));
   net.on('states', (msg) => {
     const now = performance.now() / 1000;
-    for (const [id, x, y, z, ry, , veh, vry, mus, vpx, vrz, vjet, wpn] of msg.s) {
+    for (const [id, x, y, z, ry, , veh, vry, mus, vpx, vrz, vjet, wpn, cr] of msg.s) {
       const r = remotes.get(id);
       if (!r) continue;
       r.buffer.push({
         t: now, p: [x, y, z], ry,
         veh: veh ?? 0, vry: vry ?? 0, mus: mus ?? 0,
-        vpx: vpx ?? 0, vrz: vrz ?? 0, vjet: vjet ?? 0, wpn: wpn ?? 0,
+        vpx: vpx ?? 0, vrz: vrz ?? 0, vjet: vjet ?? 0, wpn: wpn ?? 0, cr: cr ?? 0,
       });
       if (r.buffer.length > 30) r.buffer.shift();
     }
@@ -162,7 +162,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     for (const r of remotes.values()) {
       if (r.glow !== glow) {
         r.glow = glow;
-        if (r.team >= 0) r.human.shirtMat.emissive.copy(TEAM_COLORS[r.team]).multiplyScalar(Math.max(glow, 0.3));
+        if (r.team >= 0) r.human.shirtMat.emissive.copy(TEAM_COLORS[r.team]).multiplyScalar(Math.max(glow * 0.6, 0.16));
         else r.human.shirtMat.emissive.copy(r.baseColor).multiplyScalar(glow);
       }
       if (r.flashUntil && nowSec > r.flashUntil) {
@@ -230,6 +230,9 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
       // Arme tenue en main : on voit un autre joueur la sortir, la ranger,
       // et l'éclair de bouche quand il tire (voir muzzleFlash/net.on('shot')).
       // Rien en véhicule/avion — les mains sont sur les commandes.
+      // Accroupi : silhouette tassée (les impacts suivent le maillage)
+      const squat = !veh && (b.cr ?? 0) ? 0.7 : 1;
+      if (Math.abs(g.scale.y - squat) > 0.005) g.scale.y += (squat - g.scale.y) * 0.3;
       const wpnCode = veh ? 0 : (b.wpn ?? a.wpn ?? 0);
       if (wpnCode !== (r.weaponCode ?? 0)) {
         if (r.weapon) { r.human.armR.remove(r.weapon); r.weapon = null; r.muzzle = null; }
@@ -315,6 +318,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
 
   function count() { return remotes.size; }
   function getPos(id) { return remotes.get(id)?.human.group.position ?? null; }
+  function getGroup(id) { return remotes.get(id)?.human.group ?? null; } // (killcam)
   // Joueur distant le plus proche (défi en duel : E près de quelqu'un)
   function nearest(pos, maxD = 4) {
     let best = null;
@@ -337,7 +341,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
 
   const colorOf = (id) => remotes.get(id)?.baseColor.getHex();
 
-  return { update, count, showChat, getPos, nearest, list, colorOf, setTeam, resetTeams };
+  return { update, count, showChat, getPos, nearest, list, colorOf, setTeam, resetTeams, getGroup };
 }
 
 // Avion fantôme des pilotes distants (veh: 2), teinté à leur couleur

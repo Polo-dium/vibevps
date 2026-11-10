@@ -279,6 +279,16 @@ npm start          # serveur de prod (sert client/dist)
     drapeaux, console de match, tableau des meilleurs au-dessus du portail,
     `weapon.setLoadout` pour snipers/couteaux, `remotes.setTeam`). Entrée
     permanente : portail doré au pied de Louis XIV (POI `roi`).
+  - MANIEMENT : `weapon.js` `HANDLING` (dispersion, recul, zoom de visée par
+    arme) — visée à l'épaule (clic droit / bouton VISER), dispersion qui
+    grossit en rafale / en courant / en l'air et se resserre accroupi ou à
+    l'épaule (`weapon.spread` → réticule `ui.setSpread`), recul appliqué à
+    la visée par `controls.kick`. Accroupi : Maj / bouton BAS
+    (`controls.crouched`, champ réseau optionnel `cr`, dernier champ de
+    `states`), en pleine course = glissade. `world/killcam.js` : rejeu des
+    2 s avant / 1 s après la mort dans l'arène, depuis l'épaule du tueur,
+    à partir des 7 s de positions et de tirs gardées côté client (rien de
+    demandé au serveur) ; à appeler après `remotes.update`.
   - Orage (`env.storm`, main.js) : sous l'averse, ciel/brume/lumières virent
     vers `ENV_STORM`, `post.setStorm` refroidit l'étalonnage. Look caméra
     (grain, aberration chromatique, barillet) dans la passe d'étalonnage de

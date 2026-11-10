@@ -138,6 +138,7 @@ export function setupWs(httpServer) {
         if (me.vjet) me.lastJetAt = Date.now();
         // Arme tenue en main (optionnel, borné) : les autres la voient sur
         // l'avatar. 0 = rien en main. Voir WEAPON_IDS côté client.
+        me.cr = msg.cr ? 1 : 0; // accroupi (optionnel)
         me.wpn = Math.min(9, Math.max(0, Math.floor(Number(msg.wpn) || 0)));
         me.dirty = true;
         return;
@@ -541,6 +542,7 @@ export function setupWs(httpServer) {
         Math.round((entry.vrz ?? 0) * 1000) / 1000,
         entry.vjet ?? 0,
         entry.wpn ?? 0, // arme en main (les vieux clients l'ignorent)
+        entry.cr ?? 0, // accroupi (les vieux clients l'ignorent)
       ]);
     }
     // Arène : simulation des bots au même rythme, états joints au même message

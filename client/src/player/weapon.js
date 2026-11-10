@@ -64,6 +64,20 @@ export const WEAPONS = {
   },
 };
 
+// MANIEMENT, par arme : `spread` = dispersion de base (demi-angle, unités
+// d'écran), `kick` = recul de la visée par coup (rad), `ads` = zoom de la
+// visée à l'épaule (clic droit / bouton VISER ; absent = pas de visée).
+// La dispersion grossit en rafale (échauffement), en courant, en l'air ;
+// elle se resserre accroupi et à l'épaule. Le premier coup, posé, part droit.
+const HANDLING = {
+  ak: { spread: 0.011, kick: 0.0105, ads: 1.35 },
+  pompe: { spread: 0.0, kick: 0.05, ads: 1.2 },
+  minigun: { spread: 0.024, kick: 0.0055 },
+  bazooka: { spread: 0.0, kick: 0.06, ads: 1.3 },
+  akimbo: { spread: 0.022, kick: 0.006 },
+  sniper: { spread: 0.0, kick: 0.07 },
+};
+
 // Prises en main, par arme (repère du porte-arme, voir weaponModels.js) :
 // main DROITE sur la poignée pistolet, index vers la détente (paume contre
 // le flanc droit de la poignée : roulis ≈ −π/2) ; main GAUCHE sous le
@@ -122,7 +136,7 @@ export const WEAPON_IDS = ['ak', 'marteau', 'pompe', 'minigun', 'bazooka', 'akim
 
 export function createWeapon(camera, scene, shootables, {
   onAmmoChange, onShot, onRocketExplosion, getGroundY, onWeaponChange, worldHit,
-  onScope,
+  onScope, onKick,
 }) {
   // Porte-arme : un seul modèle visible à la fois, construits à la demande
   const holder = new THREE.Group();
@@ -175,6 +189,12 @@ export function createWeapon(camera, scene, shootables, {
 
   // Fusil de précision : la mise en joue zoome la caméra et remplace
   // l'arme par la lunette (overlay via onScope).
+  // Visée à l'épaule (toutes les armes à `ads`) : 0 → 1 lissé
+  let adsDown = false, adsToggle = false, ads = 0;
+  let heat = 0;       // échauffement de la rafale (0..1)
+  let kickBack = 0;   // recul vertical cumulé, rendu peu à peu à la visée
+  let spreadNow = 0;  // dispersion courante (lue par le réticule)
+  const moveState = { moving: false, air: false, crouched: false };
   let aiming = false;
   let scopeZoom = 6; // ×6 ou ×12
   function setAiming(on) {
@@ -413,11 +433,12 @@ export function createWeapon(camera, scene, shootables, {
     if (e.button === 0) triggerDown = true;
     // Akimbo : clic DROIT = pistolet gauche
     if (e.button === 2 && spec.akimbo && state.weaponEquipped) triggerLeftDown = true;
+    if (e.button === 2 && !spec.akimbo) adsDown = true;
   });
   window.addEventListener('mouseup', (e) => {
     if (IS_TOUCH) return;
     if (e.button === 0) triggerDown = false;
-    if (e.button === 2) triggerLeftDown = false;
+    if (e.button === 2) { triggerLeftDown = false; adsDown = false; }
   });
   window.addEventListener('contextmenu', (e) => {
     if (spec.akimbo && state.weaponEquipped && state.pointerLocked) e.preventDefault();
@@ -508,6 +529,14 @@ export function createWeapon(camera, scene, shootables, {
   function shoot() {
     cooldown = spec.fire;
     recoil = 1;
+    // Recul : la visée monte et dévie un peu ; la moitié revient toute seule
+    const hd = HANDLING[curId];
+    if (hd?.kick && onKick) {
+      const k = hd.kick * (1 - 0.4 * ads) * (moveState.crouched ? 0.75 : 1) * (IS_TOUCH ? 0.45 : 1);
+      const up = k * (0.85 + Math.random() * 0.3);
+      onKick(up, (Math.random() - 0.5) * k * 0.7);
+      kickBack += up * 0.55;
+    }
     navigator.vibrate?.(8); // retour haptique sur mobile
     if (state.rangeSession) state.rangeSession.shots += 1;
 
@@ -560,11 +589,17 @@ export function createWeapon(camera, scene, shootables, {
     const hitObjects = new Set(); // un seul onHit par cible et par tir
     let mainEnd = null;
     for (let k = 0; k < nRays; k++) {
-      const off = k === 0
-        ? { x: 0, y: 0 }
-        : { x: (Math.random() - 0.5) * 0.16, y: (Math.random() - 0.5) * 0.12 };
+      // Dispersion du coup principal (disque uniforme) ; plombs : gerbe fixe
+      let off;
+      if (k === 0) {
+        const r = spreadNow * Math.sqrt(Math.random()), a = Math.random() * Math.PI * 2;
+        off = { x: Math.cos(a) * r / camera.aspect, y: Math.sin(a) * r };
+      } else {
+        off = { x: (Math.random() - 0.5) * 0.16, y: (Math.random() - 0.5) * 0.12 };
+      }
       raycaster.setFromCamera(off, camera);
-      if (k === 0 && !spec.sniper) assistRay(spec.range);
+      // Aimantation : toujours en tactile, sinon seulement pour un coup posé
+      if (k === 0 && !spec.sniper && (IS_TOUCH || heat < 0.35)) assistRay(spec.range);
       const wallD = worldHit
         ? worldHit(raycaster.ray.origin, raycaster.ray.direction, spec.range)
         : Infinity;
@@ -591,6 +626,7 @@ export function createWeapon(camera, scene, shootables, {
       else spawnTracer(muzzle.toArray(), end.toArray());
     }
     onShot?.(muzzle.toArray(), mainEnd.toArray());
+    heat = Math.min(1, heat + (spec.fire < 0.2 ? 0.2 : 0.5));
 
     if (ammo <= 0) {
       reloading = spec.reload;
@@ -599,7 +635,32 @@ export function createWeapon(camera, scene, shootables, {
     }
   }
 
-  function update(dt, isMoving) {
+  function update(dt, isMoving, move = null) {
+    if (move) Object.assign(moveState, move);
+    // Visée à l'épaule, échauffement, recul rendu, dispersion courante
+    const hd = HANDLING[curId];
+    const canAds = Boolean(hd?.ads) && state.weaponEquipped && reloading <= 0 &&
+      !state.overlayOpen && !state.tagMode && !state.driving;
+    if (!canAds) adsToggle = false;
+    const adsTarget = canAds && (adsDown || adsToggle) ? 1 : 0;
+    if (ads !== adsTarget) {
+      ads += (adsTarget - ads) * (1 - Math.exp(-16 * dt));
+      if (Math.abs(ads - adsTarget) < 0.01) ads = adsTarget;
+      if (!aiming) {
+        camera.zoom = 1 + ((hd?.ads ?? 1) - 1) * ads;
+        camera.updateProjectionMatrix();
+      }
+    }
+    state.moveScale = 1 - 0.4 * ads; // on avance moins vite l'arme à l'épaule
+    heat = Math.max(0, heat - dt * 2.6);
+    if (kickBack > 0 && onKick) {
+      const back = Math.min(kickBack, kickBack * (1 - Math.exp(-7 * dt)) + 0.0004);
+      kickBack -= back;
+      onKick(-back, 0);
+    }
+    spreadNow = (hd?.spread ?? 0) * (1 + heat * 1.7) *
+      (moveState.air ? 2.6 : moveState.moving ? 1.7 : 1) *
+      (moveState.crouched ? 0.6 : 1) * (1 - 0.72 * ads);
     flash.material.opacity = Math.max(0, flash.material.opacity - dt * 14);
     recoil = Math.max(0, recoil - dt * 9);
     swing = Math.max(0, swing - dt * 3.2); // grand moulinet lisible
@@ -704,10 +765,10 @@ export function createWeapon(camera, scene, shootables, {
 
     // Friction de visée : réticule sur (ou tout près d') une cible → la
     // caméra tourne moins vite, le temps de la suivre.
-    state.aimFriction = state.weaponEquipped && !aiming && !state.driving &&
+    state.aimFriction = (state.weaponEquipped && !aiming && !state.driving &&
       !state.overlayOpen && findAimTarget(spec.range, AIM_CONE * 0.8)
       ? (IS_TOUCH ? 0.5 : 0.72)
-      : 1;
+      : 1) / (aiming ? 1 : camera.zoom || 1); // zoomé : la souris ralentit d'autant
 
     cooldown -= dt;
     const inputOk = IS_TOUCH || state.pointerLocked;
@@ -756,10 +817,12 @@ export function createWeapon(camera, scene, shootables, {
     // avant de s'abattre. Akimbo : porte-arme centré, un pistolet par côté.
     const lift = spec.melee ? swingArc * 0.55 : swingArc * 0.1;
     const swingTilt = swingArc * (spec.melee ? 2.5 : 1.1);
+    // À l'épaule : l'arme vient dans l'axe de l'œil, le balancement se calme
+    const calm = 1 - 0.8 * ads;
     holder.position.set(
-      (spec.akimbo ? 0 : 0.26) + bobX,
-      -0.24 - bobY - reloadDip + lift,
-      -0.45 + recoil * 0.06
+      (spec.akimbo ? 0 : 0.26 * (1 - ads)) + bobX * calm,
+      -0.24 + 0.075 * ads - bobY * calm - reloadDip + lift,
+      -0.45 + 0.1 * ads + recoil * 0.06 * (1 - 0.4 * ads)
     );
     holder.rotation.set(recoil * 0.09 - reloadDip * 0.8 - swingTilt, 0, 0);
   }
@@ -788,6 +851,12 @@ export function createWeapon(camera, scene, shootables, {
       return scopeZoom;
     },
     get aiming() { return aiming; },
+    // Visée à l'épaule : bouton VISER (tactile) = bascule
+    toggleAds() { adsToggle = !adsToggle; return adsToggle; },
+    get ads() { return ads; },
+    get canAds() { return Boolean(HANDLING[curId]?.ads); },
+    // Dispersion courante (unités d'écran) : le réticule s'ouvre avec
+    get spread() { return spreadNow; },
     get id() { return curId; },
     fx: { spawnTracer, spawnImpact, spawnExplosion },
     get ammo() { return ammo; },

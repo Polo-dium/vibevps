@@ -42,6 +42,7 @@ import { createFreezer } from './render/freeze.js';
 import { createKoth } from './world/koth.js';
 import { createHiFi } from './world/hifi.js';
 import { createArenaMatch } from './world/arenaMatch.js';
+import { createKillcam } from './world/killcam.js';
 import { buildGuignol } from './world/guignol.js';
 import { createNeons } from './world/neons.js';
 import { createSkylife } from './world/skylife.js';
@@ -785,6 +786,8 @@ async function boot() {
     // Les tirs s'arrêtent sur les murs et le sol (boîtes de collision) :
     // marche de rayon grossière, appelée une fois par coup tiré
     worldHit: worldHitDistance,
+    // Recul : la visée monte à chaque coup (weapon.js dose, controls applique)
+    onKick: (dp, dy) => controls.kick(dp, dy),
     // Lunette du fusil de précision : overlay + réticule masqué en visée
     onScope: (zoom) => {
       ui.setScope(zoom);
@@ -1266,6 +1269,10 @@ async function boot() {
     ui, net, remotes, weapon, controls, audio, getMyId: () => myNetId,
   });
   if (window.__game) window.__game.arenaMatch = arenaMatch;
+  // Killcam : rejeu des 2 s avant / 1 s après la mort (arène)
+  const killcam = createKillcam(ctx, { camera, remotes, controls, net, fx: weapon.fx });
+  ctx.stopKillcam = () => killcam.stop();
+  if (window.__game) window.__game.killcam = killcam;
   // Entrée PERMANENTE de l'arène : un portail doré au pied de Louis XIV
   // (la zone du Roi de la colline n'y mène qu'un tour sur trois)
   {
@@ -1687,6 +1694,7 @@ async function boot() {
   });
   net.on('shot', (msg) => {
     if (msg.melee) return; // coup de couteau d'un bot : pas de traceur
+    if (killcam.active) return; // pendant le rejeu, seuls les tirs d'alors s'affichent
     weapon.fx.spawnTracer(msg.a, msg.b, Boolean(msg.aircraft));
     weapon.fx.spawnImpact(msg.b);
   });
@@ -1801,11 +1809,18 @@ async function boot() {
         audio.jetStop();
       }
       npcs.calm(); // la Garde a eu sa vengeance
-      controls.teleport(sp.x, sp.y, sp.z, sp.ry);
-      ui.setHp(100);
       ui.damageFlash(true);
-      ui.deathScreen(msg.byName);
       navigator.vibrate?.([80, 40, 120]);
+      const respawn = () => {
+        controls.teleport(sp.x, sp.y, sp.z, sp.ry);
+        ui.setHp(100);
+      };
+      // Dans l'arène, tué par quelqu'un : killcam d'abord (3 s, bouclier
+      // d'apparition côté serveur), réapparition ensuite
+      if (!(msg.sp && msg.by && killcam.start(msg.by, msg.byName, respawn))) {
+        respawn();
+        ui.deathScreen(msg.byName);
+      }
     } else if (msg.by === myNetId) {
       const now = Date.now();
       killTimes = killTimes.filter((t) => now - t < 9000);
@@ -2016,7 +2031,10 @@ async function boot() {
       if (state.weaponEquipped) weapon.toggle(false);
       if (state.tagMode) spray.setMode(false);
     }
-    weapon.update(dt, controls.isMoving());
+    weapon.update(dt, controls.isMoving(), {
+      moving: controls.speed() > 2.5, air: !controls.onGround, crouched: controls.crouched,
+    });
+    ui.setSpread(state.weaponEquipped ? weapon.spread * window.innerHeight * 0.5 : 0);
     // Bras en vue subjective : masqués au volant/aux commandes (caméra
     // externe ou poste de pilotage), sinon la pose suit ce qui est en main.
     // Exception : la vue « pilote au sol » de l'avion RC montre les mains
@@ -2196,6 +2214,7 @@ async function boot() {
       ui.setInfo({ fps: fpsValue, players: remotes.count(), pos: controls.position, cpu: Math.round(cpuMs) });
     }
 
+    killcam.update(); // après controls/remotes : rejoue la scène si besoin
     ui.setCompass(camera.rotation.y);
     tutorial.update(controls.position, ARCADE);
     freezer.update(); // après toutes les animations de la frame, avant le rendu

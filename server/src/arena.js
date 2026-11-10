@@ -240,7 +240,8 @@ export function createArena({ players, broadcast, q }) {
   const posOf = (p) => {
     if (p.bot) return p;
     const e = players.get(p.id);
-    return e ? { x: e.p[0] - OX, y: e.p[1], z: e.p[2] } : null;
+    // (accroupi : la silhouette visée est 45 cm plus basse)
+    return e ? { x: e.p[0] - OX, y: e.p[1] - (e.cr ? 0.45 : 0), z: e.p[2], low: e.cr ? 1 : 0 } : null;
   };
   const enemies = (a, b) => a !== b && (!info().teams || a.team !== b.team);
 
@@ -441,6 +442,7 @@ export function createArena({ players, broadcast, q }) {
       if (c.team < 0 || (c.bot && !c.alive)) continue;
       const cp = posOf(c);
       if (!cp || cp.y > 1.6) continue;
+      cp.y = Math.max(cp.y, 0);
       const own = fl[c.team], foe = fl[1 - c.team];
       if (foe.st !== 1 && Math.hypot(cp.x - foe.x, cp.z - foe.z) < 1.9) {
         foe.st = 1; foe.by = c.id;
@@ -637,6 +639,7 @@ export function createArena({ players, broadcast, q }) {
           const tSpeed = tgt.speed ?? 0;
           let p = D.acc * Math.max(0.25, Math.min(1, 1 - d / (sniper ? 260 : 95)));
           if (tSpeed > 2.5) p *= 0.7;
+          if (tp.low) p *= 0.8; // cible accroupie : plus petite
           if (moving) p *= 0.7;
           if (sniper) {
             p *= 0.75;
@@ -755,7 +758,7 @@ export function createArena({ players, broadcast, q }) {
         b.moved = false;
         out.push([
           b.id, Math.round((b.x + OX) * 100) / 100, b.alive ? 0 : -60, Math.round(b.z * 100) / 100,
-          Math.round(b.ry * 1000) / 1000, 0, 0, 0, 0, 0, 0, 0, b.wpn ?? 0,
+          Math.round(b.ry * 1000) / 1000, 0, 0, 0, 0, 0, 0, 0, b.wpn ?? 0, 0,
         ]);
       }
       return out;
