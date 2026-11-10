@@ -261,6 +261,24 @@ npm start          # serveur de prod (sert client/dist)
     (`facadeShaderPatch`, mêmes conventions d'UV) + toits Mansart cuits :
     ~10 draw calls. Orage permanent dans l'arène : `setRainFloor` (weather.js,
     plancher LOCAL de `rainAmount`) + `setRoadWetness` (road.js).
+  - MATCHS DE L'ARÈNE : `shared/arena-layout.js` = plan de l'arène (données
+    pures : conteneurs, obstacles, bases, `arenaBoxes()`), lu par le client
+    (décor + collisions) ET le serveur. `server/src/arena.js` : matchs
+    autoritatifs dès qu'un joueur est à x ≈ 20000 — modes `ffa`, `tdm`,
+    `ctf`, `sniper`, `couteau` (manche chronométrée + score limite, 12 s
+    d'entracte, enchaînement `rotation` ou `meme`), 1 à 10 bots, 4
+    difficultés (`DIFFS`). Les bots sont simulés au tick de ws.js (A* sur
+    grille 1 m, ligne de tir par boîtes) et diffusés comme des JOUEURS
+    (`pjoin` avec `bot: 1`, `states`, `shot`) : le client leur tire dessus
+    par le `hit` habituel. Un joueur qui entre remplace un bot ; équipes
+    redistribuées à chaque manche. Messages : `arena` (état, 1/s),
+    `arenaTop`, `arenaSpawn`, `akill`, `aevt`, `arenaCfg` (client → serveur) ;
+    `death` porte `sp` (réapparition dans l'arène) et `xp` optionnels.
+    Scores : `arena_<mode>` dans la table scores. Client :
+    `world/arenaMatch.js` (bandeau, fil des éliminations, tableau Tab,
+    drapeaux, console de match, tableau des meilleurs au-dessus du portail,
+    `weapon.setLoadout` pour snipers/couteaux, `remotes.setTeam`). Entrée
+    permanente : portail doré au pied de Louis XIV (POI `roi`).
   - Orage (`env.storm`, main.js) : sous l'averse, ciel/brume/lumières virent
     vers `ENV_STORM`, `post.setStorm` refroidit l'étalonnage. Look caméra
     (grain, aberration chromatique, barillet) dans la passe d'étalonnage de

@@ -9,6 +9,10 @@ import { facadeShaderPatch } from '../render/facade.js';
 import { roadShaderPatch } from '../render/road.js';
 import { enhanceScene } from '../render/enhance.js';
 import { detail } from '../render/detail.js';
+import {
+  ARENA, CANS, CRATES, JERSEYS, HAZARDS, BARRELS, PALLETS, CONES, FORKLIFTS, MASTS, TREES,
+  CONSOLE, arenaBoxes,
+} from '../../../shared/arena-layout.js';
 
 // L'ARÈNE DE BELLECOUR ⛈️ (carte haute fidélité de world/hifi.js)
 //
@@ -29,12 +33,9 @@ import { detail } from '../render/detail.js';
 // tous les joueurs.
 
 const FLOOR_M = 3;      // hauteur d'étage (même calage que la ville)
-const W = 156, D = 106; // la place à l'échelle du jeu
+const { W, D, CL, CH, CW } = ARENA; // (plan partagé avec le serveur : shared/arena-layout.js)
 const FACADE_GAP = 5;   // trottoir entre la bordure de la place et les façades
 const ROOF_RUN = 2.4, ROOF_RISE = 3.4, BLOCK_DEPTH = 13;
-
-// Conteneur 20 pieds
-const CL = 6.06, CH = 2.59, CW = 2.44;
 
 export function buildBellecourArena(ctx, group, OFFSET) {
   const halfW = W / 2, halfD = D / 2;
@@ -242,15 +243,9 @@ export function buildBellecourArena(ctx, group, OFFSET) {
   // (houppiers texturés : hors cuisson, UN InstancedMesh)
   const crownMat = treeFoliageMaterial(0x4a7a3c);
   const crowns = [];
-  for (const sz of [-halfD + 5.5, -halfD + 13, halfD - 5.5, halfD - 13]) {
-    for (let x = -halfW + 12; x <= halfW - 12; x += 9) {
-      if (sz > 0 && Math.abs(x) < 8) continue; // l'allée du portail reste dégagée
-      const jitter = rand() - 0.5;
-      const tx = x + jitter * 1.6;
-      put(cyl(0.26, 0.36, 3.2, 8, 0x4f3c2c), tx, 1.6, sz);
-      crowns.push([tx, sz, jitter * 6, 1.4 + rand() * 0.35]);
-      collide(tx - 0.3, tx + 0.3, sz - 0.3, sz + 0.3, 0, 3.4);
-    }
+  for (const [tx, sz, jitter] of TREES) {
+    put(cyl(0.26, 0.36, 3.2, 8, 0x4f3c2c), tx, 1.6, sz);
+    crowns.push([tx, sz, jitter * 6, 1.4 + rand() * 0.35]);
   }
   {
     const im = new THREE.InstancedMesh(treeCrownGeometry(), crownMat, crowns.length);
@@ -280,38 +275,20 @@ export function buildBellecourArena(ctx, group, OFFSET) {
   put(box(7.2, 2.9, 5.2, 0xbdb49e), 0, 2.45, 0);
   put(box(6.6, 0.12, 4.6, 0xa9a08b), 0, 2.45, 0.34);
   put(box(7.9, 0.4, 5.9, 0xd3ccb9), 0, 4.1, 0);
-  collide(-4.7, 4.7, -3.7, 3.7, 0, 0.5);
-  collide(-4.3, 4.3, -3.3, 3.3, 0.5, 1.0);
-  collide(-3.95, 3.95, -2.95, 2.95, 1.0, 4.3);
   const king = buildRoyalStatue();
   king.position.set(0, 4.3, 0);
   king.scale.setScalar(1.3);
   king.traverse((o) => { if (o.isMesh) shadow(o); });
   group.add(king);
-  collide(-2.6, 2.6, -0.9, 0.9, 4.3, 8.6);
 
   // --- Le dépôt de conteneurs ----------------------------------------------
-  // [x, z, quart de tour, niveau] — moitié ouest ; l'autre moitié est son
-  // image par demi-tour autour du Roi (mêmes chances des deux côtés).
-  const HALF = [
-    [-14, -9, 0, 0], [-14, -9, 0, 1], [-20.4, -9, 0, 0],
-    [-11, 13, 1, 0],
-    [-29, 3, 1, 0], [-29, 3, 1, 1],
-    [-38, -19, 0, 0], [-44.3, -19, 0, 0], [-41, -19, 0, 1],
-    [-25, 22, 0, 0], [-31.3, 22, 0, 0],
-    [-50, 11, 1, 0], [-52.6, 11, 1, 0], [-51.3, 11, 1, 1],
-    [-62, -7, 0, 0], [-62, -7, 0, 1], [-62, -7, 0, 2],
-    [-5, -24, 0, 0],
-    [-64, 23, 1, 0],
-    [-40, 8, 0, 0],
-    [-19, -24.5, 1, 0],
-  ];
-  const cans = [];
-  for (const [x, z, q, lv] of HALF) { cans.push([x, z, q, lv]); cans.push([-x, -z, q, lv]); }
+  // (disposition : shared/arena-layout.js)
+  const cans = CANS;
   const CAN_TINTS = [0xc2523f, 0x4a86b8, 0x5a9a78, 0xd9803c, 0xb4bac0, 0x3f74a8, 0xa8483e, 0xdcb445, 0x6f9aa0];
   const canGeo = containerGeometry();
   const canMat = new THREE.MeshLambertMaterial({ map: makeContainerTexture(rand) });
   const canMesh = shadow(new THREE.InstancedMesh(canGeo, canMat, cans.length));
+
   const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), v3 = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
   const tint = new THREE.Color();
   const UP = new THREE.Vector3(0, 1, 0);
@@ -323,8 +300,6 @@ export function buildBellecourArena(ctx, group, OFFSET) {
     canMesh.setMatrixAt(i, m4);
     tint.set(CAN_TINTS[Math.floor(rand() * CAN_TINTS.length)]).offsetHSL(0, 0, (rand() - 0.5) * 0.06);
     canMesh.setColorAt(i, tint);
-    const hx = (q ? CW : CL) / 2, hz = (q ? CL : CW) / 2;
-    collide(x - hx, x + hx, z - hz, z + hz, 0.05 + lv * CH, 0.05 + (lv + 1) * CH);
   });
   canMesh.instanceMatrix.needsUpdate = true;
   canMesh.instanceColor.needsUpdate = true;
@@ -337,7 +312,6 @@ export function buildBellecourArena(ctx, group, OFFSET) {
   const crate = (x, z, s = 1.1, color = 0x8a6a42) => {
     put(box(s, s, s, color), x, 0.05 + s / 2, z, (rand() - 0.5) * 0.3);
     for (const dy of [0.12, s - 0.12]) put(box(s + 0.06, 0.08, s + 0.06, 0x6f5433), x, 0.05 + dy, z);
-    collide(x - s / 2, x + s / 2, z - s / 2, z + s / 2, 0, 0.05 + s);
   };
   const pallet = (x, z) => {
     for (const dz of [-0.45, 0, 0.45]) put(box(1.2, 0.1, 0.12, 0x9b7b52), x, 0.1, z + dz);
@@ -359,8 +333,6 @@ export function buildBellecourArena(ctx, group, OFFSET) {
       const jx = x + (q ? o : 0), jz = z + (q ? 0 : o);
       const m = new THREE.Mesh(jerseyGeo, lam(i % 2 ? 0xb4b1a9 : 0xa9a69e));
       put(m, jx, 0.05, jz, q ? Math.PI / 2 : 0);
-      const hx = q ? 1.2 : 0.3, hz = q ? 0.3 : 1.2;
-      collide(jx - hx, jx + hx, jz - hz, jz + hz, 0, 0.89);
     }
   };
   // Bloc de chantier rayé jaune et noir
@@ -368,8 +340,6 @@ export function buildBellecourArena(ctx, group, OFFSET) {
     for (let i = 0; i < 6; i++) {
       put(box(q ? 0.3 : 0.7, 1.1, q ? 0.7 : 0.3, i % 2 ? 0x1b1c1f : 0xe2b01f), x + (q ? (i - 2.5) * 0.3 : 0), 0.6, z + (q ? 0 : (i - 2.5) * 0.3));
     }
-    const hx = q ? 0.9 : 0.35, hz = q ? 0.35 : 0.9;
-    collide(x - hx, x + hx, z - hz, z + hz, 0, 1.15);
   };
   const cone = (x, z) => {
     put(box(0.36, 0.04, 0.36, 0x1c1d20), x, 0.07, z, rand());
@@ -379,7 +349,6 @@ export function buildBellecourArena(ctx, group, OFFSET) {
   const barrel = (x, z, color) => {
     put(cyl(0.3, 0.3, 0.9, 12, color), x, 0.5, z);
     for (const dy of [0.2, 0.5, 0.8]) put(cyl(0.315, 0.315, 0.04, 12, 0x2a2d31), x, 0.05 + dy, z);
-    collide(x - 0.3, x + 0.3, z - 0.3, z + 0.3, 0, 0.95);
   };
   // Chariot élévateur (le Fenwick du dépôt)
   const forklift = (x, z, ry) => {
@@ -405,43 +374,31 @@ export function buildBellecourArena(ctx, group, OFFSET) {
     g.position.set(x, 0.05, z);
     g.rotation.y = ry;
     statics.add(g);
-    collide(x - 1.1, x + 1.1, z - 1.1, z + 1.1, 0, 2.3);
   };
 
-  const mirror = (fn) => (x, z, ...a) => { fn(x, z, ...a); fn(-x, -z, ...a); };
-  mirror(crate)(-10.4, -9.2);            // → pile A
-  mirror(crate)(-29, 6.9);               // → pile C
-  mirror(crate)(-58.2, -6.6, 1.2);       // → tour G
-  mirror(crate)(-47.6, 14.6, 1.15);      // → pile F
-  mirror(crate)(-36, -15.9, 1.0, 0x6d7f4b);
-  mirror(jersey)(-22, 3, 0, 3);
-  mirror(jersey)(-8, -15, 1, 2);
-  mirror(jersey)(-46, -4, 1, 3);
-  mirror(jersey)(-35, 15, 0, 2);
-  mirror(jersey)(-58, 5, 1, 2);
-  mirror(jersey)(-3, 9.5, 1, 2);
-  mirror(hazard)(-17, 6, 0);
-  mirror(hazard)(-55, -17, 1);
-  mirror(hazard)(-33, -8, 1);
-  mirror(barrel)(-24.5, -12.2, 0x2f5f8a);
-  mirror(barrel)(-25.2, -11.4, 0xa03a2c);
-  mirror(barrel)(-43, 20, 0x2f5f8a);
-  mirror(barrel)(-8.6, 20.6, 0xc49a2c);
-  mirror(pallet)(-16, 21);
-  mirror(pallet)(-45, -9.5);
-  for (const [x, z] of [[-18, 0.5], [-19.2, 9], [-26, -4], [-33.5, -13], [-9, -19], [-42, 4.5], [-56, 14], [-6.5, 6.4], [-12.5, 18], [-48, -14]]) {
-    cone(x, z); cone(-x, -z);
-  }
-  forklift(-34, -3, 0.5);
-  forklift(27, 9.5, -2.2);
+  for (const c of CRATES) crate(...c);
+  for (const j of JERSEYS) jersey(...j);
+  for (const h of HAZARDS) hazard(...h);
+  for (const b of BARRELS) barrel(...b);
+  for (const p of PALLETS) pallet(...p);
+  for (const c of CONES) cone(...c);
+  for (const f of FORKLIFTS) forklift(...f);
+
+  // Console de match (réglages de la partie : world/arenaMatch.js)
+  put(box(0.9, 1.1, 0.6, 0x2b2e33), CONSOLE.x, 0.55, CONSOLE.z);
+  put(box(0.8, 0.5, 0.08, 0x14161a), CONSOLE.x, 1.3, CONSOLE.z - 0.2, 0);
+  put(box(0.7, 0.4, 0.02, 0x1fd6b4), CONSOLE.x, 1.3, CONSOLE.z - 0.25, 0);
+  put(box(1.0, 0.06, 0.7, 0xe2b01f), CONSOLE.x, 1.12, CONSOLE.z);
+
+  // Toutes les collisions des obstacles, d'un coup (mêmes boîtes côté serveur)
+  for (const b of arenaBoxes()) collide(b.x0, b.x1, b.z0, b.z1, b.y0, b.y1);
 
   // --- Mâts d'éclairage du dépôt -------------------------------------------
   const lampHeads = [];
-  for (const [mx, mz] of [[-66, -29.5], [66, 29.5], [-66, 29.5], [66, -29.5], [-22, -30], [22, 30]]) {
+  for (const [mx, mz] of MASTS) {
     put(box(1.1, 0.6, 1.1, 0x8f8c84), mx, 0.3, mz);
     put(cyl(0.12, 0.2, 13, 8, 0x4b5057), mx, 6.8, mz);
     put(box(2.6, 0.14, 0.14, 0x4b5057), mx, 13.2, mz);
-    collide(mx - 0.55, mx + 0.55, mz - 0.55, mz + 0.55, 0, 13);
     const toward = Math.atan2(-mx, -mz);
     for (const o of [-0.95, 0, 0.95]) {
       const hx = mx + Math.cos(toward) * o, hz = mz - Math.sin(toward) * o;

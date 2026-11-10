@@ -25,6 +25,10 @@ export function heightToNormal(src, strength = 2) {
   const w = src.width, h = src.height;
   const data = src.getContext('2d').getImageData(0, 0, w, h).data;
   const out = canvas(w);
+  // texture non carrée (atlas des conteneurs, 1024 × 256) : la normal map
+  // doit avoir la MÊME forme — carrée, elle ne couvrait que le haut de
+  // l'image (relief écrasé dans un bandeau, reste sans normale)
+  out.height = h;
   const g = out.getContext('2d');
   const img = g.createImageData(w, h);
   const H = (x, y) => data[(((y + h) % h) * w + ((x + w) % w)) * 4] / 255;

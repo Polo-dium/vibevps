@@ -49,6 +49,12 @@ export const WEAPONS = {
     // La tavelle du théâtre : mêlée rapide, gagnée au castelet de Guignol.
     fire: 0.38, mag: 0, reload: 0, range: 3.4, dmg: 34, melee: true,
   },
+  couteau: {
+    nom: 'Couteau', emoji: '🔪',
+    // Réservé au mode « couteaux » de l'arène (prêté le temps de la manche) :
+    // rapide, courte allonge, deux coups au corps.
+    fire: 0.3, mag: 0, reload: 0, range: 3.0, dmg: 55, melee: true,
+  },
   sniper: {
     nom: 'Fusil de précision', emoji: '🎯',
     // One-shot : MAINTENIR le tir met en joue (lunette ×6/×12, molette ou
@@ -96,6 +102,11 @@ const GRIPS = {
     r: { pos: [0.035, -0.03, -0.03], rot: [0.5, 0.3, -1.5] },
     l: { pos: [-0.035, -0.03, -0.17], rot: [0.4, -0.3, 1.5] },
   },
+  // Couteau : poing droit sur le manche, main gauche en garde devant
+  couteau: {
+    r: { pos: [0.03, -0.03, -0.02], rot: [0.5, 0.3, -1.5] },
+    l: { pos: [-0.2, -0.06, -0.12], rot: [0.5, -0.2, 1.5] },
+  },
   // Akimbo : chaque main sur SON pistolet
   akimbo: {
     r: { pos: [0.16, -0.05, -0.19], rot: [0.3, -0.06, 0.06] },
@@ -107,7 +118,7 @@ const GRIPS = {
 // main.js et remotes.js) : indice+1, 0 réservé à « pas d'arme en main ».
 // Ordre figé — ne jamais réordonner (casserait la compat avec les clients
 // déjà connectés), n'ajouter qu'à la fin.
-export const WEAPON_IDS = ['ak', 'marteau', 'pompe', 'minigun', 'bazooka', 'akimbo', 'baton', 'sniper'];
+export const WEAPON_IDS = ['ak', 'marteau', 'pompe', 'minigun', 'bazooka', 'akimbo', 'baton', 'sniper', 'couteau'];
 
 export function createWeapon(camera, scene, shootables, {
   onAmmoChange, onShot, onRocketExplosion, getGroundY, onWeaponChange, worldHit,
@@ -469,6 +480,24 @@ export function createWeapon(camera, scene, shootables, {
     select(id);
   }
 
+  // ARSENAL IMPOSÉ (modes « snipers » / « couteaux » de l'arène) : la liste
+  // remplace l'inventaire le temps de la manche, null le rend tel quel.
+  let ownedBackup = null;
+  function setLoadout(ids) {
+    if (ids?.length) {
+      if (!ownedBackup) ownedBackup = { owned: [...owned], cur: curId };
+      owned.length = 0;
+      owned.push(...ids.filter((id) => WEAPONS[id]));
+      select(owned[0]);
+    } else if (ownedBackup) {
+      owned.length = 0;
+      owned.push(...ownedBackup.owned);
+      const back = owned.includes(ownedBackup.cur) ? ownedBackup.cur : owned[0];
+      ownedBackup = null;
+      select(back);
+    }
+  }
+
   function equip(id) {
     if (!owned.includes(id)) return false;
     if (id === curId) toggle(true);
@@ -741,6 +770,7 @@ export function createWeapon(camera, scene, shootables, {
     reload,
     give,
     equip,
+    setLoadout,
     cycle,
     // side 'r' (défaut) = détente principale, 'l' = pistolet gauche akimbo
     setTrigger(down, side = 'r') {

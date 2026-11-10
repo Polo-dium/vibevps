@@ -1547,3 +1547,75 @@ body.aircraft-touch-mode #hud-compass { display: none; }
   #hud-xp { bottom: 160px; }
   #hud-daily { bottom: 157px; }
 }
+
+/* ==========================================================================
+   ARÈNE — bandeau de partie, fil des éliminations, scores, console de match
+   (world/arenaMatch.js). Mêmes codes que le HUD tactique.
+   ========================================================================== */
+#arena-ui { position: fixed; inset: 0; z-index: 11; pointer-events: none; font-family: var(--hud-font); font-stretch: condensed; color: var(--hud-ink); }
+#arena-hud {
+  position: absolute; left: 50%; top: 44px; transform: translateX(-50%);
+  text-align: center; pointer-events: auto; cursor: pointer;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+#arena-mode { font-size: 10.5px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; color: var(--hud-dim); }
+#arena-score { display: flex; align-items: baseline; justify-content: center; gap: 12px; font-size: 14px; font-weight: 600; letter-spacing: 2px; white-space: nowrap; }
+#arena-score b { font-size: 30px; font-weight: 700; letter-spacing: 0; }
+#arena-score i { font-style: normal; font-size: 10px; color: var(--hud-dim); padding: 1px 6px; border: 1px solid rgba(238, 241, 238, 0.3); }
+#arena-sub { font-size: 10.5px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--hud-dim); }
+#arena-feed {
+  position: absolute; right: 16px; top: 34%;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+  font-size: 12.5px; letter-spacing: 0.6px;
+}
+#arena-feed > div {
+  padding: 3px 9px; background: linear-gradient(270deg, rgba(10, 12, 14, 0.72), rgba(10, 12, 14, 0.25));
+  border-right: 2px solid rgba(238, 241, 238, 0.4);
+  animation: toast-in 0.2s ease-out;
+}
+#arena-feed i { font-style: normal; margin: 0 5px; opacity: 0.85; }
+#arena-banner {
+  position: absolute; left: 50%; top: 24%; transform: translateX(-50%);
+  text-align: center; white-space: nowrap;
+  font-size: 38px; font-weight: 700; letter-spacing: 7px; text-transform: uppercase;
+  text-shadow: 0 0 22px rgba(240, 182, 72, 0.45), 0 2px 4px #000;
+  animation: arena-banner 3.2s ease-out forwards;
+}
+#arena-banner small { display: block; font-size: 12px; font-weight: 600; letter-spacing: 5px; color: var(--hud-amber); margin: 4px 0; }
+@keyframes arena-banner { 0% { opacity: 0; letter-spacing: 16px; } 10% { opacity: 1; letter-spacing: 7px; } 80% { opacity: 1; } 100% { opacity: 0; } }
+#arena-board {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  min-width: min(560px, 92vw); max-height: 78vh; overflow: hidden;
+  padding: 16px 22px 12px;
+  background: rgba(10, 12, 14, 0.86); border-top: 2px solid var(--hud-amber);
+}
+#arena-board h3 { font-size: 22px; letter-spacing: 4px; text-transform: uppercase; text-align: center; margin-bottom: 10px; }
+#arena-board p { margin-top: 10px; text-align: center; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--hud-dim); }
+#arena-board p b { color: var(--hud-amber); }
+.arena-tables { display: flex; gap: 22px; justify-content: center; }
+.arena-tables table { border-collapse: collapse; flex: 1; font-size: 13px; letter-spacing: 0.6px; }
+.arena-tables caption { font-size: 13px; font-weight: 700; letter-spacing: 3px; padding-bottom: 5px; text-align: left; }
+.arena-tables th { font-size: 9.5px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: var(--hud-dim); text-align: right; padding: 2px 8px; }
+.arena-tables th:first-child, .arena-tables td:first-child { text-align: left; }
+.arena-tables td { padding: 3px 8px; text-align: right; border-top: 1px solid rgba(238, 241, 238, 0.08); }
+.arena-tables tr.me td { color: var(--hud-amber); font-weight: 700; }
+
+#arena-console-panel { width: min(560px, 94vw); font-family: var(--hud-font); max-height: 94vh; overflow-y: auto; }
+#arena-console-panel label { display: block; margin: 14px 0 6px; font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase; color: #9fb6c9; }
+#arena-console-panel label b { color: var(--hud-amber); font-size: 15px; }
+.arena-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.arena-opts button {
+  padding: 8px 12px; font-size: 13px; border-radius: 2px;
+  background: rgba(238, 241, 238, 0.07); color: var(--hud-ink); border: 1px solid rgba(238, 241, 238, 0.22);
+}
+.arena-opts button.on { background: var(--hud-amber); color: #14110a; border-color: var(--hud-amber); font-weight: 700; }
+#arena-bots { width: 100%; accent-color: var(--hud-amber); }
+.arena-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+@media (pointer: coarse) {
+  #arena-hud { top: calc(34px + env(safe-area-inset-top)); }
+  #arena-score b { font-size: 22px; }
+  #arena-banner { font-size: 24px; letter-spacing: 4px; }
+  #arena-feed { top: 22%; right: calc(86px + env(safe-area-inset-right)); font-size: 11px; }
+  #arena-board { padding: 10px 12px 8px; }
+  .arena-tables table { font-size: 11.5px; }
+}

@@ -41,6 +41,7 @@ import { updateInstanceLods } from './render/instlod.js';
 import { createFreezer } from './render/freeze.js';
 import { createKoth } from './world/koth.js';
 import { createHiFi } from './world/hifi.js';
+import { createArenaMatch } from './world/arenaMatch.js';
 import { buildGuignol } from './world/guignol.js';
 import { createNeons } from './world/neons.js';
 import { createSkylife } from './world/skylife.js';
@@ -1260,6 +1261,32 @@ async function boot() {
   ctx.teleport = (x, y, z, ry) => controls.teleport(x, y, z, ry);
   const hifi = createHiFi(ctx, { notify: ui.toast });
   if (window.__game) window.__game.hifi = hifi; // hook de debug (?debug)
+  // Matchs de l'arène : bots, modes, équipes — arbitrés par le serveur
+  const arenaMatch = createArenaMatch(ctx, {
+    ui, net, remotes, weapon, controls, audio, getMyId: () => myNetId,
+  });
+  if (window.__game) window.__game.arenaMatch = arenaMatch;
+  // Entrée PERMANENTE de l'arène : un portail doré au pied de Louis XIV
+  // (la zone du Roi de la colline n'y mène qu'un tour sur trois)
+  {
+    const roi = ctx.pois?.find((p) => p.id === 'roi');
+    if (roi) {
+      const gx = roi.x, gz = roi.z + 9.5;
+      const gy = ctx.terrainHeight?.(gx, gz) ?? 0;
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(1.5, 0.14, 8, 24),
+        new THREE.MeshBasicMaterial({ color: 0xffc94d, transparent: true, opacity: 0.85 })
+      );
+      ring.position.set(gx, gy + 1.9, gz);
+      ring.userData.noShadow = true;
+      scene.add(ring);
+      ctx.interactables.push({
+        x: gx, z: gz, r: 2.6,
+        label: '⛈️ E — Arène de Bellecour (bots, modes, équipes)',
+        action: () => { if (!hifi.active) hifi.enter('arcade', 'Bellecour'); },
+      });
+    }
+  }
 
   // Roi de la colline : la zone dorée tirée au sort toutes les 10 min
   createKoth(ctx, {
@@ -1647,6 +1674,7 @@ async function boot() {
   // Notification quand un gone se connecte ou s'en va (le nom vient de pjoin)
   const onlineNames = new Map(); // id -> name
   net.on('pjoin', (msg) => {
+    if (msg.bot) return; // bot de l'arène : ni annonce ni liste des connectés
     if (!msg.name || onlineNames.has(msg.id)) return;
     onlineNames.set(msg.id, msg.name);
     ui.toast(`👋 ${msg.name} vient de se connecter !`);
@@ -1658,6 +1686,7 @@ async function boot() {
     if (name) ui.toast(`💨 ${name} a quitté la ville.`);
   });
   net.on('shot', (msg) => {
+    if (msg.melee) return; // coup de couteau d'un bot : pas de traceur
     weapon.fx.spawnTracer(msg.a, msg.b, Boolean(msg.aircraft));
     weapon.fx.spawnImpact(msg.b);
   });
@@ -1751,7 +1780,12 @@ async function boot() {
 
   net.on('death', (msg) => {
     if (msg.id === myNetId) {
-      const sp = spawnPoint();
+      // Mort dans l'arène : le serveur donne le point de réapparition (champ
+      // optionnel `sp`) ; sinon retour en ville, comme toujours
+      if (!msg.sp && hifi.active) hifi.exit();
+      const sp = msg.sp
+        ? { x: msg.sp.p[0], y: msg.sp.p[1], z: msg.sp.p[2], ry: msg.sp.ry }
+        : spawnPoint();
       for (const abort of ctx.abortRides) abort();
       // Mort au volant : on coupe le moteur, la voiture reste sur place
       if (state.driving) {
@@ -1779,9 +1813,9 @@ async function boot() {
       const idx = Math.min(killTimes.length, STREAK_LABELS.length) - 1;
       ui.killBanner(STREAK_LABELS[idx]);
       audio.announce(STREAK_VOICE[idx]);
-      ui.toast(`🎯 Tu as abattu ${msg.victimName} ! +50 XP (${msg.kills} kill${msg.kills > 1 ? 's' : ''} cette session)`);
+      if (!hifi.active) ui.toast(`🎯 Tu as abattu ${msg.victimName} ! +${msg.xp ?? 50} XP (${msg.kills} kill${msg.kills > 1 ? 's' : ''} cette session)`);
       progress.refresh();
-    } else {
+    } else if (!hifi.active) {
       ui.toast(`☠ ${msg.byName} a abattu ${msg.victimName}`);
     }
   });

@@ -23,7 +23,8 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
       pants: PANTS[name.length % PANTS.length],
       fem: false, veste: false, jupe: false, barbe: false, // avatar de joueur : tenue fixe
     });
-    human.group.add(makeNameplate(name));
+    const nameplate = makeNameplate(name);
+    human.group.add(nameplate);
     human.group.position.set(p[0], p[1], p[2]);
     human.group.rotation.y = ry;
     scene.add(human.group);
@@ -47,13 +48,40 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     human.group.add(bubble);
 
     remotes.set(id, {
-      human, name, baseColor, bubble,
+      human, name, baseColor, bubble, nameplate, team: -1,
       buffer: [{ t: performance.now() / 1000, p, ry }],
       flashUntil: 0,
       bubbleUntil: 0,
       animTime: Math.random() * 10,
       prevPos: new THREE.Vector3(p[0], p[1], p[2]),
     });
+  }
+
+  // ÉQUIPES DE L'ARÈNE : lueur rouge ou bleue sur tout le personnage (émissif,
+  // le matériau est unique) + losange de couleur au-dessus de la tête, qui
+  // lui ne traverse pas les murs. L'étiquette de nom se voit à travers tout :
+  // on la cache aux adversaires (hideName) pour ne pas offrir un radar.
+  const TEAM_COLORS = [new THREE.Color(0xe23a2e), new THREE.Color(0x2f76f0)];
+  function setTeam(id, team, hideName = false) {
+    const r = remotes.get(id);
+    if (!r) return;
+    r.nameplate.visible = !hideName;
+    if (r.team === team) return;
+    r.team = team;
+    r.glow = -1; // force le recalcul de la lueur (voir update)
+    if (team >= 0 && !r.teamMark) {
+      r.teamMark = new THREE.Sprite(new THREE.SpriteMaterial({ rotation: Math.PI / 4 }));
+      r.teamMark.scale.setScalar(0.2);
+      r.teamMark.position.y = 2.02;
+      r.human.group.add(r.teamMark);
+    }
+    if (r.teamMark) {
+      r.teamMark.visible = team >= 0;
+      if (team >= 0) r.teamMark.material.color.copy(TEAM_COLORS[team]);
+    }
+  }
+  function resetTeams() {
+    for (const id of remotes.keys()) setTeam(id, -1, false);
   }
 
   function showChat(id, text) {
@@ -96,7 +124,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     if (!r?.muzzle) return;
     r.muzzleUntil = performance.now() / 1000 + 0.06;
   }
-  net.on('shot', (msg) => muzzleFlash(msg.id));
+  net.on('shot', (msg) => { if (!msg.melee) muzzleFlash(msg.id); });
 
   net.on('hello', (msg) => {
     for (const pl of msg.players) spawn(pl.id, pl.name, pl.p, pl.ry);
@@ -134,7 +162,8 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     for (const r of remotes.values()) {
       if (r.glow !== glow) {
         r.glow = glow;
-        r.human.shirtMat.emissive.copy(r.baseColor).multiplyScalar(glow);
+        if (r.team >= 0) r.human.shirtMat.emissive.copy(TEAM_COLORS[r.team]).multiplyScalar(Math.max(glow, 0.3));
+        else r.human.shirtMat.emissive.copy(r.baseColor).multiplyScalar(glow);
       }
       if (r.flashUntil && nowSec > r.flashUntil) {
         r.human.clearTint();
@@ -308,7 +337,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
 
   const colorOf = (id) => remotes.get(id)?.baseColor.getHex();
 
-  return { update, count, showChat, getPos, nearest, list, colorOf };
+  return { update, count, showChat, getPos, nearest, list, colorOf, setTeam, resetTeams };
 }
 
 // Avion fantôme des pilotes distants (veh: 2), teinté à leur couleur

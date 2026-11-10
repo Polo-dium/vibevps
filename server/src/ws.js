@@ -2,6 +2,7 @@ import { WebSocketServer } from 'ws';
 import crypto from 'node:crypto';
 import { q } from './db.js';
 import { bumpDaily } from './daily.js';
+import { createArena } from './arena.js';
 
 const TICK_MS = 66; // ~15 Hz
 const QUENELLE_ROUND_MS = 5 * 60 * 1000; // rotation de la Quenelle dorée
@@ -33,8 +34,12 @@ const tagDamage = new Map(); // tagId -> nombre d'impacts reçus
 const planes = new Map();
 const MAX_PLANE_ID_LEN = 24;
 
+// Arène de Bellecour : matchs et bots simulés par le serveur (arena.js)
+let arena = null;
+
 export function setupWs(httpServer) {
   wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  arena = createArena({ players, broadcast, q });
 
   wss.on('connection', (ws) => {
     let id = null;
@@ -75,6 +80,7 @@ export function setupWs(httpServer) {
         const others = [...players.entries()].map(([oid, o]) => ({
           id: oid, name: o.name, p: o.p, ry: o.ry,
         }));
+        others.push(...arena.roster()); // les bots de l'arène sont des « joueurs »
 
         // Lien d'invitation (?ami=Pseudo) : si l'ami est déjà en ligne, on
         // renvoie sa position pour que le nouveau venu atterrisse à côté de
@@ -132,7 +138,7 @@ export function setupWs(httpServer) {
         if (me.vjet) me.lastJetAt = Date.now();
         // Arme tenue en main (optionnel, borné) : les autres la voient sur
         // l'avatar. 0 = rien en main. Voir WEAPON_IDS côté client.
-        me.wpn = Math.min(8, Math.max(0, Math.floor(Number(msg.wpn) || 0)));
+        me.wpn = Math.min(9, Math.max(0, Math.floor(Number(msg.wpn) || 0)));
         me.dirty = true;
         return;
       }
@@ -264,8 +270,22 @@ export function setupWs(httpServer) {
         if (now - me.lastHitAt < HIT_MIN_INTERVAL_MS) return;
         me.lastHitAt = now;
 
-        const target = players.get(String(msg.target ?? ''));
+        // Cible = bot de l'arène : même barème borné, dégâts gérés par arena.js
+        const targetId = String(msg.target ?? '');
+        if (arena.isBot(targetId)) {
+          if (!arena.allowHit(id, targetId, now)) return;
+          const raw = Math.max(1, Math.floor(Number(msg.dmg) || HIT_DAMAGE));
+          if (raw > 55) {
+            if (now - (me.lastBigHitAt ?? 0) < 1400) return;
+            me.lastBigHitAt = now;
+          }
+          arena.hitBot(id, targetId, raw > 55 ? Math.min(100, raw) : Math.min(55, raw), now);
+          return;
+        }
+        const target = players.get(targetId);
         if (!target || target === me) return;
+        // Dans l'arène : pas de tir ami, arme imposée par le mode, bouclier d'apparition
+        if (!arena.allowHit(id, targetId, now)) return;
 
         // Premier coup AU BUT pendant un duel : victoire immédiate (+30 XP)
         if (me.duelWith === String(msg.target) &&
@@ -322,6 +342,8 @@ export function setupWs(httpServer) {
             byName: me.name,
             victimName: target.name,
             kills: me.kills,
+            // victime dans l'arène : elle y réapparaît (champ optionnel)
+            sp: arena.playerDied(targetId, id, now) ?? undefined,
           });
         }
         return;
@@ -350,8 +372,15 @@ export function setupWs(httpServer) {
             byName: String(msg.by ?? 'la ville de Lyon').slice(0, 32),
             victimName: me.name,
             kills: 0,
+            sp: arena.playerDied(id, null, now) ?? undefined,
           });
         }
+        return;
+      }
+
+      // Console de match de l'arène (mode, bots, difficulté, enchaînement)
+      if (msg.t === 'arenaCfg') {
+        arena.configure(id, msg, Date.now());
         return;
       }
 
@@ -481,6 +510,7 @@ export function setupWs(httpServer) {
     });
 
     ws.on('close', () => {
+      if (id) arena.leave(id);
       if (id && players.delete(id)) {
         // Un avion resté entre les mains d'un joueur qui se déconnecte
         // redevient libre — sans position connue (il était en vol), les
@@ -512,6 +542,13 @@ export function setupWs(httpServer) {
         entry.vjet ?? 0,
         entry.wpn ?? 0, // arme en main (les vieux clients l'ignorent)
       ]);
+    }
+    // Arène : simulation des bots au même rythme, états joints au même message
+    try {
+      arena.tick(Date.now());
+      states.push(...arena.states());
+    } catch (err) {
+      console.error('Arène :', err);
     }
     if (states.length > 0) broadcast({ t: 'states', s: states });
   }, TICK_MS);

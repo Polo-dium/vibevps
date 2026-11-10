@@ -20,6 +20,7 @@ export function buildWeaponModel(id) {
     case 'akimbo': return buildAkimboModel();
     case 'sniper': return buildSniperModel();
     case 'baton': return buildBatonModel();
+    case 'couteau': return buildCouteauModel();
     default: return buildAkModel();
   }
 }
@@ -243,6 +244,21 @@ function buildBatonModel() {
   k.tube(0.02, 0.0, 0.72, -0.03, PBR.wood(0xa87b42), 0, 10, 0.024);
   k.tube(0.028, -0.03, 0.11, -0.03, PBR.fabric(0x54371e), 0, 10);
   k.tube(0.026, 0.62, 0.66, -0.03, PBR.fabric(0xa62633), 0, 10);
+  return k.bake();
+}
+
+// Couteau de combat (mode « couteaux » de l'arène) : lame à pointe relevée,
+// gouttière, garde d'acier, manche gainé, pommeau
+function buildCouteauModel() {
+  const k = kit();
+  const steel = PBR.steel(0xb9c0c8);
+  const black = PBR.polymer(0x1b1c1f);
+  k.prof([[0.1, -0.046], [0.3, -0.046], [0.345, -0.028], [0.36, -0.012], [0.3, -0.008], [0.1, -0.008]], 0.005, steel, 0, { bevel: 0.002 });
+  k.box(0.13, 0.28, -0.026, -0.021, 0.0062, PBR.gunmetal(0x4a4e55)); // gouttière
+  k.prof(roundedRect(0.085, -0.058, 0.102, 0.004, 0.004), 0.03, PBR.steel(0x7d848d), 0, { bevel: 0.002 });
+  k.tube(0.0155, -0.04, 0.088, -0.027, black, 0, 10, 0.017);
+  for (const u of [-0.02, 0.005, 0.03, 0.055]) k.tube(0.0175, u, u + 0.008, -0.027, PBR.fabric(0x2e3a2c), 0, 10);
+  k.tube(0.019, -0.055, -0.04, -0.027, PBR.steel(0x7d848d), 0, 10);
   return k.bake();
 }
 
