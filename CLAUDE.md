@@ -12,6 +12,8 @@ progression. Tout le code, les commentaires et l'UI sont **en français**.
 - Pour livrer : développer sur ta branche de travail, puis **fusionner dans
   `claude/3d-arcade-map-vps-5v3opg`** et pousser. Ne jamais compter sur un
   simple push de branche de travail pour déployer.
+- Un « go » de Polo vaut feu vert pour fusionner dans la branche de
+  production et pousser (précisé le 10/11/2026) — pas besoin de redemander.
 - `client/dist/` est gitignoré : le build de prod se fait sur le VPS.
   Le serveur sert `client/dist` s'il existe (voir `server/src/index.js`).
 - Les migrations SQLite s'appliquent au démarrage du serveur
@@ -200,6 +202,11 @@ npm start          # serveur de prod (sert client/dist)
     modèles tournés de π (regard -z), Lambert hors palier Élevé, 3 draw
     calls chacun. Chargés en fond (6 au palier Moyen, 12 en Élevé, aucun
     en Bas) ; les passants sculptés sont échangés quand ils sont loin.
+    Joueurs distants et bots de l'arène aussi (`remotes.js` `swapIn`,
+    distribution `AVATAR_CAST` d'après le pseudo) : `setArmed` + `animateArmed`
+    ramènent les bras en position de tir après l'animation (`aimBone`, sans
+    hypothèse sur le repère des os), l'arme se pose sur le support `armR`
+    recalé sur la main droite.
   - `src/world/human.js` (humains sculptés, repli et autres PNJ, UN SkinnedMesh par humain = 1 draw
     call : pièces fusionnées, os = anciens pivots armL/armR/foreL/legL/kneeL…,
     géométrie partagée, couleurs par sommet ; une arme se fixe sur l'os armR ;

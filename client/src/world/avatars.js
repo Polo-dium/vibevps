@@ -128,15 +128,69 @@ export async function buildAvatar(name0, { seated = false } = {}) {
     mixer.update(group.userData.far ? dt * 3 : dt);
     group.position.y = group.userData.baseY ?? group.position.y;
   }
+  // ARME EN MAIN (joueurs distants et bots, voir player/remotes.js) : après
+  // l'animation, les deux bras sont ramenés en position de tir — chaque os
+  // est tourné pour que son segment pointe dans la direction voulue (aucune
+  // hypothèse sur le repère des os). L'arme se pose sur `armR`, un support
+  // du groupe recalé sur la main droite, toujours pointé vers l'avant.
+  const bone = (n) => model.getObjectByName(n);
+  const arm = {
+    r: [bone('Bip01_R_UpperArm'), bone('Bip01_R_Forearm'), bone('Bip01_R_Hand')],
+    l: [bone('Bip01_L_UpperArm'), bone('Bip01_L_Forearm'), bone('Bip01_L_Hand')],
+  };
+  const canPose = [...arm.r, ...arm.l].every(Boolean);
+  const armR = new THREE.Group();
+  armR.position.set(0.16, 1.25, -0.3);
+  group.add(armR);
+  let armed = false;
+  const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3();
+  const _q = new THREE.Quaternion(), _qw = new THREE.Quaternion(), _qp = new THREE.Quaternion(), _qg = new THREE.Quaternion();
+  function aimBone(b, child, x, y, z) {
+    b.updateWorldMatrix(true, true);
+    b.getWorldPosition(_a);
+    child.getWorldPosition(_b);
+    _b.sub(_a).normalize();
+    _d.set(x, y, z).normalize().applyQuaternion(_qg); // direction voulue, repère du groupe → monde
+    _q.setFromUnitVectors(_b, _d);
+    b.getWorldQuaternion(_qw).premultiply(_q);
+    b.parent.getWorldQuaternion(_qp).invert();
+    b.quaternion.copy(_qp.multiply(_qw));
+  }
+  function poseArmed() {
+    if (!armed || !canPose) return;
+    group.getWorldQuaternion(_qg);
+    // (repère du groupe : -z = devant, +x = à droite du personnage)
+    aimBone(arm.r[0], arm.r[1], 0.12, -0.72, -0.68);
+    aimBone(arm.r[1], arm.r[2], -0.42, 0.18, -0.89);
+    aimBone(arm.l[0], arm.l[1], 0.1, -0.5, -0.86);
+    aimBone(arm.l[1], arm.l[2], 0.62, 0.22, -0.75);
+    // support de l'arme : calé sur la main droite (poignée ≈ origine du modèle)
+    arm.r[2].updateWorldMatrix(true, false);
+    arm.r[2].getWorldPosition(_a);
+    group.worldToLocal(_a);
+    armR.position.set(_a.x - 0.03, _a.y + 0.1, _a.z + 0.16);
+  }
+  const animate0 = animate;
+  const emi = new THREE.Color(0);
   const red = new THREE.Color(0xffffff);
   return {
+    armR,
+    setArmed(on) { armed = Boolean(on); },
+    animateArmed(phase, speed) { animate0(phase, speed); poseArmed(); },
     group,
     mesh: meshes[0],
     hitMeshes: meshes,
     animate,
     talk(on) { talking = on; },
     // flash de dégâts : teinte tous les matériaux de l'instance
-    shirtMat: { color: { set(c) { red.set(c); for (const m of tintable) m.color.copy(red); }, setHex(h) { red.setHex(h); for (const m of tintable) m.color.copy(red); } } },
+    shirtMat: {
+      color: { set(c) { red.set(c); for (const m of tintable) m.color.copy(red); }, setHex(h) { red.setHex(h); for (const m of tintable) m.color.copy(red); } },
+      // lueur (équipes, néon de nuit) : même écriture que sur un matériau
+      emissive: {
+        copy(c) { emi.copy(c); return this; },
+        multiplyScalar(k) { emi.multiplyScalar(k); for (const m of tintable) m.emissive?.copy(emi); return this; },
+      },
+    },
     clearTint() { for (const m of tintable) m.color.setHex(0xffffff); },
     isAvatar: true,
   };

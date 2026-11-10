@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { hashColor } from '../world/utils.js';
 import { buildHuman } from '../world/human.js';
+import { buildAvatar, avatarsEnabled } from '../world/avatars.js';
 import { buildMirageModel, buildPlaneModel } from '../world/aviation.js';
 import { buildVelovModel } from '../world/velov.js';
 import { createMusicSource, gainForDistance } from '../music.js';
@@ -11,6 +12,9 @@ import { state } from '../state.js';
 const INTERP_DELAY = 0.12; // secondes de retard de rendu pour interpoler
 
 const PANTS = [0x39404e, 0x4e4439, 0x2e3a4e, 0x44394e];
+// Distribution des avatars réalistes des joueurs et des bots (4 modèles
+// pour limiter le poids chargé ; le même pseudo a toujours le même)
+const AVATAR_CAST = ['sports_male_01', 'male_adult_01', 'female_adult_01', 'male_adult_08'];
 
 export function createRemotePlayers(scene, shootables, { onHitRemote, getListenerPos } = {}) {
   const remotes = new Map();
@@ -47,6 +51,14 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     bubble.visible = false;
     human.group.add(bubble);
 
+    // Personnage réaliste (avatars Rocketbox) : l'humain sculpté tient la
+    // place le temps du chargement, puis on l'échange (sauf palier Bas)
+    if (avatarsEnabled()) {
+      let h = 0;
+      for (const ch of name) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+      buildAvatar(AVATAR_CAST[h % AVATAR_CAST.length]).then((av) => swapIn(id, human, av)).catch(() => {});
+    }
+
     remotes.set(id, {
       human, name, baseColor, bubble, nameplate, team: -1,
       buffer: [{ t: performance.now() / 1000, p, ry }],
@@ -55,6 +67,39 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
       animTime: Math.random() * 10,
       prevPos: new THREE.Vector3(p[0], p[1], p[2]),
     });
+  }
+
+  function swapIn(id, old, av) {
+    const r = remotes.get(id);
+    if (!r || r.human !== old) return; // parti (ou déjà échangé) entre-temps
+    const g = av.group, og = old.group;
+    g.position.copy(og.position);
+    g.rotation.copy(og.rotation);
+    g.scale.copy(og.scale);
+    // étiquette, bulle, losange d'équipe… suivent ; l'arme sera rebâtie
+    if (r.weapon) { old.armR.remove(r.weapon); r.weapon = null; r.muzzle = null; r.weaponCode = 0; }
+    for (const c of [...og.children]) if (c.isSprite) g.add(c);
+    for (const mesh of old.hitMeshes) {
+      const i = shootables?.indexOf(mesh) ?? -1;
+      if (i >= 0) shootables.splice(i, 1);
+    }
+    for (const mesh of av.hitMeshes) {
+      mesh.userData.onHit = (hit) => onHitRemote?.(
+        id, hit, Boolean(hit?.point) && hit.point.y - g.position.y > 1.5 * g.scale.y
+      );
+      shootables?.push(mesh);
+    }
+    av.hitMeshes[0].userData.aimPoint = (out) => {
+      const rr = remotes.get(id);
+      if (!rr || rr.inVehicle || !g.visible) return null;
+      return out.copy(g.position).setY(g.position.y + 1.15);
+    };
+    av.animate = av.animateArmed; // bras en position de tir quand l'arme est sortie
+    g.visible = og.visible;
+    scene.remove(og);
+    scene.add(g);
+    r.human = av;
+    r.glow = -1; // lueur (nuit, équipe) à reposer sur les nouveaux matériaux
   }
 
   // ÉQUIPES DE L'ARÈNE : lueur rouge ou bleue sur tout le personnage (émissif,
@@ -239,8 +284,12 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
         const wid = WEAPON_IDS[wpnCode - 1];
         if (wid) {
           r.weapon = buildWeaponModel(wid);
-          r.weapon.position.set(0.02, -0.5, -0.06);
-          r.weapon.rotation.set(-1.15, 0, 0);
+          if (r.human.isAvatar) {
+            r.weapon.position.set(0, 0, 0); // support déjà calé sur la main, pointé devant
+          } else {
+            r.weapon.position.set(0.02, -0.5, -0.06);
+            r.weapon.rotation.set(-1.15, 0, 0);
+          }
           r.muzzle = new THREE.Sprite(new THREE.SpriteMaterial({
             color: 0xfff2b0, transparent: true, opacity: 0, depthWrite: false,
             blending: THREE.AdditiveBlending,
@@ -312,7 +361,16 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
       r.prevPos.copy(g.position);
       r.animTime += frameDt * (3 + Math.min(speed, 12) * 0.9);
       r.human.group.userData.baseY = g.position.y;
-      r.human.animate(r.animTime, veh ? 0 : speed);
+      if (r.human.isAvatar) {
+        // avatar réaliste : bras en position de tir si l'arme est sortie,
+        // animation allégée au-delà de 40 m, vitesse au format des avatars
+        r.human.setArmed(Boolean(r.weapon));
+        const lp = getListenerPos?.();
+        g.userData.far = lp ? g.position.distanceToSquared(lp) > 1600 : false;
+        r.human.animate(r.animTime, veh ? 0 : speed * 2.6);
+      } else {
+        r.human.animate(r.animTime, veh ? 0 : speed);
+      }
     }
   }
 
