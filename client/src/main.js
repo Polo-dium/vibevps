@@ -630,7 +630,17 @@ async function boot() {
       sun.intensity *= 1 - 0.55 * sk;
       sun.color.lerp(ENV_STORM.sun, sk * 0.5 * daylight);
     }
-    if (shadowsEnabled) sun.castShadow = daylight > 0.04;
+    // ARÈNE : projecteurs de stade. La nuit sous l'orage, on n'y voyait plus
+    // ni les conteneurs ni les adversaires — plancher de lumière (ciel froid
+    // + direction), sans vraie lampe ajoutée ; le ciel, lui, reste nocturne.
+    if (ctx.inHiFi) {
+      const k = 1 - daylight;
+      hemi.intensity = Math.max(hemi.intensity, HEMI_DAY * 0.95);
+      hemi.color.lerp(_stormColor.set(0xb4c2dc), 0.75 * k);
+      sun.intensity = Math.max(sun.intensity, SUN_MAX * 0.55);
+      sun.color.lerp(_stormColor.set(0xdfe8ff), 0.6 * k);
+    }
+    if (shadowsEnabled) sun.castShadow = daylight > 0.04 || Boolean(ctx.inHiFi);
     fill.intensity = FILL_MAX * daylight + 0.1 * env.night;
     fill.color.copy(hemi.color).lerp(sun.color, 0.25);
 

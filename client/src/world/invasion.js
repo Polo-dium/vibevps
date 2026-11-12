@@ -107,7 +107,8 @@ export function createInvasion(ctx, { notify, setBanner, onAttack, onEnd, getDam
       const dx = p.x - zb.g.position.x, dz = p.z - zb.g.position.z;
       const dist = Math.hypot(dx, dz);
       if (dist > 90) { despawn(zb); continue; } // largué : recyclé ailleurs
-      zb.g.rotation.y = Math.atan2(dx, dz);
+      // les humains sculptés regardent vers −z : sans ça ils avançaient à reculons
+      zb.g.rotation.y = Math.atan2(-dx, -dz);
       if (dist > ATTACK_RANGE) {
         const step = (SPEED * dt) / Math.max(dist, 0.01);
         const nx = zb.g.position.x + dx * step;
