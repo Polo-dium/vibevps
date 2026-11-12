@@ -1686,3 +1686,5 @@ body:has(#killcam:not(.hidden)) #hud, body:has(#killcam:not(.hidden)) #touch-ui 
 @media (pointer: coarse) {
   #hud-nades { right: auto; left: 50%; transform: translateX(-50%); bottom: 78px; font-size: 13px; }
 }
+
+body:has(#killcam:not(.hidden)) #hud-nades { opacity: 0; }

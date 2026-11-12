@@ -16,11 +16,12 @@ export const MODE_LABELS = {
   ffa: 'Mêlée générale',
   tdm: 'Match à mort par équipes',
   ctf: 'Capture du drapeau',
+  zone: 'Zone à tenir',
   sniper: 'Snipers',
   couteau: 'Couteaux',
 };
 const MODE_GOALS = {
-  ffa: 'Chacun pour soi', tdm: 'Rouges contre Bleus', ctf: 'Ramène leur drapeau à ta base',
+  ffa: 'Chacun pour soi', tdm: 'Rouges contre Bleus', ctf: 'Ramène leur drapeau à ta base', zone: 'Reste dans le cercle',
   sniper: 'Une balle, un gone', couteau: 'Au corps à corps',
 };
 const DIFF_LABELS = ['Facile', 'Normal', 'Difficile', 'Réaliste'];
@@ -91,7 +92,14 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
         `<span style="color:${ALLY_CSS}">TON ÉQUIPE${flag(mine)} <b>${snap.sc[mine]}</b></span>` +
         `<i>${snap.lim}</i>` +
         `<span style="color:${FOE_CSS}"><b>${snap.sc[theirs]}</b> ADVERSAIRES${flag(theirs)}</span>`;
-      subEl.innerHTML = `Alliés en <b style="color:${ALLY_CSS}">bleu</b>, ennemis en <b style="color:${FOE_CSS}">rouge</b> · ${me ? `${me[3]} élim.` : ''}`;
+      if (snap.z) {
+        const o = snap.z[3];
+        const who = o === 2 ? '<b style="color:#f0b648">contestée</b>'
+          : o < 0 ? 'libre' : isAlly(o) ? `<b style="color:${ALLY_CSS}">à ton équipe</b>` : `<b style="color:${FOE_CSS}">aux adversaires</b>`;
+        subEl.innerHTML = `Zone ${who} · elle bouge dans ${snap.z[4]} s`;
+      } else {
+        subEl.innerHTML = `Alliés en <b style="color:${ALLY_CSS}">bleu</b>, ennemis en <b style="color:${FOE_CSS}">rouge</b> · ${me ? `${me[3]} élim.` : ''}`;
+      }
     } else {
       const ranked = [...snap.b].sort((a, b) => b[3] - a[3] || a[4] - b[4]);
       const lead = ranked[0];
@@ -200,6 +208,32 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
       pos.needsUpdate = true;
       fl.g.rotation.y = Math.sin(t * 0.7 + i) * 0.25;
     });
+  }
+
+  // --- Zone à tenir : cercle au sol + voile lumineux, à la couleur de qui la tient ---
+  const zoneMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending,
+    depthWrite: false, side: THREE.DoubleSide,
+  });
+  const zoneWall = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 3.2, 40, 1, true), zoneMat);
+  const zoneRing = new THREE.Mesh(new THREE.RingGeometry(0.93, 1, 48), new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide,
+  }));
+  zoneRing.rotation.x = -Math.PI / 2;
+  for (const o of [zoneWall, zoneRing]) { o.visible = false; o.userData.noShadow = true; ctx.scene.add(o); }
+  function updateZone() {
+    const on = Boolean(ctx.inHiFi && snap?.z && snap.st === 'play');
+    zoneWall.visible = zoneRing.visible = on;
+    if (!on) return;
+    const [x, z, r, owner] = snap.z;
+    zoneWall.position.set(OX + x, 1.65, z);
+    zoneWall.scale.set(r, 1, r);
+    zoneRing.position.set(OX + x, 0.1, z);
+    zoneRing.scale.set(r, r, 1);
+    const hex = owner === 2 ? 0xf0b648 : owner < 0 ? 0xffffff : isAlly(owner) ? 0x2f76f0 : 0xe23a2e;
+    zoneMat.color.setHex(hex);
+    zoneRing.material.color.setHex(hex);
+    zoneMat.opacity = 0.16 + 0.06 * Math.sin(performance.now() / 300);
   }
 
   // --- Tableau des meilleurs, au-dessus du portail ---------------------------------
@@ -384,6 +418,8 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     else if (msg.k === 'cap') {
       banner(`<small>${esc(msg.name)}</small>Drapeau capturé<small>${isAlly(msg.team) ? 'point pour ton équipe' : 'point pour les adversaires'}</small>`);
       audio?.reward?.();
+    } else if (msg.k === 'zone') {
+      feed('◎ La zone se déplace !');
     } else if (msg.k === 'streak') {
       // SÉRIES D'ÉLIMINATIONS : 3 = drone-pigeon, 5 = frappe de quenelles, 7 = armure de canut
       const mine = msg.id === getMyId();
@@ -434,6 +470,7 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
       }
     }
     updateFlags(dt);
+    updateZone();
   });
 
   return { get snap() { return snap; }, openConsole: () => toggleConsole(true) };

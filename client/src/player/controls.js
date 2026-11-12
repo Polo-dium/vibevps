@@ -81,6 +81,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   const CROUCH_H = 1.15, CROUCH_DROP = 0.62;
   let crouched = false, crouchTouch = false, crouchWas = false, crouchAmt = 0;
   let bodyH = HEIGHT;
+  let lastMantle = 0; // dernière escalade de rebord (ms)
   let airTime = 0;
   // Sensation de marche : balancement de tête calé sur les pas, amorti à
   // l'atterrissage, marches lissées (localStorage lyon_bob = '0' pour couper)
@@ -186,6 +187,15 @@ export function createControls(camera, domElement, colliders, terrain = null) {
           pos.y = box.maxY;
           onGround = true;
           continue;
+        }
+        // ESCALADE : en l'air contre un rebord à portée de main (jusqu'à
+        // 1,3 m au-dessus des pieds), on se hisse — un second élan juste
+        // suffisant pour passer le bord. Sauter contre un conteneur en
+        // poussant vers lui suffit donc à grimper dessus.
+        if (!onGround && !vehicle && !flying && stepH > STEP_UP && stepH <= 1.3 && vel.y > -7 &&
+            performance.now() - lastMantle > 450 && canStandAt(pos.x, box.maxY + 0.02, pos.z, box)) {
+          vel.y = Math.max(vel.y, Math.sqrt(2 * GRAVITY * (stepH + 0.3)));
+          lastMantle = performance.now();
         }
         const half = bodyHalf;
         if (axis === 'x') {

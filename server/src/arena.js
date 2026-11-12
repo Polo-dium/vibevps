@@ -16,11 +16,12 @@ import { NADE, stepNade } from '../../shared/arena-nade.js';
 // précision qui dépendent de la difficulté.
 
 const OX = ARENA.OFFSET;
-export const MODES = ['ffa', 'tdm', 'ctf', 'sniper', 'couteau'];
+export const MODES = ['ffa', 'tdm', 'ctf', 'zone', 'sniper', 'couteau'];
 const MODE_INFO = {
   ffa: { teams: false, dur: 240, lim: 20 },
   tdm: { teams: true, dur: 300, lim: 25 },
   ctf: { teams: true, dur: 360, lim: 3 },
+  zone: { teams: true, dur: 300, lim: 80 }, // zone à tenir : 1 point par seconde de contrôle
   sniper: { teams: false, dur: 240, lim: 15 },
   couteau: { teams: false, dur: 180, lim: 12 },
 };
@@ -306,6 +307,7 @@ export function createArena({ players, broadcast, q }) {
     Object.assign(b, {
       x: sp.x, z: sp.z, y: 0, ry: sp.ry, hp: 100, alive: true, path: null, target: null,
       shieldUntil: now + SPAWN_SHIELD_MS, nextFireAt: now + 600, burst: 0, repathAt: 0,
+      nf: 1, ns: 0, nadeAt: now + rnd(8000, 20000), // une seule grenade par vie pour un bot
     });
   }
   function killBotSilently(b) {
@@ -349,7 +351,9 @@ export function createArena({ players, broadcast, q }) {
     round = {
       mode: m, st: 'play', endAt: now + MODE_INFO[m].dur * 1000, sc: [0, 0], win: null,
       flags: m === 'ctf' ? BASES.map((b) => ({ st: 0, x: b.x, z: b.z, by: null, dropAt: 0 })) : null,
+      zone: m === 'zone' ? { i: -1, x: 0, z: 0, owner: -1, moveAt: 0, acc: 0 } : null,
     };
+    if (round.zone) moveZone(now);
     for (const p of parts.values()) { p.lastK = p.k; p.k = 0; p.d = 0; p.caps = 0; p.streak = 0; p.armor = 0; giveNades(p); sendInv(p); }
     nades.length = smokes.length = pending.length = 0;
     dealTeams();
@@ -409,8 +413,40 @@ export function createArena({ players, broadcast, q }) {
       lim: info().lim, teams: info().teams ? 1 : 0, sc: round.sc, win: round.win, next: round.next ?? null,
       b: [...parts.values()].map((p) => [p.id, p.name, p.team, p.k, p.d, p.bot ? 1 : 0, p.caps]),
       f: round.flags?.map((f) => [f.st, Math.round(f.x * 10) / 10, Math.round(f.z * 10) / 10, f.by]) ?? null,
+      z: round.zone ? [Math.round(round.zone.x * 10) / 10, Math.round(round.zone.z * 10) / 10, ZONE_R, round.zone.owner, Math.max(0, Math.ceil((round.zone.moveAt - now) / 1000))] : null,
       cfg: { ...cfg, next: nextMode },
     });
+  }
+
+  // --- Zone à tenir ------------------------------------------------------------
+  // Un cercle de 7 m qui change de place toutes les 45 s. L'équipe qui y a
+  // le plus de monde marque 1 point par seconde ; à égalité, personne.
+  const ZONE_R = 7;
+  const ZONE_SPOTS = [[-30, -12], [30, 12], [0, -19], [0, 19], [-48, 17], [48, -17], [-16, 4], [16, -4]];
+  function moveZone(now) {
+    const z = round.zone;
+    let i = z.i;
+    while (i === z.i) i = Math.floor(Math.random() * ZONE_SPOTS.length);
+    z.i = i;
+    [z.x, z.z] = freeNear(ZONE_SPOTS[i][0], ZONE_SPOTS[i][1]);
+    z.moveAt = now + 45000;
+    z.owner = -1;
+    sendArena({ t: 'aevt', k: 'zone' });
+  }
+  function tickZone(now) {
+    const z = round.zone;
+    if (now >= z.moveAt) moveZone(now);
+    const inside = [0, 0];
+    for (const c of parts.values()) {
+      if (c.team < 0 || (c.bot && !c.alive) || now < (c.shieldUntil ?? 0) - SPAWN_SHIELD_MS) continue;
+      const cp = posOf(c);
+      if (cp && (cp.y ?? 0) < 1.6 && Math.hypot(cp.x - z.x, cp.z - z.z) < ZONE_R) inside[c.team]++;
+    }
+    z.owner = inside[0] === inside[1] ? (inside[0] ? 2 : -1) : inside[0] > inside[1] ? 0 : 1;
+    if (z.owner === 0 || z.owner === 1) {
+      z.acc += 0.066;
+      if (z.acc >= 1) { z.acc -= 1; round.sc[z.owner]++; }
+    }
   }
 
   // --- Drapeaux ----------------------------------------------------------------
@@ -487,6 +523,46 @@ export function createArena({ players, broadcast, q }) {
     }
     return false;
   }
+  // Départ d'une grenade (joueur ou bot) : décompte, annonce, mise en vol
+  function nadeStart(pp, d) {
+    const l = Math.hypot(d[0], d[1], d[2]) || 1;
+    return {
+      x: pp.x + (d[0] / l) * 0.5, y: (pp.y ?? 0) + 1.5, z: pp.z + (d[2] / l) * 0.5,
+      vx: (d[0] / l) * NADE.speed, vy: (d[1] / l) * NADE.speed + NADE.lift, vz: (d[2] / l) * NADE.speed,
+    };
+  }
+  function launch(part, k, d, now) {
+    const pp = posOf(part);
+    if (!pp) return;
+    part.lastNadeAt = now;
+    if (k === 's') part.ns--; else part.nf--;
+    sendInv(part);
+    const n = { id: `n${(nadeSeq++).toString(36)}`, k, by: part.id, ...nadeStart(pp, d), at: now + NADE.fuse[k] * 1000 };
+    sendArena({
+      t: 'nade', id: n.id, k, by: part.id,
+      p: [Math.round((n.x + OX) * 100) / 100, Math.round(n.y * 100) / 100, Math.round(n.z * 100) / 100],
+      v: [n.vx, n.vy, n.vz].map((v) => Math.round(v * 100) / 100),
+    });
+    nades.push(n);
+  }
+  // Visée d'un bot : il essaie sept inclinaisons, simule chaque lancer
+  // jusqu'à l'explosion (rebonds compris) et garde celle qui finit le plus
+  // près de la cible — ou renonce si rien n'arrive à moins de 4 m.
+  function aimNade(from, to) {
+    const dx = to.x - from.x, dz = to.z - from.z, d = Math.hypot(dx, dz) || 1;
+    let best = null, bd = 4;
+    for (let i = 0; i < 7; i++) {
+      const pitch = -0.15 + i * 0.13;
+      const dir = [dx / d * Math.cos(pitch), Math.sin(pitch), dz / d * Math.cos(pitch)];
+      const n = nadeStart(from, dir);
+      for (let t = 0; t < NADE.fuse.f; t += 0.1) stepNade(n, 0.1, BOXES);
+      const miss = Math.hypot(n.x - to.x, n.z - to.z);
+      // jamais une grenade qui lui reviendrait dans les pieds
+      if (miss < bd && Math.hypot(n.x - from.x, n.z - from.z) > NADE.radius * 0.8) { bd = miss; best = dir; }
+    }
+    return best;
+  }
+
   // Explosion : dégâts qui décroissent avec la distance, arrêtés par les
   // obstacles — amis, ennemis et lanceur compris (tir ami oblige)
   function explode(x, y, z, byId, weapon, now) {
@@ -567,11 +643,11 @@ export function createArena({ players, broadcast, q }) {
     const tk = Boolean(counted && info().teams && killer.team === victim.team);
     if (counted && tk) {
       killer.k = Math.max(0, killer.k - 1);
-      if (round.mode !== 'ctf') round.sc[killer.team] = Math.max(0, round.sc[killer.team] - 1);
+      if (round.mode !== 'ctf' && round.mode !== 'zone') round.sc[killer.team] = Math.max(0, round.sc[killer.team] - 1);
     } else if (counted) {
       killer.k++;
       if (!killer.bot) onStreak(killer, now);
-      if (info().teams && round.mode !== 'ctf' && killer.team >= 0) round.sc[killer.team]++;
+      if (info().teams && round.mode !== 'ctf' && round.mode !== 'zone' && killer.team >= 0) round.sc[killer.team]++;
     }
     sendArena({
       t: 'akill', by: killer?.id ?? null, byName: killer?.name ?? null,
@@ -671,6 +747,11 @@ export function createArena({ players, broadcast, q }) {
     return round.mode === 'sniper' ? WPN.sniper : round.mode === 'couteau' ? WPN.couteau : WPN.ak;
   }
   function chooseGoal(b, D, now) {
+    if (round.zone) {
+      // chacun vise un point à lui dans le cercle (pas tous au centre)
+      const a = b.seed * Math.PI * 2, r = ZONE_R * 0.7 * ((b.seed * 7) % 1);
+      return [round.zone.x + Math.cos(a) * r, round.zone.z + Math.sin(a) * r];
+    }
     const fl = round.flags;
     if (fl) {
       const own = fl[b.team], foe = fl[1 - b.team];
@@ -755,7 +836,9 @@ export function createArena({ players, broadcast, q }) {
         const keep = sniper ? 60 : 20;
         // Capture du drapeau : l'objectif passe avant le duel — attaquants et
         // porteur continuent d'avancer en tirant, seuls les défenseurs tiennent
-        const objective = round.flags && (b.seed < 0.65 || round.flags.some((f) => f.by === b.id));
+        const objective = (round.flags && (b.seed < 0.65 || round.flags.some((f) => f.by === b.id))) ||
+          // zone à tenir : on y va d'abord, on se bat une fois dedans
+          (round.zone && Math.hypot(b.x - round.zone.x, b.z - round.zone.z) > 5);
         if (d < keep && !objective) {
           // en position : on s'arrête (ou on mitraille en pas de côté)
           moving = false;
@@ -769,6 +852,14 @@ export function createArena({ players, broadcast, q }) {
         } else if (now >= b.repathAt) {
           const g = objective ? chooseGoal(b, D, now) : [tp.x, tp.z];
           b.path = findPath(b.x, b.z, g[0], g[1]); b.pathI = 0; b.repathAt = now + 900;
+        }
+        // Grenade : à partir de « normal », quand la cible est à bonne portée
+        // et plutôt immobile (planquée) — de plus en plus souvent avec la difficulté
+        if (think && !sniper && cfg.diff >= 1 && b.nf > 0 && now >= b.nadeAt && now >= b.reactAt &&
+            d > 9 && d < 30 && (tgt.speed ?? 0) < 3) {
+          b.nadeAt = now + [0, 40000, 24000, 15000][cfg.diff] * rnd(0.8, 1.4);
+          const dir = aimNade(b, { x: tp.x, z: tp.z });
+          if (dir) launch(b, 'f', dir, now);
         }
         if (now >= b.reactAt && now >= b.nextFireAt) {
           const tSpeed = tgt.speed ?? 0;
@@ -805,9 +896,9 @@ export function createArena({ players, broadcast, q }) {
         const g = chooseGoal(b, D, now);
         b.path = findPath(b.x, b.z, g[0], g[1]);
         b.pathI = 0;
-        b.repathAt = now + (round.flags ? 1500 : 1200);
+        b.repathAt = now + (round.flags || round.zone ? 1500 : 1200);
       }
-    } else if (round.flags && now >= b.repathAt) {
+    } else if ((round.flags || round.zone) && now >= b.repathAt) {
       // les objectifs bougent : on recalcule régulièrement
       const g = chooseGoal(b, D, now);
       b.path = findPath(b.x, b.z, g[0], g[1]);
@@ -878,6 +969,7 @@ export function createArena({ players, broadcast, q }) {
         let i = 0;
         for (const b of bots.values()) tickBot(b, dt, now, (tickN + i++) % 3 === 0);
         if (round.flags) tickFlags(now);
+        if (round.zone) tickZone(now);
         tickNades(now);
         const top = info().teams ? Math.max(round.sc[0], round.sc[1])
           : Math.max(0, ...[...parts.values()].map((p) => p.k));
@@ -951,7 +1043,7 @@ export function createArena({ players, broadcast, q }) {
       return registerKill(k ?? null, v, now, e?.wpn ?? 0);
     },
 
-    // Lancer de grenade ('f') ou de fumigène ('s') : { k, p: [x,y,z] monde, d: [dx,dy,dz] regard }
+    // Lancer de grenade ('f') ou de fumigène ('s') : { k, d: [dx,dy,dz] regard }
     throwNade(id, msg, now) {
       const part = parts.get(id);
       if (!part || !round || round.st !== 'play') return;
@@ -960,24 +1052,8 @@ export function createArena({ players, broadcast, q }) {
       const k = msg.k === 's' ? 's' : 'f';
       if (!((k === 's' ? part.ns : part.nf) > 0)) return;
       const d = Array.isArray(msg.d) ? msg.d.map(Number) : null;
-      const pp = posOf(part);
-      if (!d || d.length !== 3 || d.some((v) => !Number.isFinite(v)) || !pp) return;
-      const l = Math.hypot(d[0], d[1], d[2]) || 1;
-      part.lastNadeAt = now;
-      if (k === 's') part.ns--; else part.nf--;
-      sendInv(part);
-      const n = {
-        id: `n${(nadeSeq++).toString(36)}`, k, by: id,
-        x: pp.x + (d[0] / l) * 0.5, y: (pp.y ?? 0) + 1.5, z: pp.z + (d[2] / l) * 0.5,
-        vx: (d[0] / l) * NADE.speed, vy: (d[1] / l) * NADE.speed + NADE.lift, vz: (d[2] / l) * NADE.speed,
-        at: now + NADE.fuse[k] * 1000,
-      };
-      sendArena({
-        t: 'nade', id: n.id, k, by: id,
-        p: [Math.round((n.x + OX) * 100) / 100, Math.round(n.y * 100) / 100, Math.round(n.z * 100) / 100],
-        v: [n.vx, n.vy, n.vz].map((v) => Math.round(v * 100) / 100),
-      });
-      nades.push(n);
+      if (!d || d.length !== 3 || d.some((v) => !Number.isFinite(v))) return;
+      launch(part, k, d, now);
     },
     // Dégâts d'un humain sur un humain (ws.js) : l'armure de canut encaisse d'abord
     absorb(targetId, dmg) { return absorb(parts.get(targetId), dmg); },

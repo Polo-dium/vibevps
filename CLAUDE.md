@@ -289,7 +289,7 @@ npm start          # serveur de prod (sert client/dist)
     pures : conteneurs, obstacles, bases, `arenaBoxes()`), lu par le client
     (décor + collisions) ET le serveur. `server/src/arena.js` : matchs
     autoritatifs dès qu'un joueur est à x ≈ 20000 — modes `ffa`, `tdm`,
-    `ctf`, `sniper`, `couteau` (manche chronométrée + score limite, 12 s
+    `ctf`, `zone`, `sniper`, `couteau` (manche chronométrée + score limite, 12 s
     d'entracte, enchaînement `rotation` ou `meme`), 1 à 10 bots, 4
     difficultés (`DIFFS`). Les bots sont simulés au tick de ws.js (A* sur
     grille 1 m, ligne de tir par boîtes) et diffusés comme des JOUEURS
@@ -316,6 +316,13 @@ npm start          # serveur de prod (sert client/dist)
     5 = frappe de quenelles (6 impacts annoncés par un cercle rouge), 7 =
     armure de canut (100 points, `absorb`). Client : `world/nades.js`
     (touches physiques KeyQ / KeyZ, boutons 💣 💨, clics de sticks).
+    Les bots lancent aussi (à partir de « normal », 1 grenade par vie) :
+    `aimNade` simule 7 inclinaisons et garde celle qui tombe le plus près.
+    Mode `zone` (zone à tenir) : cercle de 7 m qui bouge toutes les 45 s,
+    1 point par seconde à l'équipe la plus nombreuse dedans (`tickZone`,
+    champ `z` de l'instantané `arena`). Escalade : en l'air contre un rebord
+    à moins de 1,3 m au-dessus des pieds, `controls.js` donne un second élan
+    (on grimpe sur un conteneur en sautant contre lui).
   - MANIEMENT : `weapon.js` `HANDLING` (dispersion, recul, zoom de visée par
     arme) — visée à l'épaule (clic droit / bouton VISER), dispersion qui
     grossit en rafale / en courant / en l'air et se resserre accroupi ou à
