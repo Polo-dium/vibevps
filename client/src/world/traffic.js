@@ -128,6 +128,7 @@ export function buildTraffic(ctx, bands, maxHalf = 110, roads = null) {
       };
       parked.push({ x: px, z: z + (rand() - 0.5) * 2, ry: rand() < 0.1 ? 0.2 : 0, box });
       // Les voitures garées sont solides (tant que personne ne les conduit)
+      box.car = true;
       ctx.colliders.push(box);
     }
   }
@@ -306,6 +307,7 @@ function makeBerline(ctx, p, idx, setCar) {
       minY: anchor.position.y, maxY: anchor.position.y + 1.4,
       minZ: p.z - (2.1 * c + 1.1 * s), maxZ: p.z + (2.1 * c + 1.1 * s),
     };
+    p.box.car = true;
     ctx.colliders.push(p.box);
     setCar(idx, p.x, p.z, car.heading, anchor.position.y);
   }
@@ -550,6 +552,7 @@ function buildRoadNet(ctx, roads) {
       minX: c.x - (1.1 * co + 2.1 * s), maxX: c.x + (1.1 * co + 2.1 * s), minY: c.y, maxY: c.y + 1.4,
       minZ: c.z - (2.1 * co + 1.1 * s), maxZ: c.z + (2.1 * co + 1.1 * s),
     };
+    c.box.car = true;
     ctx.colliders.push(c.box);
     parkSpots.push(c);
   }

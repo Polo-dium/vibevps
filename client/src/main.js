@@ -21,7 +21,7 @@ import { createArms } from './player/arms.js';
 import { createRemotePlayers } from './player/remotes.js';
 import { createVoice } from './player/voice.js';
 import { createTouchControls } from './ui/touch.js';
-import { ARCADE, spawnPoint } from './world/layout.js';
+import { ARCADE, RANGE, spawnPoint } from './world/layout.js';
 import { createNpcs } from './world/npcs.js';
 import { createQuenelle } from './world/quenelle.js';
 import { createRace } from './world/race.js';
@@ -36,7 +36,7 @@ import { createFishing } from './world/fishing.js';
 import { createPigeons } from './world/pigeons.js';
 import { createReflections } from './world/reflections.js';
 import { applySeason } from './world/seasons.js';
-import { bakeSmallDecor } from './world/utils.js';
+import { bakeSmallDecor, rotatedCtx } from './world/utils.js';
 import { createDistanceCuller } from './world/culling.js';
 import { updateInstanceLods } from './render/instlod.js';
 import { createFreezer } from './render/freeze.js';
@@ -722,7 +722,7 @@ async function boot() {
   });
   arcade.syncMachines(state.games);
 
-  const range = buildRange(ctx, {
+  const range = buildRange(RANGE.rot ? rotatedCtx(ctx, RANGE.rot.cx, RANGE.rot.cz, RANGE.rot.yaw) : ctx, {
     onEquipWeapon: () => weapon.toggle(true),
     onSessionEnd: async ({ score, hits, shots, accuracy }) => {
       ui.setRange(null);
@@ -827,10 +827,62 @@ async function boot() {
   // Sur quoi une balle a-t-elle tapé ? → { normal, kind } ou null (rien de
   // solide à moins de 30 cm : en l'air, ou sur un personnage)
   const _sn = new THREE.Vector3();
+  // VRAIS MURS : les boîtes de collision des immeubles sont alignées sur les
+  // axes alors que les façades de Lyon sont en biais — l'impact tombait sur
+  // la boîte, jusqu'à plusieurs dizaines de centimètres devant le mur
+  // (« trous de balle qui flottent »). On recale donc le point sur le tracé
+  // réel de la façade (ctx.wallFlat, index en grille de 8 m bâti au 1er tir).
+  let wallGrid = null;
+  const WG = 8;
+  const snapToWall = (p) => {
+    const W = ctx.wallFlat;
+    if (!W) return false;
+    if (!wallGrid) {
+      wallGrid = new Map();
+      for (let i = 0; i < W.length; i += 6) {
+        const len = Math.hypot(W[i + 2] - W[i], W[i + 3] - W[i + 1]);
+        const n = Math.max(1, Math.ceil(len / (WG / 2)));
+        let last = null;
+        for (let k = 0; k <= n; k++) {
+          const key = Math.floor((W[i] + (W[i + 2] - W[i]) * k / n) / WG) * 4096 + Math.floor((W[i + 1] + (W[i + 3] - W[i + 1]) * k / n) / WG);
+          if (key === last) continue;
+          last = key;
+          let l = wallGrid.get(key);
+          if (!l) wallGrid.set(key, (l = []));
+          l.push(i);
+        }
+      }
+    }
+    let best = 1.6 * 1.6, bx = 0, bz = 0, bi = -1;
+    const cx = Math.floor(p.x / WG), cz = Math.floor(p.z / WG);
+    for (let gx = cx - 1; gx <= cx + 1; gx++) {
+      for (let gz = cz - 1; gz <= cz + 1; gz++) {
+        const l = wallGrid.get(gx * 4096 + gz);
+        if (!l) continue;
+        for (const i of l) {
+          if (p.y < W[i + 4] - 0.2 || p.y > W[i + 5] + 0.2) continue;
+          const ex = W[i + 2] - W[i], ez = W[i + 3] - W[i + 1];
+          const t = Math.max(0, Math.min(1, ((p.x - W[i]) * ex + (p.z - W[i + 1]) * ez) / (ex * ex + ez * ez || 1)));
+          const qx = W[i] + ex * t, qz = W[i + 1] + ez * t;
+          const d2 = (p.x - qx) ** 2 + (p.z - qz) ** 2;
+          if (d2 < best) { best = d2; bx = qx; bz = qz; bi = i; }
+        }
+      }
+    }
+    if (bi < 0) return false;
+    // normale du mur, du côté de celui qui regarde
+    const ex = W[bi + 2] - W[bi], ez = W[bi + 3] - W[bi + 1], len = Math.hypot(ex, ez) || 1;
+    let nx = -ez / len, nz = ex / len;
+    if ((camera.position.x - bx) * nx + (camera.position.z - bz) * nz < 0) { nx = -nx; nz = -nz; }
+    p.x = bx; p.z = bz;
+    _sn.set(nx, 0, nz);
+    return true;
+  };
   const surfaceAt = (p) => {
-    let best = 0.3, kind = null;
+    let best = 0.3, kind = null, face = null, car = false;
     const g = ctx.terrainHeight?.(p.x, p.z) ?? 0;
     if (Math.abs(p.y - g) < best) { best = Math.abs(p.y - g); _sn.set(0, 1, 0); kind = 'sol'; }
+    else if (snapToWall(p)) return { normal: _sn, kind: 'mur' };
     for (const b of ctx.colliders.nearby(p.x, p.z, 1)) {
       if (p.x < b.minX - 0.3 || p.x > b.maxX + 0.3 || p.y < b.minY - 0.3 || p.y > b.maxY + 0.3 ||
           p.z < b.minZ - 0.3 || p.z > b.maxZ + 0.3) continue;
@@ -840,8 +892,18 @@ async function boot() {
         [Math.abs(p.z - b.minZ), 0, 0, -1], [Math.abs(p.z - b.maxZ), 0, 0, 1],
       ];
       for (const [d, nx, ny, nz] of faces) {
-        if (d < best) { best = d; _sn.set(nx, ny, nz); kind = b.metal ? 'metal' : 'mur'; }
+        if (d < best) { best = d; _sn.set(nx, ny, nz); kind = b.metal ? 'metal' : 'mur'; face = b; car = !!b.car; }
       }
+    }
+    // voiture : boîte grossière autour d'une carrosserie tournée → pas de
+    // trou (il flotterait à côté), juste les étincelles
+    if (car) return null;
+    // le trou se pose SUR la face de la boîte, pas là où la marche du rayon
+    // s'est arrêtée
+    if (face) {
+      if (_sn.x) p.x = _sn.x < 0 ? face.minX : face.maxX;
+      else if (_sn.y) p.y = _sn.y < 0 ? face.minY : face.maxY;
+      else p.z = _sn.z < 0 ? face.minZ : face.maxZ;
     }
     return kind ? { normal: _sn, kind } : null;
   };

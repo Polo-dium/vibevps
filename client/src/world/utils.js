@@ -53,6 +53,48 @@ export function flattenColored(source, { material } = {}) {
   return new THREE.Mesh(merged, material ?? new THREE.MeshLambertMaterial({ vertexColors: true }));
 }
 
+// Contexte « tourné » : tout ce qu'un constructeur écrit en coordonnées
+// droites (maillages, colliders, interactions, POI) est pivoté de `yaw`
+// autour de (cx, cz) — stand de tir et clos de pétanque alignés sur la place
+// Bellecour, qui suit l'axe de la Presqu'île. Les colliders restent des
+// boîtes alignées sur les axes : un mur long est donc découpé en cellules
+// d'environ 1 m AVANT rotation (sinon sa boîte englobante barrerait tout).
+export function rotatedCtx(ctx, cx, cz, yaw) {
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  const apply = (x, z) => [cx + (x - cx) * c + (z - cz) * s, cz - (x - cx) * s + (z - cz) * c];
+  const group = new THREE.Group();
+  const [ox, oz] = apply(0, 0);
+  group.rotation.y = yaw;
+  group.position.set(ox, 0, oz);
+  ctx.scene.add(group);
+  const pushBox = (b) => {
+    const pts = [[b.minX, b.minZ], [b.maxX, b.minZ], [b.minX, b.maxZ], [b.maxX, b.maxZ]].map(([x, z]) => apply(x, z));
+    ctx.colliders.push({
+      ...b,
+      minX: Math.min(...pts.map((p) => p[0])), maxX: Math.max(...pts.map((p) => p[0])),
+      minZ: Math.min(...pts.map((p) => p[1])), maxZ: Math.max(...pts.map((p) => p[1])),
+    });
+  };
+  return {
+    ...ctx,
+    scene: group,
+    rot: { yaw, apply, group },
+    colliders: {
+      push(b) {
+        const w = b.maxX - b.minX, d = b.maxZ - b.minZ;
+        const nx = Math.max(1, Math.round(w / Math.max(1, Math.min(w, d)))), nz = Math.max(1, Math.round(d / Math.max(1, Math.min(w, d))));
+        for (let i = 0; i < nx; i++) {
+          for (let k = 0; k < nz; k++) {
+            pushBox({ ...b, minX: b.minX + (w * i) / nx, maxX: b.minX + (w * (i + 1)) / nx, minZ: b.minZ + (d * k) / nz, maxZ: b.minZ + (d * (k + 1)) / nz });
+          }
+        }
+      },
+    },
+    interactables: { push(it) { const [x, z] = apply(it.x, it.z); ctx.interactables.push(Object.assign(it, { x, z })); } },
+    pois: { push(p) { const [x, z] = apply(p.x, p.z); ctx.pois.push({ ...p, x, z }); } },
+  };
+}
+
 // CUISSON DU PETIT DÉCOR d'un groupe (place Bellecour : fleurs, bancs,
 // bornes, socles, allées… une centaine de maillages, chacun son draw call,
 // doublé par la carte d'ombre). Les pièces simples — Lambert uni, opaque,

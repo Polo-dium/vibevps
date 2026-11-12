@@ -63,6 +63,21 @@ npm start          # serveur de prod (sert client/dist)
     `userData`. Pelouse tondue en bandes et parterres à la française
     (`noSeason` : le gazon ne roussit pas). Globes de lampadaires : 80
     triangles à moins de 70 m, 20 au-delà (`?debug&nobake` pour comparer).
+    Stand de tir et clos de pétanque suivent l'angle de la place :
+    `rotatedCtx(ctx, cx, cz, yaw)` (utils.js) pivote maillages, colliders
+    (murs longs découpés en cellules de ~1 m), interactions et POI d'un
+    constructeur écrit en coordonnées droites (`RANGE.rot`).
+    `petanque.js` : mène en tête-à-tête contre Dédé (3 boules chacun, le
+    joueur lance le cochonnet, l'équipe qui n'a pas le point rejoue, chocs
+    entre boules, premier à 13) ; Dédé choisit sa force en simulant le lancer.
+  - Impacts de balles : `snapToWall` (main.js) recale le point sur le vrai
+    tracé des façades (`ctx.wallFlat`, tous les murs OSM à plat) — les
+    boîtes de collision sont droites, les murs en biais. Pas de trou sur les
+    voitures (colliders `car: true`).
+  - Carrefours (`buildOsmRoads`) : `onOtherRoad` écarte bordures, caniveaux,
+    pointillés et zébras posés sur la chaussée d'une autre rue ; rotule
+    d'asphalte à chaque nœud partagé. Lucarnes/cheminées : 230 m à pied
+    (450 m au-dessus de 30 m), sans ombre portée.
   - `src/world/pentes.js` (vrai relief) : escaliers de pierre drapés sur la
     pente pour chaque `highway=steps` OSM (`data.steps` : p, w, n, inc ;
     repli : voies piétonnes à plus de 18 %), jardin en terrasses et balcon-

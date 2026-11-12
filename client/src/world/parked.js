@@ -113,7 +113,7 @@ export function createParkedCars(ctx, roads) {
           // solide : boîte englobante de la voiture tournée
           const ex = Math.abs(Math.sin(yaw)) * 2.05 + Math.abs(Math.cos(yaw)) * 0.85;
           const ez = Math.abs(Math.cos(yaw)) * 2.05 + Math.abs(Math.sin(yaw)) * 0.85;
-          ctx.colliders.push({ minX: x - ex, maxX: x + ex, minZ: z - ez, maxZ: z + ez, minY: y, maxY: y + 1.35 });
+          ctx.colliders.push({ minX: x - ex, maxX: x + ex, minZ: z - ez, maxZ: z + ez, minY: y, maxY: y + 1.35, car: true });
           total++;
         }
       }

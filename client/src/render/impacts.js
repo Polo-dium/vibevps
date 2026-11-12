@@ -149,7 +149,7 @@ export function createImpacts(scene) {
     const size = (metal ? 0.11 : 0.17) * (0.8 + Math.random() * 0.5);
     _q.setFromUnitVectors(Z, n);
     _q2.setFromAxisAngle(Z, Math.random() * Math.PI * 2);
-    _m.compose(_p.copy(point).addScaledVector(n, 0.015), _q.multiply(_q2), _s.set(size, size, 1));
+    _m.compose(_p.copy(point).addScaledVector(n, 0.006), _q.multiply(_q2), _s.set(size, size, 1));
     holes.setMatrixAt(holeNext, _m);
     holeNext = (holeNext + 1) % HOLES;
     holes.count = Math.min(HOLES, holes.count + 1);

@@ -1114,6 +1114,11 @@ x0: BELLE_X0, cx: bcx0, cz: bcz0, // pivot de la rotation (≠ centre du rectang
       RANGE.backZ = RANGE.targetsZ - 6;
       RANGE.counterZ = RANGE.targetsZ + 22;
       RANGE.z = RANGE.counterZ - 6;
+      // … et TOURNÉ comme la place (il restait droit sur une place en
+      // biais) : pivot au centre du stand, voir rotatedCtx dans main.js
+      const pz = (RANGE.backZ + RANGE.counterZ) / 2, yaw = ctx.belleRot.yaw;
+      const c = Math.cos(yaw), s = Math.sin(yaw);
+      RANGE.rot = { yaw, cx: rx, cz: pz, apply: (x, z) => [rx + (x - rx) * c + (z - pz) * s, pz - (x - rx) * s + (z - pz) * c] };
     }
     // Basilique RECULÉE de 18 m vers le cœur de la colline (elle débordait
     // dans le vide au bord de la pente) ; esplanade dégagée autour, et parc
@@ -2071,7 +2076,10 @@ function osmTraboules(ctx, hillDef) {
     {
       // Derrière le comptoir du stand de tir ↔ flanc est de la salle
       // d'arcade (pas devant la porte) — suivent leurs vraies positions
-      a: { x: RANGE.x + RANGE.width / 2 + 3, z: RANGE.counterZ + 4, ry: Math.PI },
+      a: (() => {
+        const [x, z] = (RANGE.rot?.apply ?? ((px, pz) => [px, pz]))(RANGE.x + RANGE.width / 2 + 3, RANGE.counterZ + 4);
+        return { x, z, ry: Math.PI + (RANGE.rot?.yaw ?? 0) };
+      })(),
       b: { x: ARCADE.x + 12, z: ARCADE.z, ry: Math.PI / 2 },
       loreAB: '🚪 Raccourci de gone : du stand de tir à la salle d’arcade.',
       loreBA: '🚪 Sortie secrète de l’arcade, côté stand de tir.',
@@ -2511,6 +2519,9 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       tile.wuv.push(u0, vBot, u, vBot, u, vTop, u0, vBot, u, vTop, u0, vTop);
       for (let k = 0; k < 6; k++) tile.wc.push(wallColor.r, wallColor.g, wallColor.b);
 
+      // Tous les murs, à plat (x1, z1, x2, z2, bas, haut) : les impacts de
+      // balles se recalent dessus (main.js `snapToWall`)
+      (ctx.wallFlat ??= []).push(x1, z1, x2, z2, y0, y1);
       // Murs extérieurs : supports des plaques de rue (streetsigns.js)
       if (ring === pts && len > 2.5 && h > 5) (ctx.wallSegs ??= []).push([x1, z1, x2, z2, yBase, cx, cz]);
 
@@ -2840,7 +2851,9 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
       });
       im.instanceMatrix.needsUpdate = true;
       im.computeBoundingSphere();
-      im.castShadow = true;
+      // pas d'ombre portée : 285 k triangles de lucarnes repassaient dans la
+      // carte d'ombre pour des ombres qu'on ne voit pas de la rue
+      im.userData.noShadow = true;
       im.userData.cityTile = true;
       im.name = name;
       ctx.scene.add(im);
@@ -2872,8 +2885,11 @@ function buildOsmBuildings(ctx, data, rand, full = false) {
     const hide = (view + HYST) ** 2, show = view ** 2;
     // Lucarnes et cheminées : quelques pixels au-delà de ~450 m (vue
     // d'avion : 660 draw calls et 1,5 M triangles pour rien)
-    const pv = Math.min(view, PROPS_VIEW);
-    const pHide = (pv + HYST) ** 2, pShow = pv ** 2;
+    // À pied, les toits ne se voient que de près (230 m) ; la pleine portée
+    // revient dès qu'on prend de la hauteur. Hystérésis courte (60 m) : avec
+    // celle des tuiles (200 m), les lucarnes restaient dessinées à 650 m.
+    const pv = Math.min(view, (p.y ?? 0) > 30 ? PROPS_VIEW : 230);
+    const pHide = (pv + 60) ** 2, pShow = pv ** 2;
     for (const t of tileCulling) {
       const d2 = (t.cx - p.x) ** 2 + (t.cz - p.z) ** 2;
       if (t.shown && d2 > hide) {
@@ -3058,7 +3074,45 @@ function buildOsmRoads(ctx, data, full = false) {
     }
     return out;
   };
+  // CARREFOURS PROPRES : bordures, caniveaux, pointillés et passages piétons
+  // d'une rue ne se posent jamais sur la chaussée d'une AUTRE rue (éclats de
+  // bordure aux embranchements en biais, tirets et zébras au milieu des
+  // croisements). Index en grille de 16 m des tronçons carrossables ; on ne
+  // compte que le FLANC du tronçon (pas ses bouts) pour qu'une rue ne soit
+  // pas rognée par son propre prolongement (deux ways OSM bout à bout).
+  const XG = 16, xGrid = new Map();
+  data.roads.forEach((r, ri) => {
+    if (r.w < 5.5) return;
+    const h = roadHalf(r);
+    for (let i = 0; i + 3 < r.p.length; i += 2) {
+      const x1 = r.p[i], z1 = r.p[i + 1], x2 = r.p[i + 2], z2 = r.p[i + 3];
+      const seg = [x1, z1, x2, z2, h, ri];
+      for (let gx = Math.floor((Math.min(x1, x2) - h) / XG); gx <= Math.floor((Math.max(x1, x2) + h) / XG); gx++) {
+        for (let gz = Math.floor((Math.min(z1, z2) - h) / XG); gz <= Math.floor((Math.max(z1, z2) + h) / XG); gz++) {
+          const k = gx * 8192 + gz;
+          let l = xGrid.get(k);
+          if (!l) xGrid.set(k, (l = []));
+          l.push(seg);
+        }
+      }
+    }
+  });
+  const onOtherRoad = (x, z, self, inset) => {
+    const l = xGrid.get(Math.floor(x / XG) * 8192 + Math.floor(z / XG));
+    if (!l) return false;
+    for (const [x1, z1, x2, z2, h, ri] of l) {
+      if (ri === self) continue;
+      const ex = x2 - x1, ez = z2 - z1, l2 = ex * ex + ez * ez;
+      if (l2 < 0.01) continue;
+      const t = ((x - x1) * ex + (z - z1) * ez) / l2;
+      if (t < 0 || t > 1) continue;
+      if (Math.abs((x - x1) * ez - (z - z1) * ex) / Math.sqrt(l2) < h - inset) return true;
+    }
+    return false;
+  };
+  let roadIdx = -1;
   for (const road0 of data.roads) {
+    roadIdx++;
     const org = [];
     const road = { ...road0, p: dense(road0.p, org) };
     // largeur ajustée aux façades (roadfit.js) ; road.w reste la classe
@@ -3118,9 +3172,24 @@ function buildOsmRoads(ctx, data, full = false) {
         const tB = isCrossing(x2, z2) ? (nodeW.get(kB) ?? 0) / 2 + 1.2 : 0;
         if (len - tA - tB > 0.8) {
           const ax = x1 + ux * tA, az = z1 + uz * tA, bx = x2 - ux * tB, bz = z2 - uz * tB;
+          // par morceaux de 2,5 m au plus : seuls ceux qui tombent sur une
+          // autre chaussée sautent
+          const cl = Math.hypot(bx - ax, bz - az), nc = Math.max(1, Math.ceil(cl / 2.5));
           for (const sd of [-1, 1]) {
-            strip(curb, ax, az, bx, bz, sd * half, sd * (half + 0.25), 0.004);
-            strip(gutter, ax, az, bx, bz, sd * (half - 0.35), sd * half, 0.002);
+            // morceaux consécutifs gardés = UNE seule bande (pas plus de
+            // triangles qu'avant quand rien ne saute)
+            let run = -1;
+            for (let q = 0; q <= nc; q++) {
+              const qm = (q + 0.5) / nc;
+              const keep = q < nc && !onOtherRoad(ax + (bx - ax) * qm - uz * sd * (half + 0.1), az + (bz - az) * qm + ux * sd * (half + 0.1), roadIdx, 0.3);
+              if (keep) { if (run < 0) run = q; continue; }
+              if (run < 0) continue;
+              const qa = run / nc, qb = q / nc;
+              const x_a = ax + (bx - ax) * qa, z_a = az + (bz - az) * qa, x_b = ax + (bx - ax) * qb, z_b = az + (bz - az) * qb;
+              strip(curb, x_a, z_a, x_b, z_b, sd * half, sd * (half + 0.25), 0.004);
+              strip(gutter, x_a, z_a, x_b, z_b, sd * (half - 0.35), sd * half, 0.002);
+              run = -1;
+            }
           }
         }
       }
@@ -3132,11 +3201,11 @@ function buildOsmRoads(ctx, data, full = false) {
         // u en travers de la chaussée (une bande blanche tous les 1,1 m)
         const W = road.w / 1.1;
         const zebraUvs = () => zebraUv.push(0, 0, W, 1, 0, 1, 0, 0, W, 0, W, 1);
-        if (isCrossing(x1, z1)) {
+        if (isCrossing(x1, z1) && !onOtherRoad(x1 + ux * (off + 1.3), z1 + uz * (off + 1.3), roadIdx, -0.5)) {
           ribbon(zebra, x1 + ux * off, z1 + uz * off, x1 + ux * (off + 2.6), z1 + uz * (off + 2.6), half, 0.02);
           zebraUvs();
         }
-        if (isCrossing(x2, z2)) {
+        if (isCrossing(x2, z2) && !onOtherRoad(x2 - ux * (off + 1.3), z2 - uz * (off + 1.3), roadIdx, -0.5)) {
           ribbon(zebra, x2 - ux * (off + 2.6), z2 - uz * (off + 2.6), x2 - ux * off, z2 - uz * off, half, 0.02);
           zebraUvs();
         }
@@ -3145,6 +3214,7 @@ function buildOsmRoads(ctx, data, full = false) {
       if (road.w >= 6.5 && len > 0.1) {
         const ux = (x2 - x1) / len, uz = (z2 - z1) / len;
         for (let d = dashAcc; d + 2.6 < len; d += 8) {
+          if (onOtherRoad(x1 + ux * (d + 1.3), z1 + uz * (d + 1.3), roadIdx, -0.3)) continue;
           ribbon(lines, x1 + ux * d, z1 + uz * d, x1 + ux * (d + 2.6), z1 + uz * (d + 2.6), 0.14, 0.015);
         }
         dashAcc = (dashAcc + len) % 8;
@@ -3157,6 +3227,30 @@ function buildOsmRoads(ctx, data, full = false) {
         const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
         streetDetails.push([mx, mz, yAt(mx, mz) + 0.045]);
       }
+    }
+  }
+  // ROTULES D'ASPHALTE aux carrefours : entre des rubans qui se croisent en
+  // biais, il restait des éclats de trottoir (le dallage passe dessous) et
+  // un trou au milieu des grands croisements. Un disque de bitume à chaque
+  // nœud partagé, un peu plus large que la plus large chaussée.
+  {
+    const discs = new Map();
+    for (const r of data.roads) {
+      if (r.w < 5.5) continue;
+      const h = roadHalf(r);
+      for (let i = 0; i + 1 < r.p.length; i += 2) {
+        const x = r.p[i], z = r.p[i + 1];
+        if (!isCrossing(x, z)) continue;
+        const k = nodeKey(x, z), d = discs.get(k);
+        if (d) { d[2] = Math.max(d[2], h); d[3]++; } else discs.set(k, [x, z, h, 1]);
+      }
+    }
+    for (const [x, z, h, n] of discs.values()) {
+      if (n < 2 || inPlace(x, z) || ctx.onBridge?.(x, z) || ctx.theatre?.covers(x, z)) continue;
+      const before = pos.length;
+      joint(pos, x, z, h + 1.1, 0.003);
+      // u = 0,5 : milieu de chaussée (les flaques de caniveau suivent les bords u → 0 et 1)
+      for (let i = before; i < pos.length; i += 3) roadUv.push(0.5, (pos[i] + pos[i + 2]) / 9);
     }
   }
   if (pos.length === 0) return;
@@ -3390,7 +3484,8 @@ function buildGreenery(ctx, data, rand, full = false) {
         const [xb, zb] = rot(x + (rand() - 0.5) * 1.5, B.maxZ - off);
         const sa = 0.85 + rand() * 0.4, sb = 0.85 + rand() * 0.4;
         if (x < B.minX + 5) continue;
-        valid.push([xa, za, sa, 0]);
+        // pas d'arbre dans le stand de tir (x local 2 → 28, côté nord)
+        if (!(RANGE.rot && x > 0 && x < 30)) valid.push([xa, za, sa, 0]);
         valid.push([xb, zb, sb, 0]);
       }
     }
