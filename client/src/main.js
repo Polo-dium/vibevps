@@ -44,8 +44,11 @@ import { createHiFi } from './world/hifi.js';
 import { createArenaMatch } from './world/arenaMatch.js';
 import { createKillcam } from './world/killcam.js';
 import { createSelfBody } from './world/selfBody.js';
+import { createBindings } from './ui/bindings.js';
+import { createGamepad } from './player/gamepad.js';
 import { avatarStats, setAvatarViewer, cullAvatars } from './world/avatars.js';
 import { createBlobShadows } from './render/blobs.js';
+import { tileBigMeshes, cullTiles } from './render/tiles.js';
 import { buildGuignol } from './world/guignol.js';
 import { createNeons } from './world/neons.js';
 import { createSkylife } from './world/skylife.js';
@@ -1273,11 +1276,27 @@ async function boot() {
   // sur tablette, ces 3 textures de plus par pixel coûtaient trop cher.
   if (quality.level === 'eleve') enhanceScene(scene, renderer.capabilities.getMaxAnisotropy());
 
+  // Maillages fusionnés à l'échelle de la ville (pavés, trottoirs, murs des
+  // jardins, sol…) redistribués en tuiles : seuls ceux du champ de vision
+  // partent au GPU — voir render/tiles.js
+  {
+    const r = new URLSearchParams(location.search).has('notiles') ? { split: 0 } // (comparaison de perf)
+      : tileBigMeshes(scene, { lists: [ctx.taggables, ctx.shootables] });
+    if (r.split) console.log(`Tuiles : ${r.split} maillages de ville découpés en ${r.made} tuiles.`);
+  }
+
   // Le monde est bâti : on recense le petit décor pour ne dessiner que
   // celui à portée de vue. C'est de LOIN le premier poste de draw calls
   // (~700 sur ~950 mesurés au centre-ville) — voir world/culling.js.
   const culler = createDistanceCuller(scene, () => controls.position);
   ctx.updatables.push((dt) => culler.update(dt, ctx.viewDistance));
+  // tuiles des grands maillages : masquées au-delà de la portée de vue
+  let tileTimer = 0;
+  ctx.updatables.push((dt) => {
+    if ((tileTimer -= dt) > 0) return;
+    tileTimer = 0.5;
+    cullTiles(controls.position, ctx.viewDistance ?? 99999);
+  });
   // arbres, stores, enseignes… : seules les instances à portée partent au GPU
   ctx.updatables.push((dt) => updateInstanceLods(dt, controls.position));
   if (window.__game) window.__game.culler = culler; // hook de debug (?debug)
@@ -1340,6 +1359,10 @@ async function boot() {
   });
   if (window.__game) window.__game.arenaMatch = arenaMatch;
   // Killcam : rejeu des 2 s avant / 1 s après la mort (arène)
+  // Commandes : touches reconfigurables (menu N) et manette
+  const bindings = createBindings({ toast: ui.toast });
+  const gamepad = createGamepad({ controls, weapon, bindings });
+  ctx.openBindings = () => bindings.toggle(true);
   const killcam = createKillcam(ctx, { camera, remotes, controls, net, fx: weapon.fx, getName: () => state.auth?.name ?? '' });
   // Ton propre corps (même personnage que chez les autres), vu en baissant les yeux
   const selfBody = createSelfBody(ctx, { controls, getName: () => state.auth?.name ?? '' });
@@ -2096,7 +2119,7 @@ async function boot() {
   let cpuMs = 0;
   // Diagnostic (toucher le texte en haut à gauche) : compteurs du rendu
   // cumulés sur TOUTE l'image (ombres + scène + post-traitement)
-  let diagText = '', diagPeak = 0, diagCalls = 0, diagTris = 0;
+  let diagText = '', diagPeak = 0, diagCalls = 0, diagTris = 0, diagFrames = 0;
   const gpuName = (() => {
     try {
       const gl = renderer.getContext();
@@ -2112,6 +2135,7 @@ async function boot() {
     if (ui.diagOn) renderer.info.reset();
     const dt = Math.min(clock.getDelta(), 0.05);
 
+    gamepad.update(dt);
     controls.update(dt);
     // Les outils tenus en main ne peuvent pas réapparaître via un raccourci
     // pendant le vol : les mains restent exclusivement sur les manettes.
@@ -2306,8 +2330,11 @@ async function boot() {
       if (ui.diagOn) {
         const sz = renderer.getDrawingBufferSize(new THREE.Vector2());
         const shown = `${avatarStats.drawn}/${avatarStats.models.length}`;
+        const calls = Math.round(diagCalls / Math.max(1, diagFrames));
+        const tris = diagTris / Math.max(1, diagFrames);
+        diagCalls = diagTris = diagFrames = 0;
         diagText =
-          `DESSINS ${diagCalls} · TRIANGLES ${diagTris > 1e6 ? (diagTris / 1e6).toFixed(2) + ' M' : Math.round(diagTris / 1000) + ' k'}\n` +
+          `DESSINS ${calls} · TRIANGLES ${tris > 1e6 ? (tris / 1e6).toFixed(2) + ' M' : Math.round(tris / 1000) + ' k'}\n` +
           `AVATARS dessinés ${shown} · animés ${Math.round(avatarStats.animated * 4 / Math.max(1, fpsValue))}/image · PIC ${Math.round(diagPeak)} ms\n` +
           `IMAGE ${sz.x}×${sz.y} · PALIER ${quality.level.toUpperCase()} · OMBRES ${renderer.shadowMap.enabled ? 'OUI' : 'NON'}\n` +
           `MÉMOIRE ${renderer.info.memory.geometries} géom. · ${renderer.info.memory.textures} textures\n` +
@@ -2330,8 +2357,11 @@ async function boot() {
     cullAvatars(camera, 130, quality.level === 'eleve' ? 5 : 1.6);
     post.render();
     if (ui.diagOn) {
-      diagCalls = renderer.info.render.calls;
-      diagTris = renderer.info.render.triangles;
+      // (moyenne sur la fenêtre d'affichage : la carte d'ombre n'est
+      // redessinée qu'une image sur deux, une seule image ne dit rien)
+      diagCalls += renderer.info.render.calls;
+      diagTris += renderer.info.render.triangles;
+      diagFrames++;
       diagPeak = Math.max(diagPeak, performance.now() - frameStart);
     }
     cpuMs += (performance.now() - frameStart - cpuMs) * 0.05;

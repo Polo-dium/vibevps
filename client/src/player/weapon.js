@@ -759,7 +759,7 @@ export function createWeapon(camera, scene, shootables, {
       : 1) / (aiming ? 1 : camera.zoom || 1); // zoomé : la souris ralentit d'autant
 
     cooldown -= dt;
-    const inputOk = IS_TOUCH || state.pointerLocked;
+    const inputOk = IS_TOUCH || state.pointerLocked || state.gamepadActive;
     const freeToAct =
       inputOk && !state.overlayOpen && !state.tagMode && !state.sanctuary &&
       !state.photoMode && // en mode photo, le clic déclenche l'appareil
@@ -841,6 +841,7 @@ export function createWeapon(camera, scene, shootables, {
     get aiming() { return aiming; },
     // Visée à l'épaule : bouton VISER (tactile) = bascule
     toggleAds() { adsToggle = !adsToggle; return adsToggle; },
+    setAds(down) { adsDown = Boolean(down); }, // gâchette gauche de la manette
     get ads() { return ads; },
     get canAds() { return Boolean(HANDLING[curId]?.ads); },
     // Dispersion courante (unités d'écran) : le réticule s'ouvre avec

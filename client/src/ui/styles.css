@@ -1638,3 +1638,35 @@ body.aircraft-touch-mode #hud-compass { display: none; }
 #killcam .kc-label span { display: block; font-size: 26px; font-weight: 700; letter-spacing: 3px; color: var(--hud-ink); }
 #killcam .kc-label i { display: block; margin-top: 3px; font-style: normal; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--hud-dim); }
 body:has(#killcam:not(.hidden)) #hud, body:has(#killcam:not(.hidden)) #touch-ui { opacity: 0; }
+
+/* Menu des commandes (touches reconfigurables, manette) */
+#keys-panel { width: min(980px, 96vw); max-height: 94vh; overflow-y: auto; font-family: var(--hud-font); }
+.keys-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 6px 22px; }
+.keys-cols h3 { margin: 10px 0 6px; font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--hud-amber); }
+.key-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 13px; border-bottom: 1px solid rgba(238, 241, 238, 0.07); }
+.key-row button, .key-row kbd {
+  min-width: 64px; padding: 4px 9px; border-radius: 2px; font: 700 12px var(--hud-font); letter-spacing: 1px;
+  background: rgba(238, 241, 238, 0.08); color: var(--hud-ink); border: 1px solid rgba(238, 241, 238, 0.25); text-align: center;
+}
+.key-row button.custom { border-color: var(--hud-amber); color: var(--hud-amber); }
+.key-row button.wait { background: var(--hud-amber); color: #14110a; }
+.pad-state { font-size: 12px; color: #9fb6c9; margin-bottom: 6px; }
+.pad-opt { display: block; margin-top: 9px; font-size: 12px; color: #cfdbe4; }
+.pad-opt input[type=range] { width: 100%; accent-color: var(--hud-amber); }
+.keys-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+/* Éditeur de disposition des boutons tactiles */
+#touch-ui.layout-edit .tbtn { outline: 2px dashed rgba(240, 182, 72, 0.8); outline-offset: 3px; }
+#touch-ui.layout-edit .tbtn.sel { outline: 3px solid #f0b648; background: rgba(240, 182, 72, 0.35); }
+#touch-ui.layout-edit #joy-base, #touch-ui.layout-edit #tb-hold, #touch-ui.layout-edit #tb-fire2 { display: none !important; }
+#layout-bar {
+  position: fixed; z-index: 45; left: 50%; top: calc(10px + env(safe-area-inset-top)); transform: translateX(-50%);
+  display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 8px;
+  max-width: 94vw; padding: 9px 12px;
+  background: rgba(10, 12, 14, 0.88); border-top: 2px solid #f0b648;
+  font-family: var(--hud-font); font-size: 13px; color: var(--hud-ink);
+}
+#layout-bar b { letter-spacing: 1px; }
+#layout-bar span { color: var(--hud-dim); font-size: 12px; }
+#layout-bar button { min-width: 44px; padding: 8px 12px; border-radius: 2px; font-size: 14px; background: rgba(238, 241, 238, 0.1); color: var(--hud-ink); border: 1px solid rgba(238, 241, 238, 0.3); }
+#layout-bar button.ok { background: #f0b648; color: #14110a; border-color: #f0b648; font-weight: 700; }

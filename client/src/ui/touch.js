@@ -93,6 +93,10 @@ export function createTouchControls({
                   </div>
                 </div>
                 <div class="setting-row">
+                  <div><b>🎛️ Disposition des boutons</b><small>Déplace et redimensionne TIR, SAUT, VISER…</small></div>
+                  <button id="tb-layout">MODIFIER</button>
+                </div>
+                <div class="setting-row">
                   <div><b>⛶ Plein écran</b><small>Verrouille aussi l’affichage en paysage</small></div>
                   <button id="tb-fs">BASCULER</button>
                 </div>
@@ -263,6 +267,7 @@ export function createTouchControls({
   // de l'avion. Dans ce mode, tous les gros boutons d'action sauf TIR sont
   // masqués pour libérer les deux pouces.
   let wasPlane = false;
+  let editing = false, selected = null; // éditeur de disposition des boutons (plus bas)
   function syncPlaneUi() {
     const isPlane = planeMode();
     const isJet = Boolean(controls.vehicle?.jet);
@@ -291,7 +296,7 @@ export function createTouchControls({
     root.classList.toggle('sniper-mode', Boolean(state.weaponEquipped && weapon.spec?.sniper && !isPlane));
     // Jetpack : bouton HOLD visible en vol, allumé quand l'altitude est tenue
     // Arme en main : VISER et BAS prennent la place des emotes et du tampon
-    root.classList.toggle('armed-mode', Boolean(state.weaponEquipped && !isPlane && !controls.flying));
+    root.classList.toggle('armed-mode', Boolean(editing || (state.weaponEquipped && !isPlane && !controls.flying)));
     root.classList.toggle('no-ads', !weapon.canAds);
     root.querySelector('#tb-aim')?.classList.toggle('active', weapon.ads > 0.5);
     root.querySelector('#tb-crouch')?.classList.toggle('active', Boolean(controls.crouched));
@@ -300,6 +305,126 @@ export function createTouchControls({
     requestAnimationFrame(syncPlaneUi);
   }
   syncPlaneUi();
+
+  // DISPOSITION PERSONNALISÉE DES BOUTONS (menu ☰ → Réglages → Modifier) :
+  // comme dans les jeux de tir mobiles, chaque bouton se fait glisser où
+  // l'on veut et se redimensionne. On mémorise par EMPLACEMENT le centre du
+  // bouton (en fraction de l'écran : survit à la rotation et au Fold) et son
+  // échelle. VISER/emote et BAS/tampon se partagent un emplacement (ils ne
+  // sont jamais visibles ensemble).
+  const LAYOUT_KEY = 'lyon_touch_layout';
+  const SLOTS = {
+    aim: ['#tb-aim', '#tb-emote'], crouch: ['#tb-crouch', '#tb-stamp'], spray: ['#tb-spray'],
+    use: ['#tb-use'], jump: ['#tb-jump'], fire: ['#tb-fire'], menu: ['#tb-menu'],
+  };
+  let layout = null;
+  try { layout = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null'); } catch { /* défaut */ }
+  function applyLayout() {
+    for (const [slot, sels] of Object.entries(SLOTS)) {
+      const L = layout?.[slot];
+      for (const sel of sels) {
+        const el = root.querySelector(sel);
+        if (!el) continue;
+        if (!L) {
+          for (const k of ['position', 'left', 'top', 'right', 'bottom', 'width', 'height', 'zIndex']) el.style[k] = '';
+          continue;
+        }
+        const size = (L[3] ?? 72) * L[2];
+        Object.assign(el.style, {
+          position: 'fixed', right: 'auto', bottom: 'auto', zIndex: 23,
+          left: `${Math.round(L[0] * window.innerWidth - size / 2)}px`,
+          top: `${Math.round(L[1] * window.innerHeight - size / 2)}px`,
+          width: `${size}px`, height: `${size}px`,
+        });
+        el.classList.toggle('sel', editing && selected === slot);
+      }
+    }
+  }
+  const slotOf = (el) => Object.keys(SLOTS).find((s) => SLOTS[s].some((sel) => el?.closest?.(sel)));
+  const layoutBar = document.createElement('div');
+  layoutBar.id = 'layout-bar';
+  layoutBar.className = 'hidden';
+  layoutBar.innerHTML = `
+    <b>Fais glisser les boutons où tu veux</b>
+    <span>Taille du bouton touché :</span>
+    <button data-a="minus">−</button><button data-a="plus">+</button>
+    <button data-a="reset">Par défaut</button><button data-a="done" class="ok">Terminer</button>`;
+  document.body.appendChild(layoutBar);
+  function openLayoutEditor() {
+    setMenuOpen(false);
+    editing = true;
+    selected = null;
+    root.classList.add('layout-edit', 'armed-mode');
+    state.overlayOpen = true; // gèle le jeu pendant qu'on déplace les boutons
+    layoutBar.classList.remove('hidden');
+    // première fois : on part des positions actuelles à l'écran (lecture
+    // immédiate : la classe armed-mode vient d'afficher VISER et BAS) ; la
+    // taille d'origine du bouton est mémorisée avec (elle dépend de l'écran)
+    layout ??= {};
+    for (const [slot, sels] of Object.entries(SLOTS)) {
+      if (layout[slot]) continue;
+      const el = sels.map((s) => root.querySelector(s)).find((e) => e && e.getBoundingClientRect().width > 0);
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      layout[slot] = [(r.left + r.width / 2) / window.innerWidth, (r.top + r.height / 2) / window.innerHeight, 1, Math.round(r.width)];
+    }
+    applyLayout();
+  }
+  function closeLayoutEditor() {
+    editing = false;
+    selected = null;
+    root.classList.remove('layout-edit');
+    layoutBar.classList.add('hidden');
+    state.overlayOpen = false;
+    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch { /* plein */ }
+    applyLayout();
+    ui.toast('🎛️ Disposition enregistrée sur cet appareil.');
+  }
+  layoutBar.addEventListener('click', (e) => {
+    const a = e.target?.dataset?.a;
+    if (a === 'done') closeLayoutEditor();
+    else if (a === 'reset') {
+      layout = null;
+      try { localStorage.removeItem(LAYOUT_KEY); } catch { /* rien */ }
+      applyLayout();
+      openLayoutEditor();
+    } else if ((a === 'plus' || a === 'minus') && selected && layout?.[selected]) {
+      layout[selected][2] = Math.max(0.6, Math.min(1.8, layout[selected][2] + (a === 'plus' ? 0.1 : -0.1)));
+      applyLayout();
+    }
+  });
+  // En mode édition, on intercepte les doigts AVANT les boutons (capture)
+  let drag = null;
+  const editStart = (e) => {
+    if (!editing) return;
+    const slot = slotOf(e.target);
+    e.stopPropagation();
+    e.preventDefault();
+    if (!slot || !layout?.[slot]) return;
+    const t = e.changedTouches[0];
+    selected = slot;
+    drag = { slot, id: t.identifier, dx: layout[slot][0] * window.innerWidth - t.clientX, dy: layout[slot][1] * window.innerHeight - t.clientY };
+    applyLayout();
+  };
+  const editMove = (e) => {
+    if (!editing) return;
+    e.stopPropagation();
+    e.preventDefault();
+    if (!drag) return;
+    for (const t of e.changedTouches) {
+      if (t.identifier !== drag.id) continue;
+      layout[drag.slot][0] = Math.max(0.04, Math.min(0.96, (t.clientX + drag.dx) / window.innerWidth));
+      layout[drag.slot][1] = Math.max(0.06, Math.min(0.94, (t.clientY + drag.dy) / window.innerHeight));
+      applyLayout();
+    }
+  };
+  const editEnd = (e) => { if (!editing) return; e.stopPropagation(); drag = null; };
+  root.addEventListener('touchstart', editStart, { capture: true, passive: false });
+  root.addEventListener('touchmove', editMove, { capture: true, passive: false });
+  root.addEventListener('touchend', editEnd, { capture: true });
+  root.addEventListener('touchcancel', editEnd, { capture: true });
+  window.addEventListener('resize', () => applyLayout());
+  applyLayout();
 
   // Boutons
   const bind = (id, onDown, onUp) => {
@@ -505,6 +630,7 @@ export function createTouchControls({
   jumpBtn.addEventListener('touchcancel', jumpEnd, { passive: true });
   bind('#tb-hold', () => controls.setHover(!controls.hovering));
   bind('#tb-use', () => interact());
+  bind('#tb-layout', () => openLayoutEditor());
   bind('#tb-aim', () => weapon.toggleAds());
   bind('#tb-crouch', () => controls.toggleCrouch());
   bind('#tb-spray', () => spray.toggleMode()); // mode bombe de peinture

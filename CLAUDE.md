@@ -328,15 +328,32 @@ npm start          # serveur de prod (sert client/dist)
     Tout InstancedMesh qui couvre la ville avec `frustumCulled = false` DOIT
     passer par `lodInstances` (les arbustes et cyprès des jardins ne
     l'avaient pas : 280 k triangles dessinés partout, arène comprise).
-    Reste à faire : les maillages fusionnés à l'échelle de la ville
-    (`pavés`, `jardins-wall/cap/hedge`, escaliers) sont toujours dans le
-    champ — à découper en tuiles.
+    `render/tiles.js` `tileBigMeshes(scene)` (appelé juste avant le premier
+    rendu) redistribue en tuiles de 520 m les maillages fusionnés à l'échelle
+    de la ville (pavés, trottoirs, sol, murs/haies des jardins, escaliers :
+    13 maillages → 345 tuiles) ; `cullTiles` masque celles hors portée de
+    vue. Mesuré au palier Moyen à Bellecour : 877 → 761 draw calls, 2,57 →
+    1,58 M triangles (`?debug&notiles` pour comparer). L'original quitte la
+    scène mais reste référencé (`userData.tiles`) — un nouveau maillage de
+    ville n'a rien à faire de spécial. Le diagnostic MOYENNE ses compteurs
+    (la carte d'ombre n'est rendue qu'une image sur deux).
   - `render/impacts.js` : impacts de balles en 3 draw calls (étincelles et
     poussière en Points, trous en InstancedMesh recyclé). `surfaceAt` (main.js)
     donne la normale et la matière (`metal` sur les colliders des
     conteneurs) ; `worldHitDistance` affine l'impact par dichotomie.
     Éclairs : calés sur `Date.now()` dans `updateEnvironment` (`env.flash`),
     sous orage seulement. Éclaboussures de pluie : Points dans weather.js.
+  - COMMANDES : `ui/bindings.js` — touches reconfigurables SANS toucher aux
+    lectures de touches du jeu : un écouteur en capture traduit la touche
+    choisie vers le code d'origine de l'action et réémet l'événement
+    (`press(code, down)`) ; menu « Commandes » (touche N, Start à la
+    manette), `localStorage lyon_keys`. `player/gamepad.js` : manette lue à
+    chaque image (sticks → `controls.setTouchMove` / `addLook`, gâchettes →
+    `weapon.setTrigger` / `setAds`, boutons → `bindings.press`),
+    `state.gamepadActive` débloque les entrées sans capture de souris.
+    Tactile : éditeur de disposition des boutons dans `ui/touch.js` (menu ☰
+    → Réglages → Modifier ; glisser, taille ± ; centre en fraction d'écran
+    par emplacement, `localStorage lyon_touch_layout`).
   - Orage (`env.storm`, main.js) : sous l'averse, ciel/brume/lumières virent
     vers `ENV_STORM`, `post.setStorm` refroidit l'étalonnage. Look caméra
     (grain, aberration chromatique, barillet) dans la passe d'étalonnage de

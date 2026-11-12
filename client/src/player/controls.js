@@ -140,7 +140,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   }
 
   function inputActive() {
-    return !state.overlayOpen && (IS_TOUCH || state.pointerLocked);
+    return !state.overlayOpen && (IS_TOUCH || state.pointerLocked || state.gamepadActive);
   }
 
   // Liste de colliders proches, rafraîchie à chaque frame (grille spatiale)
