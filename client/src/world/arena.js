@@ -54,10 +54,11 @@ export function buildBellecourArena(ctx, group, OFFSET) {
   };
   const box = (w, h, d, color) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), lam(color));
   const cyl = (rt, rb, h, seg, color) => new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), lam(color));
-  const collide = (x0, x1, z0, z1, y0, y1) => ctx.colliders.push({
+  const collide = (x0, x1, z0, z1, y0, y1, metal = false) => ctx.colliders.push({
     minX: OFFSET + Math.min(x0, x1), maxX: OFFSET + Math.max(x0, x1),
     minY: y0, maxY: y1,
     minZ: Math.min(z0, z1), maxZ: Math.max(z0, z1),
+    metal, // tôle : étincelles sous les balles (render/impacts.js)
   });
   const shadow = (m, cast = true) => { m.castShadow = cast; m.receiveShadow = true; return m; };
 
@@ -260,6 +261,7 @@ export function buildBellecourArena(ctx, group, OFFSET) {
   }
   const glows = [];
   const globes = [];
+  let beamMat = null;
   for (const sz of [-halfD + 9.5, halfD - 9.5]) {
     for (let x = -halfW + 14; x <= halfW - 14; x += 22) {
       put(cyl(0.5, 0.62, 0.5, 8, 0x30353c), x, 0.25, sz);
@@ -307,6 +309,35 @@ export function buildBellecourArena(ctx, group, OFFSET) {
   canMesh.userData.taggable = true;
   ctx.taggables?.push(canMesh);
   group.add(canMesh);
+
+  // Ombres de contact : une tache sombre aux bords fondus sous chaque
+  // conteneur posé au sol (1 draw call, tous paliers) — ils ne flottent plus
+  {
+    const sc = document.createElement('canvas');
+    sc.width = 128; sc.height = 64;
+    const sg = sc.getContext('2d');
+    // (flou par ombre portée du canvas : marche partout, Safari compris)
+    sg.shadowColor = 'rgba(0,0,0,0.62)';
+    sg.shadowBlur = 12;
+    sg.shadowOffsetX = 200;
+    sg.fillStyle = '#000';
+    sg.fillRect(16 - 200, 14, 96, 36);
+    const grounded = cans.filter((c) => c[3] === 0);
+    const geo = new THREE.PlaneGeometry(CL + 2.0, CW + 1.9);
+    geo.rotateX(-Math.PI / 2);
+    const im = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({
+      map: new THREE.CanvasTexture(sc), transparent: true, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+    }), grounded.length);
+    grounded.forEach(([x, z, q], i) => {
+      q4.setFromAxisAngle(UP, q * Math.PI / 2);
+      im.setMatrixAt(i, m4.compose(v3.set(x, 0.064, z), q4, one));
+    });
+    im.instanceMatrix.needsUpdate = true;
+    im.computeBoundingSphere();
+    im.userData.noShadow = true;
+    group.add(im);
+  }
 
   // Marchepieds : une caisse et un fût au pied de quelques piles → on monte
   const crate = (x, z, s = 1.1, color = 0x8a6a42) => {
@@ -391,7 +422,7 @@ export function buildBellecourArena(ctx, group, OFFSET) {
   put(box(1.0, 0.06, 0.7, 0xe2b01f), CONSOLE.x, 1.12, CONSOLE.z);
 
   // Toutes les collisions des obstacles, d'un coup (mêmes boîtes côté serveur)
-  for (const b of arenaBoxes()) collide(b.x0, b.x1, b.z0, b.z1, b.y0, b.y1);
+  for (const b of arenaBoxes()) collide(b.x0, b.x1, b.z0, b.z1, b.y0, b.y1, Boolean(b.metal));
 
   // --- Mâts d'éclairage du dépôt -------------------------------------------
   const lampHeads = [];
@@ -412,6 +443,34 @@ export function buildBellecourArena(ctx, group, OFFSET) {
     glow.userData.noShadow = true;
     group.add(glow);
     glows.push(glow);
+  }
+
+  // Faisceaux des mâts dans la pluie : un cône additif par mât, fondu vers
+  // le bas (couleurs de sommets), tous fusionnés → 1 draw call
+  {
+    const cones = MASTS.map(([mx, mz]) => {
+      const toward = Math.atan2(-mx, -mz);
+      const g = new THREE.CylinderGeometry(0.35, 6.2, 12.6, 14, 1, true);
+      const col = new Float32Array(g.attributes.position.count * 3);
+      for (let i = 0; i < g.attributes.position.count; i++) {
+        const k = (g.attributes.position.getY(i) + 6.3) / 12.6; // 0 en bas, 1 en haut
+        col[i * 3] = k * k; col[i * 3 + 1] = k * k * 0.93; col[i * 3 + 2] = k * k * 0.78;
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      g.deleteAttribute('normal'); g.deleteAttribute('uv');
+      // légèrement penché vers le centre du dépôt
+      g.rotateX(0.22);
+      g.rotateY(toward);
+      g.translate(mx + Math.sin(toward) * 1.8, 6.6, mz + Math.cos(toward) * 1.8);
+      return g;
+    });
+    const beams = new THREE.Mesh(mergeGeometries(cones), new THREE.MeshBasicMaterial({
+      vertexColors: true, transparent: true, opacity: 0.085, blending: THREE.AdditiveBlending,
+      depthWrite: false, side: THREE.DoubleSide, fog: false,
+    }));
+    beams.userData.noShadow = true;
+    group.add(beams);
+    beamMat = beams.material;
   }
 
   // Globes et projecteurs : émissifs (hors cuisson), fusionnés → 2 draw calls
@@ -459,6 +518,7 @@ export function buildBellecourArena(ctx, group, OFFSET) {
     const v = 0.5 + 0.5 * n;
     globeMat.color.setRGB(v, v * 0.92, v * 0.72);
     for (const g of glows) g.material.opacity = 0.28 + 0.5 * n;
+    if (beamMat) beamMat.opacity = 0.05 + 0.09 * n; // faisceaux plus francs la nuit
     ring.material.opacity = 0.7 + 0.3 * Math.abs(Math.sin(Date.now() / 700));
   });
 

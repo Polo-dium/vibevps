@@ -44,6 +44,8 @@ import { createHiFi } from './world/hifi.js';
 import { createArenaMatch } from './world/arenaMatch.js';
 import { createKillcam } from './world/killcam.js';
 import { createSelfBody } from './world/selfBody.js';
+import { avatarStats, setAvatarViewer, cullAvatars } from './world/avatars.js';
+import { createBlobShadows } from './render/blobs.js';
 import { buildGuignol } from './world/guignol.js';
 import { createNeons } from './world/neons.js';
 import { createSkylife } from './world/skylife.js';
@@ -213,6 +215,7 @@ async function boot() {
   };
   const _stormColor = new THREE.Color();
   let storm = 0;
+  let lastBoltSlot = -1;
   const DAY_SHARE = 0.8;
   // phase 0..1 → position du soleil. La demi-orbite visible est parcourue
   // sur 80 % du temps, la demi-orbite sous l'horizon sur les 20 % restants.
@@ -582,6 +585,36 @@ async function boot() {
     // La nuit, un rebond de ciel nettement plus fort : les façades et les
     // joueurs se détachent au lieu de se fondre dans un aplat bleu nuit.
     hemi.intensity = THREE.MathUtils.lerp(HEMI_MAX * 0.8 + 0.35, HEMI_DAY, daylight);
+    // ÉCLAIRS d'orage : calés sur Date.now() (mêmes éclairs chez tous). Une
+    // tranche de 14 s sur trois environ en porte un : deux pulsations
+    // rapprochées qui blanchissent le ciel et la lumière ambiante, puis le
+    // tonnerre un peu après. Seulement sous un vrai orage (arène, grosse averse).
+    {
+      const now = Date.now();
+      const slot = Math.floor(now / 14000);
+      const h = ((slot * 2654435761) >>> 8 & 1023) / 1023;
+      let flash = 0;
+      if (storm > 0.6 && h < 0.36) {
+        const t = (now % 14000) / 1000 - (2 + h * 20); // instant de l'éclair dans la tranche
+        if (t > 0 && t < 0.5) {
+          flash = Math.max(Math.exp(-t * 16), t > 0.16 ? 0.75 * Math.exp(-(t - 0.16) * 12) : 0);
+          if (lastBoltSlot !== slot) {
+            lastBoltSlot = slot;
+            setTimeout(() => audio.thunder(), 500 + h * 3500);
+          }
+        }
+      }
+      env.flash = flash;
+      if (flash > 0.01) {
+        hemi.intensity += 2.4 * flash;
+        _stormColor.setRGB(0.82, 0.88, 1);
+        u.topColor.value.lerp(_stormColor, flash * 0.55);
+        u.midColor.value.lerp(_stormColor, flash * 0.7);
+        u.horizonColor.value.lerp(_stormColor, flash * 0.6);
+        scene.fog.color.lerp(_stormColor, flash * 0.45);
+        scene.background.copy(scene.fog.color);
+      }
+    }
     sun.intensity = SUN_MAX * daylight + 0.65 * env.night; // clair de lune la nuit
     sun.color.copy(ENV_DAY.sun).lerp(DUSK_TINT, dusk * 0.7)
       .lerp(ENV_NIGHT.sun, env.night);
@@ -763,16 +796,49 @@ async function boot() {
   }
   // Distance du premier mur ou du sol le long d'un rayon. Mutualisée entre
   // l'arme à pied et les mitrailleuses de bord.
+  const solidAt = (x, y, z) => {
+    if (y <= (ctx.terrainHeight?.(x, z) ?? 0)) return true;
+    for (const b of ctx.colliders.nearby(x, z, 1)) {
+      if (x > b.minX && x < b.maxX && y > b.minY && y < b.maxY &&
+          z > b.minZ && z < b.maxZ) return true;
+    }
+    return false;
+  };
   const worldHitDistance = (origin, dir, maxDist) => {
     for (let d = 1; d < maxDist; d += 1.5) {
-      const x = origin.x + dir.x * d, y = origin.y + dir.y * d, z = origin.z + dir.z * d;
-      if (y <= (ctx.terrainHeight?.(x, z) ?? 0)) return d;
-      for (const b of ctx.colliders.nearby(x, z, 1)) {
-        if (x > b.minX && x < b.maxX && y > b.minY && y < b.maxY &&
-            z > b.minZ && z < b.maxZ) return d;
+      if (!solidAt(origin.x + dir.x * d, origin.y + dir.y * d, origin.z + dir.z * d)) continue;
+      // Affinage par dichotomie : l'impact tombe SUR la surface (à 2 cm),
+      // plus jusqu'à 1,5 m dedans — les trous de balle en dépendent
+      let lo = Math.max(0, d - 1.5), hi = d;
+      for (let k = 0; k < 6; k++) {
+        const mid = (lo + hi) / 2;
+        if (solidAt(origin.x + dir.x * mid, origin.y + dir.y * mid, origin.z + dir.z * mid)) hi = mid;
+        else lo = mid;
       }
+      return lo;
     }
     return Infinity;
+  };
+  // Sur quoi une balle a-t-elle tapé ? → { normal, kind } ou null (rien de
+  // solide à moins de 30 cm : en l'air, ou sur un personnage)
+  const _sn = new THREE.Vector3();
+  const surfaceAt = (p) => {
+    let best = 0.3, kind = null;
+    const g = ctx.terrainHeight?.(p.x, p.z) ?? 0;
+    if (Math.abs(p.y - g) < best) { best = Math.abs(p.y - g); _sn.set(0, 1, 0); kind = 'sol'; }
+    for (const b of ctx.colliders.nearby(p.x, p.z, 1)) {
+      if (p.x < b.minX - 0.3 || p.x > b.maxX + 0.3 || p.y < b.minY - 0.3 || p.y > b.maxY + 0.3 ||
+          p.z < b.minZ - 0.3 || p.z > b.maxZ + 0.3) continue;
+      const faces = [
+        [Math.abs(p.x - b.minX), -1, 0, 0], [Math.abs(p.x - b.maxX), 1, 0, 0],
+        [Math.abs(p.y - b.maxY), 0, 1, 0], [Math.abs(p.y - b.minY), 0, -1, 0],
+        [Math.abs(p.z - b.minZ), 0, 0, -1], [Math.abs(p.z - b.maxZ), 0, 0, 1],
+      ];
+      for (const [d, nx, ny, nz] of faces) {
+        if (d < best) { best = d; _sn.set(nx, ny, nz); kind = b.metal ? 'metal' : 'mur'; }
+      }
+    }
+    return kind ? { normal: _sn, kind } : null;
   };
   const weapon = createWeapon(camera, scene, ctx.shootables, {
     onAmmoChange: (ammo, reloading, spec) => ui.setAmmo(ammo, reloading, state.weaponEquipped, spec),
@@ -789,6 +855,7 @@ async function boot() {
     worldHit: worldHitDistance,
     // Recul : la visée monte à chaque coup (weapon.js dose, controls applique)
     onKick: (dp, dy) => controls.kick(dp, dy),
+    surfaceAt,
     // Lunette du fusil de précision : overlay + réticule masqué en visée
     onScope: (zoom) => {
       ui.setScope(zoom);
@@ -1276,6 +1343,11 @@ async function boot() {
   const killcam = createKillcam(ctx, { camera, remotes, controls, net, fx: weapon.fx, getName: () => state.auth?.name ?? '' });
   // Ton propre corps (même personnage que chez les autres), vu en baissant les yeux
   const selfBody = createSelfBody(ctx, { controls, getName: () => state.auth?.name ?? '' });
+  // Avatars : cadence d'animation selon la distance ; hors palier Élevé ils
+  // ne portent pas d'ombre → ombres de contact rondes (render/blobs.js)
+  setAvatarViewer(() => controls.position);
+  const blobs = quality.level === 'eleve' ? null
+    : createBlobShadows(scene, { groups: avatarStats.groups, getViewer: () => controls.position });
   ctx.stopKillcam = () => killcam.stop();
   if (window.__game) window.__game.killcam = killcam;
   // Entrée PERMANENTE de l'arène : un portail doré au pied de Louis XIV
@@ -2022,9 +2094,22 @@ async function boot() {
   // affiché à côté des fps. 30 fps avec peu de ms = plafond du navigateur
   // (mode économie d'énergie) ou carte graphique saturée, pas le jeu.
   let cpuMs = 0;
+  // Diagnostic (toucher le texte en haut à gauche) : compteurs du rendu
+  // cumulés sur TOUTE l'image (ombres + scène + post-traitement)
+  let diagText = '', diagPeak = 0, diagCalls = 0, diagTris = 0;
+  const gpuName = (() => {
+    try {
+      const gl = renderer.getContext();
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      const raw = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+      return raw.replace(/^ANGLE \(|\)$/g, '').split(',').slice(0, 2).join(' ').slice(0, 44);
+    } catch { return '?'; }
+  })();
   function loop() {
     requestAnimationFrame(loop);
     const frameStart = performance.now();
+    renderer.info.autoReset = !ui.diagOn;
+    if (ui.diagOn) renderer.info.reset();
     const dt = Math.min(clock.getDelta(), 0.05);
 
     controls.update(dt);
@@ -2218,15 +2303,37 @@ async function boot() {
     infoTimer -= dt;
     if (infoTimer <= 0) {
       infoTimer = 0.25;
-      ui.setInfo({ fps: fpsValue, players: remotes.count(), pos: controls.position, cpu: Math.round(cpuMs) });
+      if (ui.diagOn) {
+        const sz = renderer.getDrawingBufferSize(new THREE.Vector2());
+        const shown = `${avatarStats.drawn}/${avatarStats.models.length}`;
+        diagText =
+          `DESSINS ${diagCalls} · TRIANGLES ${diagTris > 1e6 ? (diagTris / 1e6).toFixed(2) + ' M' : Math.round(diagTris / 1000) + ' k'}\n` +
+          `AVATARS dessinés ${shown} · animés ${Math.round(avatarStats.animated * 4 / Math.max(1, fpsValue))}/image · PIC ${Math.round(diagPeak)} ms\n` +
+          `IMAGE ${sz.x}×${sz.y} · PALIER ${quality.level.toUpperCase()} · OMBRES ${renderer.shadowMap.enabled ? 'OUI' : 'NON'}\n` +
+          `MÉMOIRE ${renderer.info.memory.geometries} géom. · ${renderer.info.memory.textures} textures\n` +
+          `GPU ${gpuName}`;
+        avatarStats.animated = 0;
+        diagPeak = 0;
+      }
+      ui.setInfo({ fps: fpsValue, players: remotes.count(), pos: controls.position, cpu: Math.round(cpuMs), diag: diagText });
     }
 
     selfBody.update(dt);
+    blobs?.update();
     killcam.update(); // après controls/remotes : rejoue la scène si besoin
     ui.setCompass(camera.rotation.y);
     tutorial.update(controls.position, ARCADE);
     freezer.update(); // après toutes les animations de la frame, avant le rendu
+    // avatars hors champ ou trop loin : pas envoyés au GPU (marge plus large
+    // au palier Élevé, où ils portent une ombre qui peut entrer dans l'image)
+    camera.updateMatrixWorld();
+    cullAvatars(camera, 130, quality.level === 'eleve' ? 5 : 1.6);
     post.render();
+    if (ui.diagOn) {
+      diagCalls = renderer.info.render.calls;
+      diagTris = renderer.info.render.triangles;
+      diagPeak = Math.max(diagPeak, performance.now() - frameStart);
+    }
     cpuMs += (performance.now() - frameStart - cpuMs) * 0.05;
   }
   // Préchauffage : un rendu hors boucle avec TOUS les modèles d'armes

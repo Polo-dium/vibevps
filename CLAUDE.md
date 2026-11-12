@@ -313,6 +313,30 @@ npm start          # serveur de prod (sert client/dist)
     2 s avant / 1 s après la mort dans l'arène, depuis l'épaule du tueur,
     à partir des 7 s de positions et de tirs gardées côté client (rien de
     demandé au serveur) ; à appeler après `remotes.update`.
+  - DIAGNOSTIC : toucher/cliquer le texte en haut à gauche déplie les
+    compteurs du rendu (draw calls et triangles cumulés sur toute l'image,
+    avatars dessinés/total, taille d'image, palier, GPU) — à demander en
+    capture avant toute optimisation. Mesures de référence (palier Moyen,
+    ville OSM, Bellecour) : ~520 draw calls, ~2 M triangles ; arène avec 10
+    bots : ~145 draw calls, ~160 k triangles.
+  - PERF avatars : `cullAvatars(camera)` (avatars.js, appelé avant chaque
+    rendu) masque le MODÈLE des avatars hors champ ou à plus de 130 m — leurs
+    maillages ont `frustumCulled = false`, sans ce tri ils partaient tous au
+    GPU. Hors Élevé : pas d'ombre portée (ombres de contact rondes,
+    `render/blobs.js`), textures réduites à 256 px. Animation 1 image sur 3
+    au-delà de 30 m, 1 sur 8 au-delà de 70 m ou hors champ.
+    Tout InstancedMesh qui couvre la ville avec `frustumCulled = false` DOIT
+    passer par `lodInstances` (les arbustes et cyprès des jardins ne
+    l'avaient pas : 280 k triangles dessinés partout, arène comprise).
+    Reste à faire : les maillages fusionnés à l'échelle de la ville
+    (`pavés`, `jardins-wall/cap/hedge`, escaliers) sont toujours dans le
+    champ — à découper en tuiles.
+  - `render/impacts.js` : impacts de balles en 3 draw calls (étincelles et
+    poussière en Points, trous en InstancedMesh recyclé). `surfaceAt` (main.js)
+    donne la normale et la matière (`metal` sur les colliders des
+    conteneurs) ; `worldHitDistance` affine l'impact par dichotomie.
+    Éclairs : calés sur `Date.now()` dans `updateEnvironment` (`env.flash`),
+    sous orage seulement. Éclaboussures de pluie : Points dans weather.js.
   - Orage (`env.storm`, main.js) : sous l'averse, ciel/brume/lumières virent
     vers `ENV_STORM`, `post.setStorm` refroidit l'étalonnage. Look caméra
     (grain, aberration chromatique, barillet) dans la passe d'étalonnage de

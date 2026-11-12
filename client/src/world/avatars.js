@@ -44,18 +44,77 @@ const getLoader = () => (loaderP ??= import('three/addons/loaders/GLTFLoader.js'
 const models = new Map(); // nom → Promise<{ scene }>
 const anims = new Map(); // 'f' | 'm' → Promise<AnimationClip[]>
 
+// Hors palier Élevé : textures ramenées de 512 à 256 px (4 fois moins de
+// mémoire vidéo par personnage, invisible à l'échelle d'un passant)
+const halved = new Map();
+function halfTexture(tex) {
+  const img = tex?.image;
+  if (!img || (img.width ?? 0) <= 256) return tex ?? null;
+  if (halved.has(tex)) return halved.get(tex);
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  c.getContext('2d').drawImage(img, 0, 0, 256, 256);
+  const t = new THREE.CanvasTexture(c);
+  t.flipY = tex.flipY;
+  t.colorSpace = tex.colorSpace;
+  t.wrapS = tex.wrapS; t.wrapT = tex.wrapT;
+  halved.set(tex, t);
+  return t;
+}
+
+// Suivi pour le diagnostic (touche le texte en haut à gauche) et les ombres
+// de contact : tous les groupes d'avatars vivants, et combien ont été
+// animés depuis la dernière lecture.
+export const avatarStats = { groups: [], models: [], animated: 0, drawn: 0 };
+
+// TRI DES AVATARS HORS CHAMP. Leurs maillages ne sont pas triés par three.js
+// (frustumCulled = false : la boîte englobante d'un maillage à peau ne suit
+// pas l'animation) — sans ce tri, CHAQUE avatar de la ville était envoyé au
+// GPU à chaque image, même dans le dos du joueur ou à des kilomètres (les
+// bots de l'arène vus depuis la ville, et inversement). On masque donc le
+// MODÈLE (jamais le groupe, que le code du monde pilote) dès qu'il sort du
+// champ de la caméra ou dépasse `maxDist`. À appeler une fois par image.
+const _fr = new THREE.Frustum(), _pm = new THREE.Matrix4(), _sp = new THREE.Sphere();
+export function cullAvatars(camera, maxDist = 130, radius = 1.6) {
+  _pm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  _fr.setFromProjectionMatrix(_pm);
+  const cp = camera.position, max2 = maxDist * maxDist;
+  let drawn = 0;
+  const list = avatarStats.models;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    if (!m.parent) { list.splice(i, 1); continue; }
+    const e = m.matrixWorld.elements;
+    const dx = e[12] - cp.x, dy = e[13] - cp.y, dz = e[14] - cp.z;
+    let on = dx * dx + dy * dy + dz * dz < max2;
+    if (on) {
+      _sp.center.set(e[12], e[13] + 0.95, e[14]);
+      _sp.radius = radius;
+      on = _fr.intersectsSphere(_sp);
+    }
+    if (m.visible !== on) m.visible = on;
+    if (on) drawn++;
+  }
+  avatarStats.drawn = drawn;
+}
+let viewer = null; // () => position du joueur (LOD d'animation)
+export function setAvatarViewer(fn) { viewer = fn; }
+
 function loadModel(name) {
   if (!models.has(name)) {
     models.set(name, getLoader().then((l) => l.loadAsync(`/avatars/${name}.glb`)).then((g) => {
       // Matériaux plus légers hors palier Élevé (Lambert, comme le décor)
       g.scene.traverse((o) => {
         if (!o.isMesh) return;
-        o.castShadow = true;
+        // Ombre portée au palier Élevé seulement : dans la carte d'ombre,
+        // chaque avatar se redessine (3 à 5 draw calls + sa peau recalculée).
+        // Ailleurs, une ombre de contact ronde le pose au sol (render/blobs.js).
+        o.castShadow = detail.high;
         o.receiveShadow = false;
         o.frustumCulled = false; // volume fixe posé sur le groupe (voir plus bas)
         if (!detail.high) {
           o.material = [].concat(o.material).map((m) => new THREE.MeshLambertMaterial({
-            name: m.name, map: m.map, alphaTest: m.alphaTest, side: m.side,
+            name: m.name, map: halfTexture(m.map), alphaTest: m.alphaTest, side: m.side,
           }));
           if (o.material.length === 1) o.material = o.material[0];
         }
@@ -123,7 +182,7 @@ export async function buildAvatar(name0, { seated = false } = {}) {
     if (cur) a.crossFadeFrom(cur, fade, true);
     cur = a;
   };
-  let last = performance.now(), skip = 0;
+  let last = performance.now(), skip = 0, acc = 0;
   // Marche : la vitesse de lecture suit la vitesse au sol (la marche
   // Rocketbox fait ~1,35 m/s). speed > 0.3 → marche, sinon repos/causette.
   // `speed` arrive au format de human.js (m/s × 2,6) : on le ramène.
@@ -143,9 +202,21 @@ export async function buildAvatar(name0, { seated = false } = {}) {
       to(act.walk, 0.25);
       if (act.walk) act.walk.timeScale = Math.max(0.6, Math.min(2.0, v / 1.35));
     } else to(talking ? act.talk : act.idle);
-    // loin du joueur : animation mise à jour une image sur trois
-    if (group.userData.far && (skip = (skip + 1) % 3) !== 0) return;
-    mixer.update(group.userData.far ? dt * 3 : dt);
+    // Loin du joueur, l'animation ralentit sa cadence : une image sur trois
+    // au-delà de 30 m, une sur huit au-delà de 70 m (le temps écoulé est
+    // rattrapé d'un coup : la démarche reste juste, seulement moins fluide)
+    let every = !model.visible ? 8 : group.userData.far ? 3 : 1; // hors champ : au ralenti
+    const vp = group.parent && viewer?.();
+    if (vp) {
+      const e = group.matrixWorld.elements;
+      const d2 = (e[12] - vp.x) ** 2 + (e[14] - vp.z) ** 2;
+      every = d2 > 4900 ? 8 : d2 > 900 ? 3 : every;
+    }
+    acc += dt;
+    if ((skip = (skip + 1) % every) !== 0) return;
+    avatarStats.animated++;
+    mixer.update(acc);
+    acc = 0;
     group.position.y = group.userData.baseY ?? group.position.y;
   }
   // ARME EN MAIN (joueurs distants et bots, voir player/remotes.js) : après
@@ -197,6 +268,8 @@ export async function buildAvatar(name0, { seated = false } = {}) {
   const animate0 = animate;
   const emi = new THREE.Color(0);
   const red = new THREE.Color(0xffffff);
+  avatarStats.groups.push(group);
+  avatarStats.models.push(model);
   return {
     armR,
     setArmed(on) { armed = Boolean(on); },
@@ -303,6 +376,9 @@ export function upgradeInPlace(ctx, human, name, { seated = false, talk = false,
       talk: av.talk, isAvatar: true,
     });
     inPlace.push({ human, selfAnimated });
+    // (le vrai groupe est celui de l'humain d'origine)
+    const k = avatarStats.groups.indexOf(av.group);
+    if (k >= 0) avatarStats.groups[k] = g;
   }).catch(() => {});
 }
 

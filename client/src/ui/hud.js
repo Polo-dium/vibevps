@@ -333,11 +333,24 @@ export function createUi() {
     promptEl.addEventListener('click', () => handler());
   }
 
-  function setInfo({ fps, players, pos, cpu }) {
+  // DIAGNOSTIC : toucher (ou cliquer) ce bloc de texte déplie le détail du
+  // rendu — de quoi savoir ce qui coûte sur l'appareil qu'on a en main.
+  let diagOn = false;
+  try { diagOn = localStorage.getItem('lyon_diag') === '1'; } catch { /* stockage indisponible */ }
+  const toggleDiag = (e) => {
+    e.preventDefault();
+    diagOn = !diagOn;
+    try { localStorage.setItem('lyon_diag', diagOn ? '1' : '0'); } catch { /* stockage indisponible */ }
+    toast(diagOn ? '🔧 Diagnostic affiché (toucher de nouveau pour le replier).' : '🔧 Diagnostic replié.');
+  };
+  infoEl.style.pointerEvents = 'auto';
+  infoEl.addEventListener('touchstart', toggleDiag, { passive: false });
+  infoEl.addEventListener('mousedown', toggleDiag);
+  function setInfo({ fps, players, pos, cpu, diag }) {
     infoEl.textContent =
       `LYON ARCADE — ${state.auth?.name ?? ''}\n` +
       `${players + 1} joueur(s) en ligne · ${fps} fps` + (cpu != null ? ` · ${cpu} ms` : '') + '\n' +
-      `x ${pos.x.toFixed(0)}  z ${pos.z.toFixed(0)}`;
+      `x ${pos.x.toFixed(0)}  z ${pos.z.toFixed(0)}` + (diagOn && diag ? '\n' + diag : '');
     infoEl.style.whiteSpace = 'pre';
   }
 
@@ -827,7 +840,7 @@ export function createUi() {
 
   return {
     ensureAuth, invite, toast, setPrompt, onPromptTap, setInfo, setQuest, setRange, setBanner, setAmmo,
-    setHp, setCompass, contact, setSpread, damageFlash, killBanner, setTagMode, hitmarker, deathScreen, showCrosshair, setScope,
+    setHp, setCompass, contact, setSpread, get diagOn() { return diagOn; }, damageFlash, killBanner, setTagMode, hitmarker, deathScreen, showCrosshair, setScope,
     setXp, spawnConfetti, achievementUnlocked, bindProgress, setDaily,
     toggleLeaderboards, leaderboardsOpen, openCreator, toggleAdmin, closeTopOverlay,
     openChat, onChatSend, addChatLine, setMicState,

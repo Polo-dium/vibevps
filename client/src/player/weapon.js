@@ -3,6 +3,7 @@ import { state } from '../state.js';
 import { IS_TOUCH } from './controls.js';
 import { audio } from '../audio.js';
 import { buildWeaponModel } from './weaponModels.js';
+import { createImpacts } from '../render/impacts.js';
 
 const RELOAD_TIME = 1.6;
 const TRACER_SPEED = 260; // m/s (visuel)
@@ -136,8 +137,9 @@ export const WEAPON_IDS = ['ak', 'marteau', 'pompe', 'minigun', 'bazooka', 'akim
 
 export function createWeapon(camera, scene, shootables, {
   onAmmoChange, onShot, onRocketExplosion, getGroundY, onWeaponChange, worldHit,
-  onScope, onKick,
+  onScope, onKick, surfaceAt,
 }) {
+  const impacts = createImpacts(scene);
   // Porte-arme : un seul modèle visible à la fois, construits à la demande
   const holder = new THREE.Group();
   holder.visible = false;
@@ -335,27 +337,13 @@ export function createWeapon(camera, scene, shootables, {
     tracers.push({ mesh, dir, remaining: dist });
   }
 
+  // Impact : étincelles, poussière et trou de balle (render/impacts.js).
+  // `surfaceAt` (main.js) dit sur quoi la balle a tapé : normale du mur ou
+  // du sol, tôle ou pierre ; rien = en l'air ou sur un personnage.
   function spawnImpact(point) {
     const p = Array.isArray(point) ? new THREE.Vector3(...point) : point;
-    // Éclair central
-    const core = new THREE.Mesh(particleGeo, coreMat);
-    core.position.copy(p);
-    core.scale.setScalar(2.5);
-    scene.add(core);
-    particles.push({ mesh: core, vel: new THREE.Vector3(), life: 0.12, maxLife: 0.12, baseScale: 2.5 });
-    // Gerbe d'étincelles
-    for (let i = 0; i < 7; i++) {
-      const m = new THREE.Mesh(particleGeo, sparkMats[i % 2]);
-      m.position.copy(p);
-      scene.add(m);
-      const vel = new THREE.Vector3(
-        (Math.random() - 0.5) * 5,
-        Math.random() * 4 + 1,
-        (Math.random() - 0.5) * 5
-      );
-      const life = 0.25 + Math.random() * 0.2;
-      particles.push({ mesh: m, vel, life, maxLife: life, baseScale: 1 });
-    }
+    const surf = surfaceAt?.(p) ?? null;
+    impacts.spawn(p, surf?.normal ?? null, surf?.kind);
   }
 
   // Explosion de roquette : gros noyau + large gerbe (mêmes matériaux partagés)
@@ -738,7 +726,8 @@ export function createWeapon(camera, scene, shootables, {
       }
     }
 
-    // Étincelles, fumée et impacts (fondu par échelle : matériaux partagés)
+    impacts.update(dt);
+    // Fumée et explosions (fondu par échelle : matériaux partagés)
     for (let i = particles.length - 1; i >= 0; i--) {
       const s = particles[i];
       s.life -= dt;

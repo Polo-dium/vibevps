@@ -90,6 +90,7 @@ export function arenaBoxes() {
   for (const [x, z, q, lv] of CANS) {
     const hx = (q ? CW : CL) / 2, hz = (q ? CL : CW) / 2;
     add(x - hx, x + hx, z - hz, z + hz, GROUND + lv * CH, GROUND + (lv + 1) * CH);
+    out[out.length - 1].metal = true; // tôle : étincelles sous les balles
   }
   for (const [x, z, s] of CRATES) add(x - s / 2, x + s / 2, z - s / 2, z + s / 2, 0, GROUND + s);
   for (const [x, z, q, n] of JERSEYS) {

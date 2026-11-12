@@ -64,6 +64,33 @@ export function createWeather(ctx, { audio, camera } = {}) {
   rain.userData.noShadow = true;
   ctx.scene.add(rain);
 
+  // Éclaboussures au sol : 70 petites couronnes pâles (Points, 1 draw call)
+  const SPLASH = 70;
+  const sPos = new Float32Array(SPLASH * 3);
+  const sLife = new Float32Array(SPLASH);
+  const splashGeo = new THREE.BufferGeometry();
+  splashGeo.setAttribute('position', new THREE.BufferAttribute(sPos, 3));
+  const splashTex = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 32;
+    const g = c.getContext('2d');
+    g.strokeStyle = 'rgba(255,255,255,0.9)';
+    g.lineWidth = 3;
+    g.beginPath(); g.ellipse(16, 20, 11, 5, 0, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = 'rgba(255,255,255,0.8)';
+    g.fillRect(15, 6, 2, 9);
+    return new THREE.CanvasTexture(c);
+  })();
+  const splashMat = new THREE.PointsMaterial({
+    size: 0.22, map: splashTex, color: 0xcfe0ee, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+  });
+  const splash = new THREE.Points(splashGeo, splashMat);
+  splash.frustumCulled = false;
+  splash.visible = false;
+  splash.userData.noShadow = true;
+  ctx.scene.add(splash);
+
   // Gros nuages d'averse : des sprites doux gris sombre très haut, en
   // grappes — 30 sprites au total, coût GPU dérisoire. Ils se lèvent avec
   // la pluie (opacité = amount) et dérivent lentement.
@@ -125,11 +152,30 @@ export function createWeather(ctx, { audio, camera } = {}) {
       }
     }
     if (amount <= 0.01) {
+      splash.visible = false;
       rain.visible = false;
       return;
     }
     rain.visible = true;
     mat.opacity = 0.36 * amount;
+    // Éclaboussures : les gouttes éclatent au sol autour du joueur
+    splash.visible = !snow;
+    if (!snow) {
+      const pp = ctx.playerPos?.() ?? camera.position;
+      splashMat.opacity = 0.5 * amount;
+      for (let i = 0; i < SPLASH; i++) {
+        sLife[i] -= dt;
+        if (sLife[i] <= 0) {
+          sLife[i] = 0.12 + Math.random() * 0.16;
+          const a = Math.random() * Math.PI * 2, r = 1 + Math.sqrt(Math.random()) * 13;
+          const x = pp.x + Math.cos(a) * r, z = pp.z + Math.sin(a) * r;
+          // sol : relief en ville, dalle de l'arène (carte hors relief) sinon
+          const y = ctx.inHiFi ? 0.06 : (ctx.terrainHeight?.(x, z) ?? 0);
+          sPos[i * 3] = x; sPos[i * 3 + 1] = y + 0.05; sPos[i * 3 + 2] = z;
+        }
+      }
+      splashGeo.attributes.position.needsUpdate = true;
+    }
     const cam = camera.position;
     rain.position.set(cam.x, cam.y - H * 0.45, cam.z);
     for (let i = 0; i < DROPS; i++) {

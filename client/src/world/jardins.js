@@ -3,6 +3,7 @@ import { roadHalf } from './roadfit.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeRand } from './layout.js';
 import { ashlarTexture } from './monuments.js';
+import { lodInstances } from '../render/instlod.js';
 
 // JARDINS DES COLLINES (ville OSM, vrai relief) : sur les plateaux de
 // Saint-Just, Saint-Irénée, Fourvière, Sainte-Foy ou la Croix-Rousse, les
@@ -242,6 +243,10 @@ export function buildJardins(ctx, data) {
   shrubMesh.receiveShadow = true;
   shrubMesh.name = 'jardins-arbustes';
   shrubMesh.frustumCulled = false; // instances sur toute la carte
+  // Portée d'affichage : sans elle, les 160 000 triangles d'arbustes de
+  // TOUTE la ville partaient au GPU à chaque image (et dans la carte
+  // d'ombre), où que soit le joueur — arène comprise
+  lodInstances(shrubMesh, { maxD: 240 });
   ctx.scene.add(shrubMesh);
 
   // cyprès : fuseau sombre (la silhouette des jardins de Fourvière)
@@ -260,6 +265,7 @@ export function buildJardins(ctx, data) {
   cypMesh.castShadow = true;
   cypMesh.name = 'jardins-cypres';
   cypMesh.frustumCulled = false;
+  lodInstances(cypMesh, { maxD: 520 }); // silhouettes hautes : vues de plus loin
   ctx.scene.add(cypMesh);
   // persistants (buis, lauriers, cyprès) : seasons.js ne les rousit pas
   for (const mat of [shrubMat, cypMat]) mat.userData.noSeason = true;
