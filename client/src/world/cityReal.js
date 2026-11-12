@@ -77,6 +77,8 @@ let WATER_RECTS = [];
 let EXTRA_RECTS = [];
 let BELLE_RECT = null; // Bellecour à l'échelle en mode ville complète
 let BELLE_YAW = null; // rotation de la place (belleRot.yaw), si connue
+let BELLE_X0 = null; // bord ouest du gabarit d'origine
+let BELLE_PIVOT = null; // pivot de cette rotation [x, z]
 
 // Un point est-il dans (ou au bord de) l'eau, à la profondeur z ? Test par
 // distance au tracé central → fonctionne même quand les fleuves se courbent
@@ -1027,8 +1029,57 @@ export function buildRealCity(ctx, data) {
     const bYaw = Math.atan(mAvg);
     const bCos = Math.cos(bYaw), bSin = Math.sin(bYaw);
     BELLE_YAW = bYaw;
+    // PLACE CALÉE SUR LES VRAIES RUES. Le gabarit de la place (BELLECOUR_REAL)
+    // était un rectangle théorique : il débordait de 6 à 12 m sur les rues
+    // qui la bordent au nord et au sud, et de 25 m à l'ouest — d'où des
+    // alignements d'arbres plantés sur la chaussée et des rues masquées.
+    // On mesure donc, dans le repère tourné de la place, la distance du
+    // centre au bord de la première rue de chaque côté (médiane de 13
+    // rayons) et on RESSERRE le rectangle dessus. Le pivot et l'angle ne
+    // bougent pas : statue, pavillon et tags restent exactement où ils sont.
+    BELLE_PIVOT = [bcx0, bcz0];
+    {
+      const segs = [];
+      for (const r of data.roads ?? []) {
+        if (r.w < 5) continue;
+        const p = r.p;
+        for (let i = 0; i + 3 < p.length; i += 2) {
+          if (Math.abs(p[i] - bcx0) < 260 && Math.abs(p[i + 1] - bcz0) < 260) segs.push([p[i], p[i + 1], p[i + 2], p[i + 3], r.w]);
+        }
+      }
+      const edge = (dx, dz, px, pz, span) => {
+        const ds = [];
+        for (let k = -6; k <= 6; k++) {
+          const ox = bcx0 + px * span * (k / 6), oz = bcz0 + pz * span * (k / 6);
+          let bt = Infinity, bw = 0;
+          for (const [x1, z1, x2, z2, w] of segs) {
+            const ex = x2 - x1, ez = z2 - z1, den = dx * ez - dz * ex;
+            if (Math.abs(den) < 1e-9) continue;
+            const t = ((x1 - ox) * ez - (z1 - oz) * ex) / den;
+            const u = ((x1 - ox) * dz - (z1 - oz) * dx) / den;
+            if (t > 20 && u >= 0 && u <= 1 && t < bt) { bt = t; bw = w; }
+          }
+          if (bt < 150) ds.push(bt - bw / 2 - 1.5); // bord de chaussée + trottoir
+        }
+        ds.sort((a, b) => a - b);
+        return ds.length >= 5 ? ds[ds.length >> 1] : null;
+      };
+      // axes locaux de la place dans le monde (voir apply ci-dessous)
+      const ux = bCos, uz = -bSin, vx = bSin, vz = bCos;
+      const B0 = BELLECOUR_REAL;
+      BELLE_X0 = B0.minX;
+      const fit = (found, old, lo) => (found == null ? old : Math.max(lo, Math.min(old, found)));
+      const west = fit(edge(-ux, -uz, vx, vz, 34), bcx0 - B0.minX, 40);
+      const north = fit(edge(-vx, -vz, ux, uz, 52), bcz0 - B0.minZ, 34);
+      const south = fit(edge(vx, vz, ux, uz, 52), B0.maxZ - bcz0, 34);
+      B0.minX = bcx0 - west;
+      B0.minZ = bcz0 - north;
+      B0.maxZ = bcz0 + south;
+      console.log(`Bellecour calée sur les rues : ouest ${west.toFixed(1)} m, nord ${north.toFixed(1)} m, sud ${south.toFixed(1)} m du centre.`);
+    }
     ctx.belleRot = {
       yaw: bYaw,
+x0: BELLE_X0, cx: bcx0, cz: bcz0, // pivot de la rotation (≠ centre du rectangle resserré)
       apply(x, z) {
         const dx = x - bcx0, dz = z - bcz0;
         return [bcx0 + dx * bCos + dz * bSin, bcz0 - dx * bSin + dz * bCos];
@@ -2160,7 +2211,7 @@ function reservedRects() {
   if (BELLE_RECT && BELLE_YAW != null) {
     // Place tournée : test EXACT dans son repère (marge 4 m) au lieu de la
     // boîte axiale élargie de 24 m, qui rasait des îlots entiers autour.
-    const bcx = (B.minX + B.maxX) / 2, bcz = (B.minZ + B.maxZ) / 2;
+    const [bcx, bcz] = BELLE_PIVOT ?? [(B.minX + B.maxX) / 2, (B.minZ + B.maxZ) / 2];
     const c = Math.cos(BELLE_YAW), sn = Math.sin(BELLE_YAW);
     placeRect.contains = (x, z) => {
       const dx = x - bcx, dz = z - bcz;
@@ -2947,7 +2998,7 @@ function buildOsmRoads(ctx, data, full = false) {
   const inPlace = (x, z) => {
     if (!B || !R) return false;
     // repère local de la place (rotation inverse de belleRot.apply)
-    const bcx = (B.minX + B.maxX) / 2, bcz = (B.minZ + B.maxZ) / 2;
+    const bcx = R.cx ?? (B.minX + B.maxX) / 2, bcz = R.cz ?? (B.minZ + B.maxZ) / 2;
     const c = Math.cos(R.yaw), sn = Math.sin(R.yaw);
     const dx = x - bcx, dz = z - bcz;
     const lx = bcx + dx * c - dz * sn, lz = bcz + dx * sn + dz * c;
@@ -3330,12 +3381,16 @@ function buildGreenery(ctx, data, rand, full = false) {
   if (ctx.bellecourRect) {
     const B = ctx.bellecourRect;
     const rot = ctx.belleRot ? ctx.belleRot.apply : (x, z) => [x, z];
-    for (let x = B.minX + 6; x < B.maxX - 6; x += 7) {
+    // on part du bord ouest d'ORIGINE (x0) pour consommer autant de rand()
+    // qu'avant le calage de la place : le reste des arbres ne change pas
+    for (let x = (ctx.belleRot?.x0 ?? B.minX) + 6; x < B.maxX - 6; x += 7) {
       for (const off of [4.5, 9.5]) {
         const [xa, za] = rot(x + (rand() - 0.5) * 1.5, B.minZ + off);
         const [xb, zb] = rot(x + (rand() - 0.5) * 1.5, B.maxZ - off);
-        valid.push([xa, za, 0.85 + rand() * 0.4, 0]);
-        valid.push([xb, zb, 0.85 + rand() * 0.4, 0]);
+        const sa = 0.85 + rand() * 0.4, sb = 0.85 + rand() * 0.4;
+        if (x < B.minX + 5) continue;
+        valid.push([xa, za, sa, 0]);
+        valid.push([xb, zb, sb, 0]);
       }
     }
   }

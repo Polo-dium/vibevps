@@ -157,7 +157,7 @@ export function createParkedCars(ctx, roads) {
 // Bellecour (place tournée) : pas de stationnement sur la place elle-même
 function insideBelle(ctx, x, z) {
   const B = ctx.bellecourRect, R = ctx.belleRot;
-  const bcx = (B.minX + B.maxX) / 2, bcz = (B.minZ + B.maxZ) / 2;
+  const bcx = R.cx ?? (B.minX + B.maxX) / 2, bcz = R.cz ?? (B.minZ + B.maxZ) / 2;
   const c = Math.cos(R.yaw), sn = Math.sin(R.yaw);
   const dx = x - bcx, dz = z - bcz;
   const lx = bcx + dx * c - dz * sn, lz = bcz + dx * sn + dz * c;

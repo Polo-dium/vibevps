@@ -51,6 +51,11 @@ npm start          # serveur de prod (sert client/dist)
     en pente continue vers l'eau (`waterDistanceFn`), les rues sont
     redécoupées tous les 6 m sur les pentes, les balmes se boisent
     (`buildGreenery`, rand dédié). JSON `version: 3` = relief.
+  - Place Bellecour (ville OSM) : le gabarit `BELLECOUR_REAL` est RESSERRÉ au
+    chargement sur le bord des vraies rues qui l'entourent (lancer de rayons
+    dans le repère tourné, `cityReal.js`), pivot et angle inchangés
+    (`ctx.belleRot.cx/cz` = pivot, ≠ centre du rectangle) — ne jamais
+    supposer que le centre du rectangle est le pivot.
   - `src/world/pentes.js` (vrai relief) : escaliers de pierre drapés sur la
     pente pour chaque `highway=steps` OSM (`data.steps` : p, w, n, inc ;
     repli : voies piétonnes à plus de 18 %), jardin en terrasses et balcon-
