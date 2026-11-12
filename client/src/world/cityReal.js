@@ -2172,6 +2172,7 @@ function belleCtx(ctx) {
   group.rotation.y = R.yaw;
   group.position.set(cx0 - 0, 0, cz0 - 0);
   ctx.scene.add(group);
+  ctx.belleGroup = group; // petit décor cuit avant le premier rendu (main.js)
   return {
     ...ctx,
     scene: group,

@@ -53,6 +53,42 @@ export function flattenColored(source, { material } = {}) {
   return new THREE.Mesh(merged, material ?? new THREE.MeshLambertMaterial({ vertexColors: true }));
 }
 
+// CUISSON DU PETIT DÉCOR d'un groupe (place Bellecour : fleurs, bancs,
+// bornes, socles, allées… une centaine de maillages, chacun son draw call,
+// doublé par la carte d'ombre). Les pièces simples — Lambert uni, opaque,
+// sans texture, non taguables, peu de sommets — sont fusionnées en DEUX
+// maillages à couleurs par sommet : le « plat » (allées, pelouses, fleurs :
+// ne porte pas d'ombre) et le « relief ». Le reste (statues sculptées,
+// textures, instances) n'est pas touché. À appeler APRÈS les saisons (les
+// verts sont alors déjà recolorés) et avant le premier rendu.
+export function bakeSmallDecor(group, { maxVerts = 700 } = {}) {
+  group.updateMatrixWorld(true);
+  const flat = [], tall = [];
+  const box = new THREE.Box3();
+  group.traverse((o) => {
+    if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || o.children.length) return;
+    const m = o.material;
+    if (!m || Array.isArray(m) || m.type !== 'MeshLambertMaterial') return;
+    if (m.map || m.transparent || m.vertexColors || m.side !== THREE.FrontSide) return;
+    if (Object.keys(o.userData).length || o.name) return; // pièce repérée par le jeu
+    if (!o.geometry?.attributes.position || o.geometry.attributes.position.count > maxVerts) return;
+    box.setFromObject(o);
+    (box.max.y - box.min.y < 0.75 && box.max.y < 1.1 ? flat : tall).push(o);
+  });
+  const out = [];
+  for (const [list, shadow] of [[flat, false], [tall, true]]) {
+    if (list.length < 2) continue;
+    const mesh = flattenColored(list);
+    if (!mesh) continue;
+    // flattenColored cuit les matrices MONDE : le maillage va à la racine
+    mesh.castShadow = shadow; mesh.receiveShadow = true;
+    if (!shadow) mesh.userData.noShadow = true;
+    for (const o of list) { o.parent?.remove(o); o.geometry.dispose(); }
+    out.push(mesh);
+  }
+  return out;
+}
+
 // Crée un mesh boîte + son collider AABB, et l'enregistre dans le contexte monde.
 // origin = centre au sol (y = bas de la boîte).
 export function addBox(ctx, { x, y = 0, z, w, h, d, color = 0x888888, material, taggable = false, collider = true, emissive = 0x000000 }) {

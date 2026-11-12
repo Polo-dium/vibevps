@@ -56,6 +56,13 @@ npm start          # serveur de prod (sert client/dist)
     dans le repère tourné, `cityReal.js`), pivot et angle inchangés
     (`ctx.belleRot.cx/cz` = pivot, ≠ centre du rectangle) — ne jamais
     supposer que le centre du rectangle est le pivot.
+    `bakeSmallDecor(groupe)` (utils.js, appelé dans main.js après les
+    saisons) fusionne le petit décor de la place (Lambert uni sans texture,
+    sans nom ni userData) en 2 maillages : 92 draw calls → 2. Une pièce que
+    le jeu doit retrouver ensuite doit donc porter un `name` ou un
+    `userData`. Pelouse tondue en bandes et parterres à la française
+    (`noSeason` : le gazon ne roussit pas). Globes de lampadaires : 80
+    triangles à moins de 70 m, 20 au-delà (`?debug&nobake` pour comparer).
   - `src/world/pentes.js` (vrai relief) : escaliers de pierre drapés sur la
     pente pour chaque `highway=steps` OSM (`data.steps` : p, w, n, inc ;
     repli : voies piétonnes à plus de 18 %), jardin en terrasses et balcon-

@@ -36,6 +36,7 @@ import { createFishing } from './world/fishing.js';
 import { createPigeons } from './world/pigeons.js';
 import { createReflections } from './world/reflections.js';
 import { applySeason } from './world/seasons.js';
+import { bakeSmallDecor } from './world/utils.js';
 import { createDistanceCuller } from './world/culling.js';
 import { updateInstanceLods } from './render/instlod.js';
 import { createFreezer } from './render/freeze.js';
@@ -1266,6 +1267,10 @@ async function boot() {
   createReflections(ctx);
   {
     const saison = applySeason(ctx);
+    // petit décor de la place Bellecour fusionné (≈ 100 draw calls → 2)
+    if (ctx.belleGroup && !new URLSearchParams(location.search).has('nobake')) {
+      for (const m of bakeSmallDecor(ctx.belleGroup)) scene.add(m);
+    }
     if (saison !== 'ete') {
       const mots = { automne: '🍂 L’automne roussit Lyon', hiver: '❄️ L’hiver givre Lyon (il neige au lieu de pleuvoir)', printemps: '🌸 Le printemps verdit Lyon' };
       ui.toast(`${mots[saison]} — la ville suit les vraies saisons.`);

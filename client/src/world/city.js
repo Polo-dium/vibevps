@@ -1538,28 +1538,53 @@ export function buildBellecour(ctx, rect = BELLECOUR, real = false) {
   // PRAIRIE À L'EST de la place (comme en vrai) : grande pelouse, parterres
   // fleuris et la statue de Saint-Exupéry
   const rand = makeRand(1900);
-  const lawn = new THREE.Mesh(
-    new THREE.PlaneGeometry(30, d - 10),
-    new THREE.MeshLambertMaterial({ color: 0x557a42 })
-  );
-  lawn.rotation.x = -Math.PI / 2;
-  lawn.position.set(rect.maxX - 17, 0.03, cz);
-  ctx.scene.add(lawn);
-  const bedMat = new THREE.MeshLambertMaterial({ color: 0x4e7a3d });
+  // Pelouse TONDUE EN BANDES (deux verts alternés) : se lit comme du gazon
+  // sans texture. Le gazon ne roussit pas à l'automne → noSeason. Tout ce
+  // petit décor est fusionné avant le premier rendu (bakeSmallDecor).
+  const evergreen = (color) => {
+    const m = new THREE.MeshLambertMaterial({ color });
+    m.userData.noSeason = true;
+    return m;
+  };
+  const lawnMats = [evergreen(0x55803f), evergreen(0x4c7538)];
+  const lawnD = d - 10, bandes = Math.max(6, Math.round(lawnD / 5));
+  for (let i = 0; i < bandes; i++) {
+    const lawn = new THREE.Mesh(new THREE.PlaneGeometry(30, lawnD / bandes), lawnMats[i % 2]);
+    lawn.rotation.x = -Math.PI / 2;
+    lawn.position.set(rect.maxX - 17, 0.03, cz - lawnD / 2 + (i + 0.5) * (lawnD / bandes));
+    ctx.scene.add(lawn);
+  }
+  // Parterres à la française : bordure de buis, terre, et massifs de fleurs
+  // en anneaux de couleur (petits dômes à 20 triangles, matériaux partagés)
+  const buisMat = evergreen(0x3d6431);
+  const terreMat = new THREE.MeshLambertMaterial({ color: 0x5b4636 });
+  const fleurMats = [0xd94f6b, 0xe8c33a, 0xf2efe6, 0xc23bb0].map((c) => new THREE.MeshLambertMaterial({ color: c }));
+  const fleurGeo = new THREE.IcosahedronGeometry(0.3, 0);
+  const feuilleGeo = new THREE.IcosahedronGeometry(0.34, 0);
   for (const bz of [cz - 17, cz + 17]) {
-    const bed = new THREE.Mesh(new THREE.BoxGeometry(22, 0.35, 12), bedMat);
-    bed.position.set(rect.maxX - 17, 0.18, bz);
-    ctx.scene.add(bed);
-    for (let i = 0; i < 22; i++) {
-      const f = new THREE.Mesh(
-        new THREE.BoxGeometry(0.35, 0.3, 0.35),
-        new THREE.MeshLambertMaterial({
-          color: [0xd94f6b, 0xe8c33a, 0xd9782f, 0xc23bb0][Math.floor(rand() * 4)],
-          emissive: 0x1c0a10,
-        })
-      );
-      f.position.set(rect.maxX - 17 + (rand() - 0.5) * 20, 0.5, bz + (rand() - 0.5) * 10);
-      ctx.scene.add(f);
+    const bx = rect.maxX - 17;
+    const terre = new THREE.Mesh(new THREE.BoxGeometry(21, 0.3, 11), terreMat);
+    terre.position.set(bx, 0.15, bz);
+    ctx.scene.add(terre);
+    for (const [ox, oz, w2, d2] of [[0, -5.75, 22, 0.5], [0, 5.75, 22, 0.5], [-10.75, 0, 0.5, 11], [10.75, 0, 0.5, 11]]) {
+      const buis = new THREE.Mesh(new THREE.BoxGeometry(w2, 0.55, d2), buisMat);
+      buis.position.set(bx + ox, 0.28, bz + oz);
+      ctx.scene.add(buis);
+    }
+    for (let ix = 0; ix < 22; ix++) {
+      for (let iz = 0; iz < 11; iz++) {
+        const fx = (ix - 10.5) * 0.93 + (rand() - 0.5) * 0.3, fz = (iz - 5) * 0.93 + (rand() - 0.5) * 0.3;
+        // anneaux elliptiques : cœur, deux couronnes, bord
+        const e = Math.hypot(fx / 10.2, fz / 5.2);
+        const ring = e < 0.3 ? 0 : e < 0.58 ? 1 : e < 0.84 ? 2 : 3;
+        const feuille = rand() < 0.18;
+        const f = new THREE.Mesh(feuille ? feuilleGeo : fleurGeo, feuille ? buisMat : fleurMats[ring]);
+        const k = 0.8 + rand() * 0.45;
+        f.scale.set(k, k * 0.75, k);
+        f.rotation.y = rand() * 6.28;
+        f.position.set(bx + fx, 0.36 + k * 0.1, bz + fz);
+        ctx.scene.add(f);
+      }
     }
   }
   // Colonne Saint-Exupéry et son Petit Prince (vraie statue à Bellecour)
@@ -2608,11 +2633,15 @@ export function buildLamps(ctx, spots) {
     new THREE.MeshLambertMaterial({ color: 0x2c2f36 }),
     n
   );
+  const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffe3a0 });
   const bulbs = new THREE.InstancedMesh(
-    new THREE.IcosahedronGeometry(0.28, 1), // 80 triangles (la sphère 8×8 en faisait 128, × des milliers)
-    new THREE.MeshBasicMaterial({ color: 0xffe3a0 }),
+    new THREE.IcosahedronGeometry(0.28, 1), // 80 triangles, de près seulement
+    bulbMat,
     n
   );
+  // au-delà de 70 m, un globe de 56 cm fait quelques pixels : 20 triangles
+  // suffisent (un millier de globes à portée = 80 k triangles sinon)
+  const bulbsFar = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.3, 0), bulbMat, n);
   const m = new THREE.Matrix4();
   const haloPos = [];
   spots.forEach(([x, z, gy = 0], i) => {
@@ -2621,15 +2650,18 @@ export function buildLamps(ctx, spots) {
     poles.setMatrixAt(i, m);
     m.makeTranslation(x, gy + 4.5, z);
     bulbs.setMatrixAt(i, m);
+    bulbsFar.setMatrixAt(i, m);
     haloPos.push(x, gy + 4.4, z);
   });
   poles.instanceMatrix.needsUpdate = true;
   bulbs.instanceMatrix.needsUpdate = true;
-  ctx.scene.add(poles, bulbs);
+  bulbsFar.instanceMatrix.needsUpdate = true;
+  ctx.scene.add(poles, bulbs, bulbsFar);
   // mâts : invisibles au loin ; globes : la nuit, les halos (Points) prennent
   // le relais au-delà
   lodInstances(poles, { maxD: 500 });
-  lodInstances(bulbs, { maxD: 700 });
+  lodInstances(bulbs, { maxD: 70 });
+  lodInstances(bulbsFar, { minD: 70, maxD: 700 });
 
   const haloGeo = new THREE.BufferGeometry();
   haloGeo.setAttribute('position', new THREE.Float32BufferAttribute(haloPos, 3));
