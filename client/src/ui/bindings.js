@@ -17,6 +17,7 @@ export const ACTIONS = [
   ]],
   ['Combat', [
     ['Digit1', 'Sortir / ranger l\'arme'], ['Digit2', 'Arme suivante'], ['KeyR', 'Recharger'],
+    ['KeyQ', 'Grenade (arène)'], ['KeyZ', 'Fumigène (arène)'],
     ['Tab', 'Tableau des scores (arène)'],
   ]],
   ['Ville', [
@@ -112,7 +113,7 @@ export function createBindings({ toast } = {}) {
   const PAD_HELP = [
     ['Stick gauche', 'Se déplacer'], ['Stick droit', 'Regarder'], ['RT', 'Tirer'], ['LT', 'Viser à l\'épaule'],
     ['A', 'Sauter'], ['B', 'S\'accroupir'], ['X', 'Recharger'], ['Y', 'Arme suivante'],
-    ['LB', 'Interagir'], ['RB', 'Sortir / ranger l\'arme'], ['Croix ↑', 'Carte'], ['Croix ↓', 'Jetpack'],
+    ['LB', 'Interagir'], ['RB', 'Sortir / ranger l\'arme'], ['Clic stick droit', 'Grenade'], ['Clic stick gauche', 'Fumigène'], ['Croix ↑', 'Carte'], ['Croix ↓', 'Jetpack'],
     ['Croix ← →', 'Emotes'], ['Select', 'Scores (arène)'], ['Start', 'Ce menu'],
   ];
   function render() {

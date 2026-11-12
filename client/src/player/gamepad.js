@@ -15,6 +15,8 @@ const BUTTON_KEYS = {
   4: 'KeyE',    // LB : interagir
   5: 'Digit1',  // RB : sortir / ranger l'arme
   8: 'Tab',     // Select : scores
+  10: 'KeyZ',   // clic du stick gauche : fumigène
+  11: 'KeyQ',   // clic du stick droit : grenade
   12: 'KeyM',   // croix haut : carte
   13: 'KeyJ',   // croix bas : jetpack
   14: 'Digit3', // croix gauche / droite : emotes

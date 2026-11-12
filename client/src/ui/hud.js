@@ -43,6 +43,7 @@ export function createUi() {
     <div id="help">
       ZQSD bouger (sprint auto) · Espace saut · Maj s'accroupir (en course : glissade) · E interagir<br>
       clic tirer · clic droit viser à l'épaule · Tab scores (arène) · <b>N commandes (touches, manette)</b><br>
+      Arène : A grenade · W fumigène (touches physiques Q et Z d'un clavier anglais)<br>
       F bombe de peinture (clic = graffiti, molette = couleur) · G poser ton tag<br>
       T éditeur de tags · 1 arme · 2 changer d'arme · R recharger · 3/4/5 emotes<br>
       M carte · B enceinte · J jetpack (ranger/sortir) · L classements/succès · C photo · O graphismes · P admin

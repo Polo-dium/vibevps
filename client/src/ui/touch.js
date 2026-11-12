@@ -6,7 +6,7 @@ import { PAINT_COLORS, COLOR_MIN_LEVEL } from '../tags/spray.js';
 export function createTouchControls({
   controls, weapon, spray, tagEditor, ui, voice, capture, emote,
   jetpack, jetpackGuns, rcPlane, interact, map, radio, placeBoombox,
-  admin, invite, quality,
+  admin, invite, quality, throwNade, inArena,
 }) {
   const root = document.createElement('div');
   root.id = 'touch-ui';
@@ -107,6 +107,8 @@ export function createTouchControls({
       </div>
     </div>
     <div class="touch-actions" id="touch-actions">
+      <button class="tbtn tbtn-nade" id="tb-smoke">💨</button>
+      <button class="tbtn tbtn-nade" id="tb-nade">💣</button>
       <button class="tbtn" id="tb-aim">VISER</button>
       <button class="tbtn" id="tb-crouch">BAS</button>
       <button class="tbtn" id="tb-emote">😜</button>
@@ -298,6 +300,7 @@ export function createTouchControls({
     // Arme en main : VISER et BAS prennent la place des emotes et du tampon
     root.classList.toggle('armed-mode', Boolean(editing || (state.weaponEquipped && !isPlane && !controls.flying)));
     root.classList.toggle('no-ads', !weapon.canAds);
+    root.classList.toggle('arena-mode', Boolean(editing || inArena?.()));
     root.querySelector('#tb-aim')?.classList.toggle('active', weapon.ads > 0.5);
     root.querySelector('#tb-crouch')?.classList.toggle('active', Boolean(controls.crouched));
     root.classList.toggle('fly-mode', Boolean(controls.flying));
@@ -316,6 +319,7 @@ export function createTouchControls({
   const SLOTS = {
     aim: ['#tb-aim', '#tb-emote'], crouch: ['#tb-crouch', '#tb-stamp'], spray: ['#tb-spray'],
     use: ['#tb-use'], jump: ['#tb-jump'], fire: ['#tb-fire'], menu: ['#tb-menu'],
+    nade: ['#tb-nade'], smoke: ['#tb-smoke'],
   };
   let layout = null;
   try { layout = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null'); } catch { /* défaut */ }
@@ -631,6 +635,8 @@ export function createTouchControls({
   bind('#tb-hold', () => controls.setHover(!controls.hovering));
   bind('#tb-use', () => interact());
   bind('#tb-layout', () => openLayoutEditor());
+  bind('#tb-nade', () => throwNade?.('f'));
+  bind('#tb-smoke', () => throwNade?.('s'));
   bind('#tb-aim', () => weapon.toggleAds());
   bind('#tb-crouch', () => controls.toggleCrouch());
   bind('#tb-spray', () => spray.toggleMode()); // mode bombe de peinture

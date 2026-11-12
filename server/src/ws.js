@@ -315,6 +315,8 @@ export function setupWs(httpServer) {
         } else {
           dmg = Math.min(55, rawDmg);
         }
+        dmg = arena.absorb(targetId, dmg); // armure de canut (série de 7)
+        if (dmg <= 0) return;
         target.hp -= dmg;
         target.lastDamagedAt = now;
         if (target.hp > 0) {
@@ -376,6 +378,12 @@ export function setupWs(httpServer) {
             sp: arena.playerDied(id, null, now) ?? undefined,
           });
         }
+        return;
+      }
+
+      // Grenade ou fumigène lancé dans l'arène
+      if (msg.t === 'nade') {
+        arena.throwNade(id, msg, Date.now());
         return;
       }
 

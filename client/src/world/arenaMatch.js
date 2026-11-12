@@ -28,7 +28,7 @@ const DIFF_LABELS = ['Facile', 'Normal', 'Difficile', 'Réaliste'];
 // équipe — quelle que soit l'équipe (0 ou 1) où le serveur t'a mis. En
 // mêlée générale, tout le monde est rouge.
 const FOE_CSS = '#ff5a4d', ALLY_CSS = '#5b9bff';
-const WPN_ICON = { 1: '🔫', 2: '🔨', 3: '💥', 4: '🌀', 5: '🚀', 6: '🔫', 7: '🏏', 8: '🎯', 9: '🔪' };
+const WPN_ICON = { 1: '🔫', 2: '🔨', 3: '💥', 4: '🌀', 5: '🚀', 6: '🔫', 7: '🏏', 8: '🎯', 9: '🔪', 10: '💣', 11: '🥖' };
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -39,6 +39,7 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
   let myTeam = -1;
   let loadoutMode = null;
   let boardHeld = false;
+  let revealUntil = 0; // drone-pigeon actif jusqu'à cet instant
 
   // --- DOM ---------------------------------------------------------------------
   const root = document.createElement('div');
@@ -137,7 +138,9 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     for (const [id, , team] of snap.b) {
       if (id === myId) continue;
       const foe = !snap.teams || team !== myTeam;
-      remotes.setTeam(id, foe ? 0 : 1, foe); // 0 = rouge (ennemi), 1 = bleu (allié)
+      // drone-pigeon (série de 3) : les noms des ennemis s'affichent — et on
+      // les voit à travers les murs — pendant 12 s
+      remotes.setTeam(id, foe ? 0 : 1, foe && performance.now() > revealUntil); // 0 = rouge (ennemi), 1 = bleu (allié)
     }
   }
   function applyLoadout() {
@@ -381,6 +384,23 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     else if (msg.k === 'cap') {
       banner(`<small>${esc(msg.name)}</small>Drapeau capturé<small>${isAlly(msg.team) ? 'point pour ton équipe' : 'point pour les adversaires'}</small>`);
       audio?.reward?.();
+    } else if (msg.k === 'streak') {
+      // SÉRIES D'ÉLIMINATIONS : 3 = drone-pigeon, 5 = frappe de quenelles, 7 = armure de canut
+      const mine = msg.id === getMyId();
+      const what = { 3: ['🕊️', 'Drone-pigeon', 'ennemis repérés pendant 12 s'], 5: ['🥖', 'Frappe de quenelles', 'ça tombe sur les adversaires'], 7: ['🛡', 'Armure de canut', '100 points d\'armure'] }[msg.n];
+      if (!what) return;
+      feed(`${what[0]} ${esc(msg.name)} : ${what[1].toLowerCase()} (${msg.n} d'affilée)`);
+      if (mine) {
+        banner(`<small>${msg.n} éliminations d'affilée</small>${what[0]} ${what[1]}<small>${what[2]}</small>`, 3200);
+        audio?.announce?.(what[1]);
+        if (msg.n === 3) {
+          revealUntil = performance.now() + 12000;
+          if (snap) applyTeams();
+          setTimeout(() => { if (snap) applyTeams(); }, 12100);
+        }
+      } else if (msg.n === 5) {
+        banner('<small>frappe de quenelles en approche</small>À couvert !<small>fuis les cercles rouges</small>', 2600);
+      }
     } else if (msg.k === 'tk') {
       // tir ami : la quenelle du karma s'abat sur le traître
       if (msg.id === getMyId()) {

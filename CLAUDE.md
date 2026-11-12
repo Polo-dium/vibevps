@@ -303,6 +303,19 @@ npm start          # serveur de prod (sert client/dist)
     drapeaux, console de match, tableau des meilleurs au-dessus du portail,
     `weapon.setLoadout` pour snipers/couteaux, `remotes.setTeam`). Entrée
     permanente : portail doré au pied de Louis XIV (POI `roi`).
+  - GRENADES ET SÉRIES (arène) : `shared/arena-nade.js` = physique de la
+    grenade (`stepNade`, rebonds sur `arenaBoxes()`), jouée par le serveur
+    (qui décide de l'explosion et des dégâts, arrêtés par les obstacles, tir
+    ami compris) ET par chaque client (affichage) — la trajectoire ne passe
+    pas sur le réseau. 2 grenades + 1 fumigène par vie, pas en modes snipers
+    / couteaux. Le fumigène coupe la ligne de vue des bots (`smokeBlocks`).
+    Messages : `nade` (client → serveur : `k`, `d` ; serveur → clients :
+    `id`, `p`, `v`), `boom` (`k` f/s/q, `in` = délai pour la frappe),
+    `nadeInv` (dotation + armure). Séries d'éliminations d'un joueur
+    (`onStreak`) : 3 = drone-pigeon (noms ennemis révélés 12 s, côté client),
+    5 = frappe de quenelles (6 impacts annoncés par un cercle rouge), 7 =
+    armure de canut (100 points, `absorb`). Client : `world/nades.js`
+    (touches physiques KeyQ / KeyZ, boutons 💣 💨, clics de sticks).
   - MANIEMENT : `weapon.js` `HANDLING` (dispersion, recul, zoom de visée par
     arme) — visée à l'épaule (clic droit / bouton VISER), dispersion qui
     grossit en rafale / en courant / en l'air et se resserre accroupi ou à

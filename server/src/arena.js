@@ -1,4 +1,5 @@
 import { ARENA, arenaBoxes, BASES, TEAM_SPAWNS, FFA_SPAWNS } from '../../shared/arena-layout.js';
+import { NADE, stepNade } from '../../shared/arena-nade.js';
 
 // ARÈNE DE BELLECOUR — MATCHS ET BOTS (autoritatif, côté serveur)
 //
@@ -26,7 +27,7 @@ const MODE_INFO = {
 const INTER_MS = 12000;
 const RESPAWN_MS = 3000;
 const SPAWN_SHIELD_MS = 1800;
-const WPN = { ak: 1, sniper: 8, couteau: 9 };
+const WPN = { ak: 1, sniper: 8, couteau: 9, grenade: 10, quenelle: 11 };
 
 // Difficulté : facile → réaliste
 const DIFFS = [
@@ -349,7 +350,8 @@ export function createArena({ players, broadcast, q }) {
       mode: m, st: 'play', endAt: now + MODE_INFO[m].dur * 1000, sc: [0, 0], win: null,
       flags: m === 'ctf' ? BASES.map((b) => ({ st: 0, x: b.x, z: b.z, by: null, dropAt: 0 })) : null,
     };
-    for (const p of parts.values()) { p.lastK = p.k; p.k = 0; p.d = 0; p.caps = 0; }
+    for (const p of parts.values()) { p.lastK = p.k; p.k = 0; p.d = 0; p.caps = 0; p.streak = 0; p.armor = 0; giveNades(p); sendInv(p); }
+    nades.length = smokes.length = pending.length = 0;
     dealTeams();
     syncBots(now);
     for (const b of bots.values()) respawnBot(b, now);
@@ -468,6 +470,93 @@ export function createArena({ players, broadcast, q }) {
     }
   }
 
+  // --- Grenades, fumigènes, frappes ---------------------------------------------
+  const nades = [];   // en vol : { id, k, by, x, y, z, vx, vy, vz, at }
+  const smokes = [];  // nuages : { x, z, until }
+  const pending = []; // explosions programmées (frappe de quenelles) : { at, x, y, z, by, w }
+  let nadeSeq = 0;
+  const giveNades = (p) => { p.nf = NADE.perLife.f; p.ns = NADE.perLife.s; };
+  const sendInv = (p) => { if (!p.bot) sendTo(p.id, { t: 'nadeInv', f: p.nf ?? 0, s: p.ns ?? 0, armor: p.armor ?? 0 }); };
+  // Le segment a→b traverse-t-il un nuage ? (distance point-segment, en plan)
+  function smokeBlocks(ax, az, bx, bz, now) {
+    for (const sm of smokes) {
+      if (now > sm.until) continue;
+      const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1;
+      const t = Math.max(0, Math.min(1, ((sm.x - ax) * dx + (sm.z - az) * dz) / l2));
+      if (Math.hypot(ax + dx * t - sm.x, az + dz * t - sm.z) < NADE.smokeR * 0.8) return true;
+    }
+    return false;
+  }
+  // Explosion : dégâts qui décroissent avec la distance, arrêtés par les
+  // obstacles — amis, ennemis et lanceur compris (tir ami oblige)
+  function explode(x, y, z, byId, weapon, now) {
+    const thrower = parts.get(byId) ?? null;
+    for (const t of [...parts.values()]) {
+      if (t.bot && !t.alive) continue;
+      if (now < (t.shieldUntil ?? 0)) continue;
+      const tp = posOf(t);
+      if (!tp) continue;
+      const ty = (tp.y ?? 0) + 1.0;
+      const d = Math.hypot(tp.x - x, ty - y, tp.z - z);
+      if (d > NADE.radius) continue;
+      if (!clearShot(x, y + 0.35, z, tp.x, ty, tp.z)) continue;
+      const dmg = Math.round(NADE.damage * (1 - d / NADE.radius));
+      if (dmg <= 0) continue;
+      if (t.bot) damageBot(thrower, t, dmg, now, weapon);
+      else damageHumanBy(thrower, t, dmg, now, weapon);
+    }
+  }
+  function tickNades(now) {
+    for (let i = nades.length - 1; i >= 0; i--) {
+      const n = nades[i];
+      stepNade(n, 0.066, BOXES);
+      if (now < n.at) continue;
+      nades.splice(i, 1);
+      const p = [Math.round((n.x + OX) * 100) / 100, Math.round(n.y * 100) / 100, Math.round(n.z * 100) / 100];
+      sendArena({ t: 'boom', id: n.id, k: n.k, p });
+      if (n.k === 's') smokes.push({ x: n.x, z: n.z, until: now + NADE.smokeDur * 1000 });
+      else explode(n.x, n.y, n.z, n.by, WPN.grenade, now);
+    }
+    for (let i = pending.length - 1; i >= 0; i--) {
+      if (now < pending[i].at) continue;
+      const e = pending.splice(i, 1)[0];
+      explode(e.x, e.y, e.z, e.by, e.w, now);
+    }
+    for (let i = smokes.length - 1; i >= 0; i--) if (now > smokes[i].until) smokes.splice(i, 1);
+  }
+
+  // --- Séries d'éliminations (joueurs) -----------------------------------------
+  // 3 d'affilée : drone-pigeon (ennemis révélés 12 s, côté client) ;
+  // 5 : frappe de quenelles (6 impacts sur les adversaires) ;
+  // 7 : armure de canut (100 points qui encaissent avant la vie).
+  function onStreak(k, now) {
+    k.streak = (k.streak ?? 0) + 1;
+    if (k.streak !== 3 && k.streak !== 5 && k.streak !== 7) return;
+    sendArena({ t: 'aevt', k: 'streak', n: k.streak, id: k.id, name: k.name });
+    if (k.streak === 5) {
+      const foes = [...parts.values()].filter((o) => enemies(k, o) && !(o.bot && !o.alive));
+      for (let i = 0; i < 6 && foes.length; i++) {
+        const tp = posOf(foes[i % foes.length]);
+        if (!tp) continue;
+        const [x, z] = [tp.x + rnd(-2.5, 2.5), tp.z + rnd(-2.5, 2.5)];
+        const delay = 1100 + i * 380;
+        sendArena({ t: 'boom', k: 'q', p: [Math.round((x + OX) * 100) / 100, 0.1, Math.round(z * 100) / 100], in: delay });
+        pending.push({ at: now + delay, x, y: 0.1, z, by: k.id, w: WPN.quenelle });
+      }
+    } else if (k.streak === 7) {
+      k.armor = 100;
+      sendInv(k);
+    }
+  }
+  // L'armure encaisse d'abord ; rend les dégâts qui passent à la vie
+  function absorb(part, dmg) {
+    if (!part || !(part.armor > 0)) return dmg;
+    const taken = Math.min(part.armor, dmg);
+    part.armor -= taken;
+    sendInv(part);
+    return dmg - taken;
+  }
+
   // --- Morts et scores ---------------------------------------------------------
   // Retourne le point de réapparition si la victime est un humain de l'arène
   function registerKill(killer, victim, now, weapon) {
@@ -481,6 +570,7 @@ export function createArena({ players, broadcast, q }) {
       if (round.mode !== 'ctf') round.sc[killer.team] = Math.max(0, round.sc[killer.team] - 1);
     } else if (counted) {
       killer.k++;
+      if (!killer.bot) onStreak(killer, now);
       if (info().teams && round.mode !== 'ctf' && killer.team >= 0) round.sc[killer.team]++;
     }
     sendArena({
@@ -498,6 +588,10 @@ export function createArena({ players, broadcast, q }) {
       return null;
     }
     victim.shieldUntil = now + RESPAWN_MS + SPAWN_SHIELD_MS;
+    victim.streak = 0;
+    victim.armor = 0;
+    giveNades(victim);
+    sendInv(victim);
     const sp = spawnFor(victim);
     return { p: [sp.x + OX, 0.2, sp.z], ry: sp.ry };
   }
@@ -519,21 +613,31 @@ export function createArena({ players, broadcast, q }) {
   }
   const OUCH = ['Hé ! C\'est moi, banane !', 'Oh le gone, on est ensemble !', 'Vise les autres, fenotte !', 'Aïe ! Change de lunettes !', 'Traître ! Je le dirai à Guignol.'];
 
-  function damageHuman(bot, part, dmg, now) {
+  function damageHuman(bot, part, dmg, now) { damageHumanBy(bot, part, dmg, now, bot.wpn); }
+  // Dégâts infligés à un humain par n'importe qui (bot, grenade d'un autre
+  // joueur ou la sienne, frappe) — `by` peut être null
+  function damageHumanBy(by, part, dmg0, now, weapon) {
     const e = players.get(part.id);
     if (!e) return;
+    const dmg = absorb(part, dmg0);
+    if (dmg <= 0) return;
     e.hp -= dmg;
     e.lastDamagedAt = now;
     if (e.hp > 0) {
-      sendArena({ t: 'hp', id: part.id, hp: e.hp, by: bot.id });
+      sendArena({ t: 'hp', id: part.id, hp: e.hp, by: by?.id ?? null });
       return;
     }
     e.hp = 100;
-    const sp = registerKill(bot, part, now, bot.wpn);
+    const self = by === part;
+    const sp = registerKill(self ? null : by, part, now, weapon);
     sendTo(part.id, {
-      t: 'death', id: part.id, by: bot.id, byName: bot.name, victimName: part.name,
-      kills: bot.k, sp,
+      t: 'death', id: part.id, by: self ? null : by?.id ?? null,
+      byName: self ? 'ta propre grenade' : by?.name ?? 'une explosion', victimName: part.name,
+      kills: by?.k ?? 0, sp,
     });
+    if (by && !by.bot && !self) {
+      sendTo(by.id, { t: 'death', id: part.id, by: by.id, byName: by.name, victimName: part.name, kills: by.k, xp: 0 });
+    }
   }
   function damageBot(killer, b, dmg, now, weapon) {
     if (!b.alive || now < (b.shieldUntil ?? 0)) return;
@@ -619,6 +723,7 @@ export function createArena({ players, broadcast, q }) {
         const inFov = d < 7 || o.id === b.hurtBy || (dx * fx + dz * fz) / (d || 1) > D.fov;
         if (!inFov) continue;
         if (!clearShot(b.x, 1.55, b.z, op.x, (op.y ?? 0) + 1.2, op.z)) continue;
+        if (smokeBlocks(b.x, b.z, op.x, op.z, now)) continue; // nuage de fumigène entre nous
         const score = d - (o.id === b.target ? 6 : 0) - (o.id === b.hurtBy ? 8 : 0);
         if (score < bd) { bd = score; best = o; }
       }
@@ -747,7 +852,9 @@ export function createArena({ players, broadcast, q }) {
         const part = parts.get(id);
         if (inside && !part) {
           const p = { id, bot: false, name: e.name, team: -1, k: 0, d: 0, caps: 0, shieldUntil: now + SPAWN_SHIELD_MS };
+          giveNades(p);
           parts.set(id, p);
+          sendInv(p);
           if (!round) startRound(nextMode ?? cfg.mode, now);
           else {
             if (info().teams) p.team = smallerTeam(true);
@@ -771,6 +878,7 @@ export function createArena({ players, broadcast, q }) {
         let i = 0;
         for (const b of bots.values()) tickBot(b, dt, now, (tickN + i++) % 3 === 0);
         if (round.flags) tickFlags(now);
+        tickNades(now);
         const top = info().teams ? Math.max(round.sc[0], round.sc[1])
           : Math.max(0, ...[...parts.values()].map((p) => p.k));
         if (now >= round.endAt || top >= info().lim) endRound(now);
@@ -842,6 +950,37 @@ export function createArena({ players, broadcast, q }) {
       const e = k && players.get(killerId);
       return registerKill(k ?? null, v, now, e?.wpn ?? 0);
     },
+
+    // Lancer de grenade ('f') ou de fumigène ('s') : { k, p: [x,y,z] monde, d: [dx,dy,dz] regard }
+    throwNade(id, msg, now) {
+      const part = parts.get(id);
+      if (!part || !round || round.st !== 'play') return;
+      if (round.mode === 'couteau' || round.mode === 'sniper') return; // modes à arme imposée
+      if (now - (part.lastNadeAt ?? 0) < 700) return;
+      const k = msg.k === 's' ? 's' : 'f';
+      if (!((k === 's' ? part.ns : part.nf) > 0)) return;
+      const d = Array.isArray(msg.d) ? msg.d.map(Number) : null;
+      const pp = posOf(part);
+      if (!d || d.length !== 3 || d.some((v) => !Number.isFinite(v)) || !pp) return;
+      const l = Math.hypot(d[0], d[1], d[2]) || 1;
+      part.lastNadeAt = now;
+      if (k === 's') part.ns--; else part.nf--;
+      sendInv(part);
+      const n = {
+        id: `n${(nadeSeq++).toString(36)}`, k, by: id,
+        x: pp.x + (d[0] / l) * 0.5, y: (pp.y ?? 0) + 1.5, z: pp.z + (d[2] / l) * 0.5,
+        vx: (d[0] / l) * NADE.speed, vy: (d[1] / l) * NADE.speed + NADE.lift, vz: (d[2] / l) * NADE.speed,
+        at: now + NADE.fuse[k] * 1000,
+      };
+      sendArena({
+        t: 'nade', id: n.id, k, by: id,
+        p: [Math.round((n.x + OX) * 100) / 100, Math.round(n.y * 100) / 100, Math.round(n.z * 100) / 100],
+        v: [n.vx, n.vy, n.vz].map((v) => Math.round(v * 100) / 100),
+      });
+      nades.push(n);
+    },
+    // Dégâts d'un humain sur un humain (ws.js) : l'armure de canut encaisse d'abord
+    absorb(targetId, dmg) { return absorb(parts.get(targetId), dmg); },
 
     // Console de match : { mode, bots, diff, chain, go }
     configure(id, msg, now) {

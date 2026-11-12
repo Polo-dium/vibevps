@@ -45,6 +45,7 @@ import { createArenaMatch } from './world/arenaMatch.js';
 import { createKillcam } from './world/killcam.js';
 import { createSelfBody } from './world/selfBody.js';
 import { createBindings } from './ui/bindings.js';
+import { createNades } from './world/nades.js';
 import { createGamepad } from './player/gamepad.js';
 import { avatarStats, setAvatarViewer, cullAvatars } from './world/avatars.js';
 import { createBlobShadows } from './render/blobs.js';
@@ -1359,6 +1360,14 @@ async function boot() {
   });
   if (window.__game) window.__game.arenaMatch = arenaMatch;
   // Killcam : rejeu des 2 s avant / 1 s après la mort (arène)
+  // Grenades et fumigènes de l'arène (A / W sur un clavier français)
+  const nades = createNades(ctx, { net, camera, controls, fx: weapon.fx, audio, ui });
+  ctx.throwNade = (k) => nades.throwNade(k);
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat || state.overlayOpen || e.target?.tagName === 'INPUT') return;
+    if (e.code === 'KeyQ') nades.throwNade('f');
+    else if (e.code === 'KeyZ' && !e.ctrlKey && !e.metaKey) nades.throwNade('s');
+  });
   // Commandes : touches reconfigurables (menu N) et manette
   const bindings = createBindings({ toast: ui.toast });
   const gamepad = createGamepad({ controls, weapon, bindings });
@@ -2040,6 +2049,8 @@ async function boot() {
   if (IS_TOUCH) {
     createTouchControls({
       controls, weapon, spray, tagEditor, ui, voice, capture, emote,
+      throwNade: (k) => ctx.throwNade?.(k),
+      inArena: () => Boolean(ctx.inHiFi),
       jetpack: () => toggleJetpack(),
       jetpackGuns,
       rcPlane: () => toggleRcPlane(),
