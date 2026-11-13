@@ -172,8 +172,19 @@ export function createUi() {
   function hitmarker(headshot = false) {
     hitmarkerEl.classList.remove('hidden');
     hitmarkerEl.classList.toggle('headshot', headshot);
+    hitmarkerEl.classList.remove('blocked');
+    hitmarkerEl.textContent = '✕';
     clearTimeout(hitmarkerTimer);
     hitmarkerTimer = setTimeout(() => hitmarkerEl.classList.add('hidden'), headshot ? 220 : 110);
+  }
+
+  // Balle arrêtée par un bouclier : écu gris à la place de la croix
+  function blocked() {
+    hitmarkerEl.classList.remove('hidden', 'headshot');
+    hitmarkerEl.classList.add('blocked');
+    hitmarkerEl.textContent = '🛡';
+    clearTimeout(hitmarkerTimer);
+    hitmarkerTimer = setTimeout(() => hitmarkerEl.classList.add('hidden'), 260);
   }
 
   // Lunette du fusil de précision : vignette noire + croisée + zoom affiché
@@ -843,7 +854,7 @@ export function createUi() {
 
   return {
     ensureAuth, invite, toast, setPrompt, onPromptTap, setInfo, setQuest, setRange, setBanner, setAmmo,
-    setHp, setCompass, contact, setSpread, get diagOn() { return diagOn; }, damageFlash, killBanner, setTagMode, hitmarker, deathScreen, showCrosshair, setScope,
+    setHp, setCompass, contact, setSpread, get diagOn() { return diagOn; }, damageFlash, killBanner, setTagMode, hitmarker, blocked, deathScreen, showCrosshair, setScope,
     setXp, spawnConfetti, achievementUnlocked, bindProgress, setDaily,
     toggleLeaderboards, leaderboardsOpen, openCreator, toggleAdmin, closeTopOverlay,
     openChat, onChatSend, addChatLine, setMicState,

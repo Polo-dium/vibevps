@@ -740,7 +740,21 @@ export function createArena({ players, broadcast, q }) {
   }
   const OUCH = ['Hé ! C\'est moi, banane !', 'Oh le gone, on est ensemble !', 'Vise les autres, fenotte !', 'Aïe ! Change de lunettes !', 'Traître ! Je le dirai à Guignol.'];
 
-  function damageHuman(bot, part, dmg, now) { damageHumanBy(bot, part, dmg, now, bot.wpn); }
+  // Bouclier de la lance (code 17) : la cible regarde-t-elle vers `from` ?
+  function shieldBlocks(e, from) {
+    if (!e || e.wpn !== 17 || !e.p || !from) return false;
+    const dx = from[0] - e.p[0], dz = from[2] - e.p[2], l = Math.hypot(dx, dz) || 1;
+    return (-Math.sin(e.ry ?? 0) * dx - Math.cos(e.ry ?? 0) * dz) / l > 0.42;
+  }
+  function damageHuman(bot, part, dmg, now) {
+    // Balle de bot dans le bouclier : arrêtée net ; couteau : 40 %
+    const e = players.get(part.id);
+    if (shieldBlocks(e, [bot.x + OX, 0, bot.z])) {
+      if (bot.wpn !== WPN.couteau) { sendArena({ t: 'blk', id: part.id, by: bot.id }); return; }
+      dmg = Math.ceil(dmg * 0.4);
+    }
+    damageHumanBy(bot, part, dmg, now, bot.wpn);
+  }
   // Dégâts infligés à un humain par n'importe qui (bot, grenade d'un autre
   // joueur ou la sienne, frappe) — `by` peut être null
   function damageHumanBy(by, part, dmg0, now, weapon) {
@@ -892,7 +906,7 @@ export function createArena({ players, broadcast, q }) {
       if (melee) {
         // foncer dessus
         if (now >= b.repathAt) { b.path = findPath(b.x, b.z, tp.x, tp.z); b.pathI = 0; b.repathAt = now + 500; }
-        if (d < 2.3 && now >= b.nextFireAt && now >= b.reactAt) {
+        if (d < 2.8 && now >= b.nextFireAt && now >= b.reactAt) {
           b.nextFireAt = now + rnd(550, 800) + (3 - cfg.diff) * 120;
           sendArena({ t: 'shot', id: b.id, a: [b.x + OX, 1.3, b.z], b: [tp.x + OX, (tp.y ?? 0) + 1.2, tp.z], melee: 1 });
           if (Math.random() < 0.45 + D.acc * 0.8) hurt(b, tgt, cfg.diff >= 2 ? 50 : 34, now);
@@ -996,6 +1010,7 @@ export function createArena({ players, broadcast, q }) {
   // --- API pour ws.js ------------------------------------------------------------
   return {
     isBot: (id) => bots.has(id),
+    shieldBlocks,
     // Bots déjà en jeu, pour le message `hello` d'un nouveau connecté
     roster: () => [...bots.values()].map((b) => ({ id: b.id, name: b.name, p: [b.x + OX, b.alive ? 0 : -60, b.z], ry: b.ry, bot: 1 })),
 

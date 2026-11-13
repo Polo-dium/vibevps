@@ -920,6 +920,12 @@ button.ghost {
   text-shadow: 0 0 12px rgba(255, 210, 60, 0.95), 0 1px 2px #000;
 }
 
+/* Balle dans un bouclier : écu gris, rien n'est passé */
+#hitmarker.blocked {
+  font-size: 24px; filter: grayscale(1);
+  text-shadow: 0 0 8px rgba(200, 220, 255, 0.8), 0 1px 2px #000;
+}
+
 /* Écran de mort */
 #deathscreen {
   position: fixed; inset: 0; z-index: 40;

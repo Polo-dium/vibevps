@@ -2,11 +2,11 @@ import * as THREE from 'three';
 import { state } from '../state.js';
 import { spawnPoint } from '../world/layout.js';
 
-const MOVE_SPEED = 10.0; // sprint automatique : on court tout le temps
-const ACCEL = 17; // réactivité des déplacements (relevée : plus nerveux)
-const JUMP_SPEED = 10.2; // ×√2 vs 7,2 : hauteur de saut DOUBLÉE (h = v²/2g)
+const MOVE_SPEED = 6.5; // sprint automatique (−35 % : 10 m/s était injouable, demande de Polo 13/11/2026)
+const ACCEL = 12; // réactivité des déplacements (adoucie avec la vitesse)
+const JUMP_SPEED = 8.0; // élan plus doux (−22 %), saut ≈ 1,9 m avec GRAVITY 17
 const SLIDE_TIME = 0.62; // glissade à l'atterrissage quand on pousse encore
-const GRAVITY = 21;
+const GRAVITY = 17; // chute moins sèche (saut plus lent)
 const EYE_HEIGHT = 1.62;
 const HALF_W = 0.35; // demi-largeur du joueur
 const HEIGHT = 1.75;
@@ -598,7 +598,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
     const slideKey = active && onGround && keys.has('AltLeft');
     const slideNow = slideKey && !slideWas;
     slideWas = slideKey;
-    if (((wantCrouch && !crouchWas) || slideNow) && fwd > 0.4 && slide <= 0 && Math.hypot(vel.x, vel.z) > (slideNow ? 4.5 : 7)) {
+    if (((wantCrouch && !crouchWas) || slideNow) && fwd > 0.4 && slide <= 0 && Math.hypot(vel.x, vel.z) > MOVE_SPEED * (slideNow ? 0.45 : 0.7)) {
       // en pleine course : glissade
       slide = SLIDE_TIME;
       slideDir.set(vel.x, 0, vel.z).normalize();

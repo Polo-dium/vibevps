@@ -408,11 +408,16 @@ export async function buildAvatar(name0, { seated = false } = {}) {
     if (!flipProp) {
       flipProp = new THREE.Group();
       const skin = new THREE.MeshLambertMaterial({ color: 0xcf9f7c });
-      const fist = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), skin);
-      fist.scale.set(1.15, 0.95, 0.9);
-      const majeur = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.085, 3, 8), skin);
-      majeur.position.y = 0.085;
-      flipProp.add(fist, majeur);
+      const fist = new THREE.Mesh(new THREE.SphereGeometry(0.058, 10, 8), skin);
+      fist.scale.set(1.2, 0.95, 0.95);
+      // rangée de phalanges repliées (le poing se lit comme un poing) et
+      // majeur EXAGÉRÉ, lisible à 30 m
+      const knuckles = new THREE.Mesh(new THREE.CapsuleGeometry(0.022, 0.07, 3, 8), skin);
+      knuckles.rotation.z = Math.PI / 2;
+      knuckles.position.set(0, 0.035, -0.035);
+      const majeur = new THREE.Mesh(new THREE.CapsuleGeometry(0.019, 0.13, 3, 8), skin);
+      majeur.position.y = 0.12;
+      flipProp.add(fist, knuckles, majeur);
       flipProp.traverse((o) => { o.frustumCulled = false; });
       group.add(flipProp);
     }

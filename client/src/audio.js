@@ -158,6 +158,14 @@ export const audio = {
     tone(S[3], 0.12, { type: 'triangle', gain: 0.035, at: S[0] * 0.5, slideTo: S[3] * 0.92 });
     return true;
   },
+  // Balle qui ricoche sur le bouclier : impact sec + tôle qui vibre
+  shieldBlock(vol = 1) {
+    if (!ctx) return;
+    noise(0.05, { type: 'highpass', freq: 1800, gain: 0.32 * vol });
+    tone(1250, 0.32, { type: 'square', gain: 0.03 * vol, slideTo: 1180 });
+    tone(1870, 0.26, { type: 'triangle', gain: 0.06 * vol, slideTo: 1820 });
+    tone(3150, 0.12, { type: 'sine', gain: 0.04 * vol, at: 0.01, slideTo: 2600 });
+  },
   // Lame qui touche : choc mat + acier qui sonne
   bladeHit() {
     if (!ctx) return;

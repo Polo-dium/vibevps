@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { pivotize, createMeleeAnimator } from './melee.js';
 import { state } from '../state.js';
 import { IS_TOUCH } from './controls.js';
 import { audio } from '../audio.js';
@@ -23,7 +24,7 @@ export const WEAPONS = {
   },
   marteau: {
     nom: 'Marteau', emoji: '🔨',
-    fire: 0.55, mag: 0, reload: 0, range: 3.6, dmg: 50, melee: true,
+    fire: 0.55, mag: 0, reload: 0, range: 4.4, dmg: 50, melee: true,
   },
   pompe: {
     nom: 'Fusil à pompe', emoji: '💥',
@@ -48,13 +49,13 @@ export const WEAPONS = {
   baton: {
     nom: 'Bâton de Guignol', emoji: '🏏',
     // La tavelle du théâtre : mêlée rapide, gagnée au castelet de Guignol.
-    fire: 0.38, mag: 0, reload: 0, range: 3.4, dmg: 34, melee: true,
+    fire: 0.38, mag: 0, reload: 0, range: 4.2, dmg: 34, melee: true,
   },
   couteau: {
     nom: 'Couteau', emoji: '🔪',
     // Réservé au mode « couteaux » de l'arène (prêté le temps de la manche) :
     // rapide, courte allonge, deux coups au corps.
-    fire: 0.3, mag: 0, reload: 0, range: 3.0, dmg: 55, melee: true,
+    fire: 0.3, mag: 0, reload: 0, range: 3.8, dmg: 55, melee: true,
   },
   sniper: {
     nom: 'Fusil de précision', emoji: '🎯',
@@ -75,11 +76,11 @@ export const WEAPONS = {
   kar98k: { nom: 'Kar98k', emoji: '🎯', fire: 0.95, mag: 5, reload: 2.0, range: 300, dmg: 55, headKill: true },
   kar98ks: { nom: 'Kar98k à lunette', emoji: '🔭', fire: 0.95, mag: 5, reload: 0.6, roundReload: 0.6, range: 380, dmg: 55,
     headKill: true, sniper: true, scope: [2.5, 6] },
-  epee: { nom: 'Épée', emoji: '🗡️', fire: 0.5, mag: 0, reload: 0, range: 3.9, dmg: 55, melee: true },
-  dagues: { nom: 'Doubles dagues', emoji: '🔪🔪', fire: 0.2, mag: 0, reload: 0, range: 2.8, dmg: 30, melee: true, dual: true },
+  epee: { nom: 'Épée', emoji: '🗡️', fire: 0.5, mag: 0, reload: 0, range: 4.9, dmg: 55, melee: true },
+  dagues: { nom: 'Doubles dagues', emoji: '🔪🔪', fire: 0.2, mag: 0, reload: 0, range: 3.7, dmg: 30, melee: true, dual: true },
   // Lance et bouclier : longue allonge ; tenu en main, le bouclier réduit
   // les balles reçues DE FACE (décidé par le serveur, voir ws.js)
-  lance: { nom: 'Lance et bouclier', emoji: '🛡️', fire: 0.7, mag: 0, reload: 0, range: 5.4, dmg: 50, melee: true, shield: true },
+  lance: { nom: 'Lance et bouclier', emoji: '🛡️', fire: 0.7, mag: 0, reload: 0, range: 6.3, dmg: 50, melee: true, shield: true },
 };
 
 // MANIEMENT, par arme : `spread` = dispersion de base (demi-angle, unités
@@ -153,28 +154,31 @@ const GRIPS = {
   },
   // Manches (marteau, bâton) : les deux poings de part et d'autre du manche
   marteau: {
-    r: { pos: [-0.015, -0.03, -0.12], rot: [0.5, 0.3, -1.5] },
-    l: { pos: [-0.085, -0.03, -0.27], rot: [0.4, -0.3, 1.5] },
+    r: { pos: [-0.015, -0.03, -0.12], rot: [0.5, 0.3, -1.5], on: 'R' },
+    l: { pos: [-0.085, -0.03, -0.27], rot: [0.4, -0.3, 1.5], on: 'R' },
   },
   baton: {
-    r: { pos: [0.035, -0.03, -0.03], rot: [0.5, 0.3, -1.5] },
-    l: { pos: [-0.035, -0.03, -0.17], rot: [0.4, -0.3, 1.5] },
+    r: { pos: [0.035, -0.03, -0.03], rot: [0.5, 0.3, -1.5], on: 'R' },
+    l: { pos: [-0.035, -0.03, -0.17], rot: [0.4, -0.3, 1.5], on: 'R' },
   },
   // Couteau : poing droit sur le manche, main gauche en garde devant
+  // Armes à une main : la gauche reste en GARDE sur la caméra (`cam`,
+  // repère caméra) — elle ne suit pas les coups. `on` = pivot de la lame
+  // (melee.js) : seule la main qui frappe bouge.
   couteau: {
-    r: { pos: [0.03, -0.03, -0.02], rot: [0.5, 0.3, -1.5] },
-    l: { pos: [-0.2, -0.06, -0.12], rot: [0.5, -0.2, 1.5] },
+    r: { pos: [0.03, -0.03, -0.02], rot: [0.5, 0.3, -1.5], on: 'R' },
+    l: { pos: [-0.21, -0.3, -0.5], rot: [0.55, -0.25, 1.4], cam: true },
   },
   dagues: {
-    r: { pos: [0.16, -0.05, -0.19], rot: [0.3, -0.06, 0.06] },
-    l: { pos: [-0.16, -0.05, -0.19], rot: [0.3, 0.06, -0.06] },
+    r: { pos: [0.16, -0.05, -0.19], rot: [0.3, -0.06, 0.06], on: 'R' },
+    l: { pos: [-0.16, -0.05, -0.19], rot: [0.3, 0.06, -0.06], on: 'L' },
   },
   epee: {
-    r: { pos: [0.03, -0.01, -0.01], rot: [0.5, 0.3, -1.5] },
-    l: { pos: [-0.2, -0.06, -0.12], rot: [0.5, -0.2, 1.5] },
+    r: { pos: [0.03, -0.01, -0.01], rot: [0.5, 0.3, -1.5], on: 'R' },
+    l: { pos: [-0.21, -0.3, -0.5], rot: [0.55, -0.25, 1.4], cam: true },
   },
   lance: {
-    r: { pos: [0.125, -0.005, -0.05], rot: [0.5, 0.3, -1.5] },
+    r: { pos: [0.125, -0.005, -0.05], rot: [0.5, 0.3, -1.5], on: 'R' },
     l: { pos: [-0.4, -0.25, -0.31], rot: [0.5, -0.2, 1.5] }, // le poing dans l'énarme, derrière le bouclier
   },
   // Akimbo : chaque main sur SON pistolet
@@ -215,12 +219,13 @@ export function createWeapon(camera, scene, shootables, {
   holder.visible = false;
   camera.add(holder);
   const models = {};
+  const meleeAnim = createMeleeAnimator();
   let curId = 'ak';
   let spec = WEAPONS.ak;
   const owned = ['ak'];
   function modelFor(id) {
     if (!models[id]) {
-      models[id] = buildWeaponModel(id);
+      models[id] = pivotize(id, buildWeaponModel(id), GRIPS[id]);
       holder.add(models[id]);
       models[id].visible = false;
     }
@@ -549,6 +554,7 @@ export function createWeapon(camera, scene, shootables, {
     // Akimbo : chaque main sur SON pistolet (arms.js lit ces prises à la
     // place de ses prises fusil par défaut).
     holder.userData.grips = GRIPS[id] ?? null;
+    holder.userData.pivots = models[id].userData.pivots ?? null; // lames (melee.js)
     toggle(true);
     onWeaponChange?.(spec);
   }
@@ -619,7 +625,8 @@ export function createWeapon(camera, scene, shootables, {
     // --- Marteau : un grand coup devant soi, pas de munitions ---
     if (spec.melee) {
       swing = 1;
-      swingSide = -swingSide; // dagues : une main puis l'autre
+      swingSide = -swingSide;
+      meleeAnim.attack(curId, performance.now() / 1000); // geste varié, une seule main
       if (!audio.swingOf?.(curId)) audio.thud();
       raycaster.setFromCamera({ x: 0, y: 0 }, camera);
       assistRay(spec.range + 0.5, 0.4, 1.3); // un moulinet, ça ratisse large
@@ -917,15 +924,12 @@ export function createWeapon(camera, scene, shootables, {
     let lift = spec.melee ? swingArc * 0.55 : swingArc * 0.1;
     let swingTilt = swingArc * (spec.melee ? 2.5 : 1.1);
     let px = 0, py = 0, pz = 0, ry = 0, rz = 0;
-    if (curId === 'epee') {
-      lift = swingArc * 0.3; swingTilt = swingArc * 1.3;
-      rz = -swingArc * 1.25; ry = swingArc * 0.8; px = -swingArc * 0.22;
-    } else if (curId === 'dagues') {
-      lift = 0; swingTilt = swingArc * 0.25;
-      pz = -swingArc * 0.3; px = swingSide * swingArc * 0.07; ry = swingSide * swingArc * 0.3;
-    } else if (curId === 'lance') {
-      lift = swingArc * 0.05; swingTilt = 0;
-      pz = -swingArc * 0.62; rz = swingArc * 0.12;
+    // Armes blanches : seule la lame et son poing bougent (pivots de
+    // melee.js) ; le porte-arme ne fait qu'un petit avancé du corps
+    const lunge = meleeAnim.update(dt, holder.userData.pivots);
+    if (holder.userData.pivots) {
+      lift = 0; swingTilt = 0;
+      pz = -lunge * 0.035; ry = -lunge * 0.04;
     }
     if (boltT > 0) {
       boltT = Math.max(0, boltT - dt / 0.85);

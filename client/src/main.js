@@ -972,7 +972,9 @@ async function boot() {
       if (headshot && dmg < 55) dmg = Math.min(55, Math.round(dmg * 1.5));
       // Kar98k : une balle dans la tête suffit (deux au corps)
       if (headshot && weapon.headKill && !hit?.aircraft && !hit?.jetpack) dmg = 100;
-      net.send({ t: 'hit', target: id, dmg });
+      // m: 1 = coup de lame (le bouclier n'en arrête que 60 %, mais toutes les balles)
+      const melee = weapon.spec?.melee && !hit?.aircraft && !hit?.jetpack;
+      net.send(melee ? { t: 'hit', target: id, dmg, m: 1 } : { t: 'hit', target: id, dmg });
     },
   });
   if (window.__game) window.__game.remotes = remotes; // hook de debug
@@ -1898,6 +1900,14 @@ async function boot() {
     const name = onlineNames.get(msg.id);
     onlineNames.delete(msg.id);
     if (name) ui.toast(`💨 ${name} a quitté la ville.`);
+  });
+  // Balle arrêtée par un bouclier : « tang » métallique là où il est, et
+  // marqueur gris pour le tireur (sa balle n'a rien fait)
+  net.on('blk', (msg) => {
+    const at = msg.id === myNetId ? null : remotes.getPos(msg.id);
+    const d = at ? Math.hypot(at.x - controls.position.x, at.z - controls.position.z) : 0;
+    if (d < 60) audio.shieldBlock?.(Math.max(0.15, 1 - d / 60));
+    if (msg.by === myNetId) ui.blocked?.();
   });
   net.on('shot', (msg) => {
     if (msg.melee) return; // coup de couteau d'un bot : pas de traceur

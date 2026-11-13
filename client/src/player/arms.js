@@ -54,6 +54,7 @@ function buildArm(side, { finger = false } = {}) {
   const gloveMat = PBR.glove(0x2b2d31);
   const padMat = PBR.polymer(0x17181b);
   const skinMat = PBR.skin(SKIN);
+  const nailMat = finger ? PBR.skin(0xf3c9c0) : null;
   // Toutes les pièces du bras sont FUSIONNÉES par matériau à la fin (5 draw
   // calls par bras, quel que soit le nombre de phalanges).
   const parts = new Map(); // matériau → géométries déjà placées
@@ -99,14 +100,23 @@ function buildArm(side, { finger = false } = {}) {
     const trigger = side > 0 && k === 0;
     // (variante « doigt d'honneur » : majeur dressé dans l'axe du bras, les
     // autres serrés dans le poing)
-    const curl = finger ? (k === 1 ? [-0.12, -0.06, 0] : [1.0, 2.05, 2.75])
+    // Le majeur dressé sort NU d'un gant coupé (mitaine) : peau claire sur
+    // gant noir, 30 % plus long, ongle — il se lit au premier coup d'œil.
+    const bird = finger && k === 1;
+    const curl = finger ? (bird ? [-0.04, -0.02, 0] : [1.25, 2.25, 2.9])
       : trigger ? [0.2, 0.75, 1.25] : [0.55 + k * 0.05, 1.6 + k * 0.04, 2.55];
+    const fm = bird ? skinMat : gloveMat, Lb = bird ? L * 1.32 : L, Rb = bird ? R * 1.14 : R;
     add(new THREE.SphereGeometry(R * 1.18, 8, 6), gloveMat, x, 0.014, HZ - 0.04);              // articulation
-    let [y, z] = seg(R, 0.03 * L, gloveMat, x, 0.012, HZ - 0.04, curl[0]);
-    add(new THREE.SphereGeometry(R * 1.05, 8, 6), gloveMat, x, y, z);
-    [y, z] = seg(R * 0.95, 0.021 * L, gloveMat, x, y, z, curl[1]);
-    [y, z] = seg(R * 0.9, 0.016 * L, gloveMat, x, y, z, curl[2]);
-    add(new THREE.SphereGeometry(R * 0.86, 6, 5), padMat, x, y, z);                            // pulpe renforcée
+    let [y, z] = seg(Rb, 0.03 * Lb, bird ? gloveMat : fm, x, 0.012, HZ - 0.04, curl[0]);
+    if (bird) add(new THREE.TorusGeometry(Rb * 1.05, 0.003, 5, 12), padMat, x, y, z, Math.PI / 2); // bord de la mitaine
+    add(new THREE.SphereGeometry(Rb * 1.05, 8, 6), fm, x, y, z);
+    [y, z] = seg(Rb * 0.95, 0.021 * Lb, fm, x, y, z, curl[1]);
+    add(new THREE.SphereGeometry(Rb * 0.97, 8, 6), fm, x, y, z);
+    [y, z] = seg(Rb * 0.9, 0.016 * Lb, fm, x, y, z, curl[2]);
+    if (bird) { // bout du doigt + ongle (dos de la main = +y)
+      add(new THREE.SphereGeometry(Rb * 0.9, 8, 6), skinMat, x, y, z);
+      add(new THREE.SphereGeometry(Rb * 0.78, 8, 6), nailMat, x, y + Rb * 0.42, z + 0.008, 0, 0, 0, 1, 0.35, 1.5);
+    } else add(new THREE.SphereGeometry(R * 0.86, 6, 5), padMat, x, y, z);                   // pulpe renforcée
   }
   // POUCE en deux phalanges, rabattu le long de l'index
   add(new THREE.CapsuleGeometry(0.0135, 0.034, 3, 8), gloveMat, side * -0.041, -0.004, HZ - 0.03, Math.PI / 2 + 0.45, 0, side * 0.85);
@@ -263,10 +273,34 @@ export function createArms(camera) {
     const e = up * up * (3 - 2 * up);
     fingerArm.visible = fingerT > 0 && viewVisible;
     left.visible = false;
-    // avant-bras dressé (poing en haut), dos de la main vers soi, petit coup de poignet
-    fingerArm.position.set(-0.17, -0.62 + 0.44 * e, -0.44);
-    fingerArm.rotation.set(1.28 + 0.06 * Math.sin(t * 22), 0.12, Math.PI);
+    // avant-bras dressé (poing en haut), dos de la main vers soi, PLEIN
+    // CENTRE de l'écran, deux coups de poing secs vers l'adversaire
+    const pump = t > 0.18 && t < 0.78 ? Math.max(0, Math.sin((t - 0.18) * Math.PI * 5)) : 0;
+    fingerArm.position.set(-0.12, -0.62 + 0.38 * e, -0.4 - 0.05 * pump);
+    fingerArm.rotation.set(1.3 + 0.12 * pump, 0.1, Math.PI);
     if (fingerT <= 0) { fingerArm.visible = false; left.visible = viewVisible; }
+  }
+
+  // IK de l'avant-bras d'une arme blanche (voir update) — repère monde
+  const _F = new THREE.Vector3(), _S = new THREE.Vector3(), _D = new THREE.Vector3();
+  const _qa = new THREE.Quaternion(), _qr = new THREE.Quaternion(), _qp = new THREE.Quaternion();
+  const _Z = new THREE.Vector3(0, 0, -1), _er = new THREE.Euler();
+  function ikArm(arm, pv, grip, side, w) {
+    pv.updateWorldMatrix(true, false);
+    _F.fromArray(grip.pos).sub(pv.userData.home);
+    pv.localToWorld(_F);                                              // poing
+    _S.set(side * 0.24, -0.46, 0.12);
+    camera.localToWorld(_S);                                          // épaule
+    _D.subVectors(_F, _S).normalize();
+    pv.getWorldQuaternion(_qp);
+    // bras aligné épaule → poing, roulis de la prise conservé
+    _qa.setFromUnitVectors(_Z, _D.applyQuaternion(_qr.copy(_qp).invert()));
+    _qa.multiply(_qr.setFromEuler(_er.set(0, 0, grip.rot[2])));
+    arm.quaternion.slerp(_qa, w);
+    // replace l'origine pour garder le poing sur la prise
+    _F.fromArray(grip.pos).sub(pv.userData.home);
+    _D.set(0, 0, HAND_LOCAL_Z).applyQuaternion(arm.quaternion);
+    arm.position.copy(_F).sub(_D);
   }
 
   let bobTime = 0;
@@ -331,25 +365,42 @@ export function createArms(camera) {
       // weapon.js) : elles héritent alors automatiquement de tout ce que fait
       // holder chaque frame (bob, recul au tir, plongeon de rechargement,
       // coup de marteau) sans aucun calcul de synchro à maintenir ici.
-      if (attachedTo !== weaponHolder) {
-        weaponHolder.add(right, left);
-        attachedTo = weaponHolder;
-      }
+      attachedTo = weaponHolder;
       // On positionne l'ORIGINE du groupe bras pour que le POING (bout du
       // bras, à HAND_LOCAL_Z le long de son axe TOURNÉ) tombe pile sur le
       // point de préhension — la rotation du bras est donc libre.
       // Une arme peut imposer SES prises (akimbo : chaque main sur son
       // pistolet) via holder.userData.grips, sinon prises fusil par défaut.
+      // Armes blanches : `on` accroche la main au PIVOT de sa lame (melee.js,
+      // prise exprimée dans le repère du porte-arme, pivot au repos sans
+      // rotation) ; `cam` la laisse en garde sur la caméra.
       const custom = weaponHolder.userData?.grips;
+      const pivots = weaponHolder.userData?.pivots;
       for (const [arm, grip] of [[right, custom?.r ?? GRIP_R], [left, custom?.l ?? GRIP_L]]) {
+        const pv = grip.on ? pivots?.[grip.on] : null;
+        const host = grip.cam ? camera : pv ?? weaponHolder;
+        if (arm.parent !== host) host.add(arm);
         arm.rotation.set(...grip.rot);
         _fist.set(0, 0, HAND_LOCAL_Z).applyEuler(arm.rotation);
         arm.position.set(grip.pos[0] - _fist.x, grip.pos[1] - _fist.y, grip.pos[2] - _fist.z);
+        if (pv) {
+          arm.position.sub(pv.userData.home);
+          // En plein geste, l'avant-bras ne tourne pas avec la lame : il
+          // pointe de l'ÉPAULE vers le poing (IK minimale), seuls poignet
+          // et lame pivotent. Mélangé à la prise de repos selon l'écart du
+          // pivot (aucun changement à l'arrêt).
+          const w = Math.min(1, 2 * Math.acos(Math.min(1, Math.abs(pv.quaternion.w))) / 0.35 +
+            pv.position.distanceTo(pv.userData.home) / 0.06);
+          if (w > 0.001) ikArm(arm, pv, grip, arm === right ? 1 : -1, w);
+        } else if (grip.cam) { // garde : respire à peine, suit le balancement de course
+          bobTime += dt * (isMoving ? 4.5 : 0.8);
+          arm.position.y += Math.abs(Math.cos(bobTime)) * (isMoving ? 0.012 : 0.003);
+        }
       }
       return;
     }
 
-    if (attachedTo !== camera) {
+    if (attachedTo !== camera || right.parent !== camera || left.parent !== camera) {
       camera.add(right, left);
       attachedTo = camera;
     }

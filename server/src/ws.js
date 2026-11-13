@@ -316,12 +316,16 @@ export function setupWs(httpServer) {
           dmg = Math.min(55, rawDmg);
         }
         dmg = arena.absorb(targetId, dmg); // armure de canut (série de 7)
-        // BOUCLIER (lance et bouclier en main, code 17) : un coup reçu de
-        // face (à ±65° du regard) ne passe qu'à 40 %
-        if (target.wpn === 17 && target.p && me.p) {
-          const dx = me.p[0] - target.p[0], dz = me.p[2] - target.p[2], l = Math.hypot(dx, dz) || 1;
-          const front = (-Math.sin(target.ry ?? 0) * dx - Math.cos(target.ry ?? 0) * dz) / l;
-          if (front > 0.42) dmg = Math.ceil(dmg * 0.4);
+        // BOUCLIER (lance et bouclier en main, code 17) : de face (±65° du
+        // regard), il ARRÊTE les balles ; un coup de lame passe à 40 %.
+        // `m: 1` = coup de mêlée (champ optionnel). Le tireur entend le
+        // bouclier sonner (`blk`, relayé à tous pour le son spatial).
+        if (arena.shieldBlocks(target, me.p)) {
+          if (!msg.m) {
+            broadcast({ t: 'blk', id: msg.target, by: id });
+            return;
+          }
+          dmg = Math.ceil(dmg * 0.4);
         }
         if (dmg <= 0) return;
         target.hp -= dmg;

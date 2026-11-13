@@ -393,6 +393,8 @@ npm start          # serveur de prod (sert client/dist)
     Vu par TOUS sans message réseau : remotes.js suit `lastVictimOf` sur les
     `akill` et appelle `human.flipOff()` (avatars.js `poseFlip` : bras gauche
     levé par `aimBone` + poing au majeur tendu rapporté sur la main).
+    1re personne : majeur NU (mitaine, peau sur gant noir, +30 %, ongle),
+    bras au centre de l'écran, deux coups de poing secs.
     Tirs des autres : `net.on('shot')` (main.js) joue `audio.shotOf(arme,
     vol)` atténué par la distance (120 m, 1 son / 70 ms au plus), l'arme
     venant de `remotes.weaponIdOf(id)`. Bots : arme AFFICHÉE variée
@@ -425,8 +427,24 @@ npm start          # serveur de prod (sert client/dist)
     balle `roundReload`, interrompu par le tir) — 55 dégâts au corps,
     `headKill` = 100 à la tête (main.js) ; plafond serveur des gros calibres
     ramené à 0,9 s. `spec.dual` (dagues) centre le porte-arme comme l'akimbo.
-    Bouclier : `ws.js` réduit à 40 % un coup reçu de face par un joueur qui
-    tient la lance (code 17). CLASSE (arenaMatch.js) : 2 armes parmi
+    BOUCLIER (lance, code 17) : de face (±65°), il ARRÊTE les balles
+    (joueurs dans ws.js, bots dans `damageHuman` d'arena.js, test commun
+    `arena.shieldBlocks`) ; un coup de lame (`hit` avec `m: 1`, couteau des
+    bots) passe à 40 %. Balle arrêtée → message `blk` (id, by) : « tang »
+    `audio.shieldBlock` + écu gris `ui.blocked()` pour le tireur.
+    ARMES BLANCHES (`player/melee.js`) : `pivotize` range chaque lame dans
+    un PIVOT posé sur le poing (R, et L pour la 2e dague ; lance seule, le
+    bouclier reste) ; prises `on: 'R'|'L'` (arms.js accroche la main au
+    pivot, IK épaule → poing pendant le geste : l'avant-bras ne tourne pas
+    avec la lame) ou `cam: true` (main libre en garde sur la caméra : épée,
+    couteau). `ATTACKS[id]` = armé + frappe ; coups rapprochés (< 0,75 s) =
+    enchaînement qui croise, sinon ouverture au hasard ; dagues alternées
+    (gauche en miroir). Le porte-arme ne fait plus qu'un petit avancé.
+    Portées : épée 4,9, dagues 3,7, lance 6,3, couteau 3,8, marteau 4,4,
+    bâton 4,2. ?debug : `__meleeT` fige le geste, `__meleeHands`/`__meleeAtk`.
+    DÉPLACEMENT (controls.js, 13/11/2026) : course 6,5 m/s (−35 %), saut
+    8 m/s, gravité 17 (≈ 1,9 m), ACCEL 12 — « 10 m/s était injouable ».
+    CLASSE (arenaMatch.js) : 2 armes parmi
     `CLASS_WEAPONS`, menu touche K / bouton CLASSE, `localStorage
     lyon_class` ; `classPick` (menu) ne devient `classActive` (en main)
     qu'à la mort, au début d'une manche ou en entrant. Molette assignable :
