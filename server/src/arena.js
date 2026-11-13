@@ -794,8 +794,13 @@ export function createArena({ players, broadcast, q }) {
   }
 
   // --- IA des bots ---------------------------------------------------------------
-  function botWeapon() {
-    return round.mode === 'sniper' ? WPN.sniper : round.mode === 'couteau' ? WPN.couteau : WPN.ak;
+  // Arme AFFICHÉE du bot (modèle en main, son, icône du fil) : variée d'un
+  // bot à l'autre parmi les fusils d'assaut — ses dégâts ne changent pas.
+  const BOT_GUNS = [WPN.ak, 10, 11, 12, 13]; // AK, MP5, M16, M4, FAMAS
+  function botWeapon(b) {
+    if (round.mode === 'sniper') return WPN.sniper;
+    if (round.mode === 'couteau') return WPN.couteau;
+    return BOT_GUNS[Math.floor((b?.seed ?? 0) * 997) % BOT_GUNS.length];
   }
   function chooseGoal(b, D, now) {
     // amoché : la rosette libre la plus proche d'abord (pas les bots faciles)
@@ -841,7 +846,7 @@ export function createArena({ players, broadcast, q }) {
 
   function tickBot(b, dt, now, think) {
     const D = DIFFS[cfg.diff];
-    b.wpn = botWeapon();
+    b.wpn = botWeapon(b);
     if (!b.alive) {
       if (now >= b.respawnAt) respawnBot(b, now);
       return;

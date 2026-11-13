@@ -390,6 +390,12 @@ npm start          # serveur de prod (sert client/dist)
     Doigt d'honneur : deux éliminations d'affilée sur le même adversaire
     (`lastVictim` dans arenaMatch.js, message `akill`) → `ctx.flipOff()` →
     `arms.flipOff()` (bras gauche à part, `buildArm(-1, { finger: true })`).
+    Tirs des autres : `net.on('shot')` (main.js) joue `audio.shotOf(arme,
+    vol)` atténué par la distance (120 m, 1 son / 70 ms au plus), l'arme
+    venant de `remotes.weaponIdOf(id)`. Bots : arme AFFICHÉE variée
+    (`BOT_GUNS` : AK, MP5, M16, M4, FAMAS selon `seed`), dégâts inchangés.
+    Bruit de pluie RETIRÉ (demande de Polo, 13/11/2026) : `audio.rain` ne
+    fait plus que couper le son — ne pas le rétablir.
     Kar98k : `kar98k` (sans lunette, 5 cartouches d'un coup) et `kar98ks`
     (code 18, lunette ×2,5 / ×6 via `spec.scope`, rechargement balle par
     balle `roundReload`, interrompu par le tir) — 55 dégâts au corps,

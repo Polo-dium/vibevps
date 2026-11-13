@@ -443,6 +443,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
   function getPos(id) { return remotes.get(id)?.human.group.position ?? null; }
   function getGroup(id) { return remotes.get(id)?.human.group ?? null; } // (killcam)
   function getHuman(id) { return remotes.get(id)?.human ?? null; } // (hook de debug : ragdoll)
+  function weaponIdOf(id) { return WEAPON_IDS[(remotes.get(id)?.weaponCode ?? 0) - 1] ?? null; } // arme en main (son des tirs)
   // Joueur distant le plus proche (défi en duel : E près de quelqu'un)
   function nearest(pos, maxD = 4) {
     let best = null;
@@ -465,7 +466,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
 
   const colorOf = (id) => remotes.get(id)?.baseColor.getHex();
 
-  return { update, count, showChat, getPos, nearest, list, colorOf, setTeam, resetTeams, getGroup, getHuman };
+  return { update, count, showChat, getPos, nearest, list, colorOf, setTeam, resetTeams, getGroup, getHuman, weaponIdOf };
 }
 
 // Avion fantôme des pilotes distants (veh: 2), teinté à leur couleur

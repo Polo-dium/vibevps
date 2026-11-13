@@ -99,10 +99,10 @@ function ensureRain() {
 
 export const audio = {
   // Niveau de pluie 0..1 (voir world/weather.js)
-  rain(level) {
-    if (!ctx && level <= 0) return; // ne réveille pas l'audio pour du silence
-    const { g } = ensureRain();
-    g.gain.setTargetAtTime(Math.max(0, Math.min(1, level)) * 0.14, ctx.currentTime, 0.6);
+  // (bruit de pluie RETIRÉ à la demande de Polo, 13/11/2026 : la pluie reste
+  // visible, elle ne s'entend plus — l'appel est gardé pour weather.js)
+  rain() {
+    if (rainNodes && ctx) rainNodes.g.gain.setTargetAtTime(0, ctx.currentTime, 0.2);
   },
   // Pas : intensité 0..1 selon la vitesse
   footstep(intensity = 1) {
@@ -114,7 +114,9 @@ export const audio = {
   // son corps (grave) et sa queue (résonance). true = son joué.
   //  mp5 : 9 mm sec et court · m4 : claquant · m16 : plus plein, plus long
   //  famas : nerveux, métallique · kar98k : détonation lourde + verrou
-  shotOf(id) {
+  // `vol` < 1 : tir d'un AUTRE combattant, atténué par la distance
+  // ('generic' = toute arme sans voix propre, entendue de loin)
+  shotOf(id, vol = 1) {
     if (!ctx) return false;
     const S = {
       mp5: { crack: [2100, 0.05, 0.26], body: [240, 95, 0.06, 0.16], tail: [900, 0.09, 0.1], click: 3200 },
@@ -122,11 +124,14 @@ export const audio = {
       m16: { crack: [2200, 0.07, 0.36], body: [150, 52, 0.11, 0.24], tail: [480, 0.22, 0.24], click: 2500 },
       famas: { crack: [3000, 0.05, 0.34], body: [190, 70, 0.07, 0.2], tail: [750, 0.12, 0.16], click: 3600 },
       kar98k: { crack: [1500, 0.12, 0.5], body: [110, 36, 0.3, 0.34], tail: [320, 0.5, 0.42], click: 1900 },
+      generic: { crack: [1900, 0.07, 0.32], body: [140, 55, 0.09, 0.22], tail: [520, 0.18, 0.2], click: 2400 },
     }[id === 'kar98ks' ? 'kar98k' : id];
     if (!S) return false;
-    noise(S.crack[1], { type: 'highpass', freq: S.crack[0], gain: S.crack[2] });
-    tone(S.body[0], S.body[2], { type: 'square', gain: S.body[3], slideTo: S.body[1] });
-    noise(S.tail[1], { type: 'lowpass', freq: S.tail[0], gain: S.tail[2], at: 0.012 });
+    // de loin, l'aigu se perd avant le grave
+    noise(S.crack[1], { type: 'highpass', freq: S.crack[0], gain: S.crack[2] * vol * vol });
+    tone(S.body[0], S.body[2], { type: 'square', gain: S.body[3] * vol, slideTo: S.body[1] });
+    noise(S.tail[1], { type: 'lowpass', freq: S.tail[0], gain: S.tail[2] * vol, at: 0.012 });
+    if (vol < 1) return true;
     tone(S.click, 0.018, { type: 'sine', gain: 0.08 });
     if (id === 'kar98k' || id === 'kar98ks') {
       // verrou : levée, recul, poussée, verrouillage

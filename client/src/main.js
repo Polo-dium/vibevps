@@ -1904,7 +1904,20 @@ async function boot() {
     if (killcam.active) return; // pendant le rejeu, seuls les tirs d'alors s'affichent
     weapon.fx.spawnTracer(msg.a, msg.b, Boolean(msg.aircraft));
     weapon.fx.spawnImpact(msg.b);
+    // On ENTEND les tirs des autres (avec la voix de leur arme), atténués
+    // par la distance — au plus un son toutes les 70 ms
+    const now = performance.now();
+    if (!msg.aircraft && msg.a && now - lastFarShot > 70) {
+      const d = Math.hypot(msg.a[0] - controls.position.x, msg.a[2] - controls.position.z);
+      if (d < 120) {
+        lastFarShot = now;
+        const vol = Math.max(0.04, Math.pow(1 - d / 120, 1.6) * 0.85);
+        const wid = remotes.weaponIdOf(msg.id);
+        if (!audio.shotOf(wid, vol)) audio.shotOf('generic', vol);
+      }
+    }
   });
+  let lastFarShot = 0;
   net.on('explosion', (msg) => {
     spawnBombMushroom(msg.p);
     navigator.vibrate?.([60, 25, 90]);
