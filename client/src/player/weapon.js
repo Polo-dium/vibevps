@@ -63,6 +63,17 @@ export const WEAPONS = {
     // au-delà de 55 dégâts, 1,4 s minimum entre deux touches.
     fire: 1.5, mag: 5, reload: 3.0, range: 420, dmg: 100, sniper: true,
   },
+  // --- Arsenal de l'arène (classes) ---------------------------------------
+  mp5: { nom: 'MP5', emoji: '🔫', fire: 0.075, mag: 30, reload: 1.4, range: 60, dmg: 14 },        // mitraillette : cadence, courte portée
+  m16: { nom: 'M16', emoji: '🔫', fire: 0.115, mag: 30, reload: 1.7, range: 150, dmg: 22 },       // précis, posé
+  m4: { nom: 'M4', emoji: '🔫', fire: 0.085, mag: 30, reload: 1.5, range: 110, dmg: 17 },         // polyvalent
+  famas: { nom: 'FAMAS', emoji: '🔫', fire: 0.065, mag: 25, reload: 1.6, range: 100, dmg: 16 },   // le clairon : très rapide, petit chargeur
+  kar98k: { nom: 'Kar98k', emoji: '🎯', fire: 1.4, mag: 5, reload: 2.6, range: 300, dmg: 85 },    // verrou, sans lunette (1,4 s : plafond serveur des gros calibres)
+  epee: { nom: 'Épée', emoji: '🗡️', fire: 0.5, mag: 0, reload: 0, range: 3.9, dmg: 55, melee: true },
+  dagues: { nom: 'Doubles dagues', emoji: '🔪🔪', fire: 0.2, mag: 0, reload: 0, range: 2.8, dmg: 30, melee: true },
+  // Lance et bouclier : longue allonge ; tenu en main, le bouclier réduit
+  // les balles reçues DE FACE (décidé par le serveur, voir ws.js)
+  lance: { nom: 'Lance et bouclier', emoji: '🛡️', fire: 0.7, mag: 0, reload: 0, range: 5.4, dmg: 50, melee: true, shield: true },
 };
 
 // MANIEMENT, par arme : `spread` = dispersion de base (demi-angle, unités
@@ -77,6 +88,11 @@ const HANDLING = {
   bazooka: { spread: 0.0, kick: 0.06, ads: 1.3 },
   akimbo: { spread: 0.022, kick: 0.006 },
   sniper: { spread: 0.0, kick: 0.07 },
+  mp5: { spread: 0.018, kick: 0.006, ads: 1.25 },
+  m16: { spread: 0.006, kick: 0.012, ads: 1.5 },
+  m4: { spread: 0.01, kick: 0.009, ads: 1.4 },
+  famas: { spread: 0.013, kick: 0.0085, ads: 1.35 },
+  kar98k: { spread: 0.0, kick: 0.06, ads: 1.9 },
 };
 
 // Prises en main, par arme (repère du porte-arme, voir weaponModels.js) :
@@ -122,6 +138,18 @@ const GRIPS = {
     r: { pos: [0.03, -0.03, -0.02], rot: [0.5, 0.3, -1.5] },
     l: { pos: [-0.2, -0.06, -0.12], rot: [0.5, -0.2, 1.5] },
   },
+  dagues: {
+    r: { pos: [0.16, -0.05, -0.19], rot: [0.3, -0.06, 0.06] },
+    l: { pos: [-0.16, -0.05, -0.19], rot: [0.3, 0.06, -0.06] },
+  },
+  epee: {
+    r: { pos: [0.03, -0.01, -0.01], rot: [0.5, 0.3, -1.5] },
+    l: { pos: [-0.2, -0.06, -0.12], rot: [0.5, -0.2, 1.5] },
+  },
+  lance: {
+    r: { pos: [0.13, -0.01, -0.05], rot: [0.5, 0.3, -1.5] },
+    l: { pos: [-0.3, -0.04, -0.1], rot: [0.5, -0.2, 1.5] },
+  },
   // Akimbo : chaque main sur SON pistolet
   akimbo: {
     r: { pos: [0.16, -0.05, -0.19], rot: [0.3, -0.06, 0.06] },
@@ -133,7 +161,10 @@ const GRIPS = {
 // main.js et remotes.js) : indice+1, 0 réservé à « pas d'arme en main ».
 // Ordre figé — ne jamais réordonner (casserait la compat avec les clients
 // déjà connectés), n'ajouter qu'à la fin.
-export const WEAPON_IDS = ['ak', 'marteau', 'pompe', 'minigun', 'bazooka', 'akimbo', 'baton', 'sniper', 'couteau'];
+export const WEAPON_IDS = ['ak', 'marteau', 'pompe', 'minigun', 'bazooka', 'akimbo', 'baton', 'sniper', 'couteau',
+  'mp5', 'm16', 'm4', 'famas', 'kar98k', 'epee', 'dagues', 'lance'];
+for (const id of ['mp5', 'm16', 'm4', 'famas']) GRIPS[id] = GRIPS.ak;
+GRIPS.kar98k = GRIPS.sniper;
 
 export function createWeapon(camera, scene, shootables, {
   onAmmoChange, onShot, onRocketExplosion, getGroundY, onWeaponChange, worldHit,

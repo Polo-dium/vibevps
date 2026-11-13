@@ -1570,6 +1570,20 @@ body.aircraft-touch-mode #hud-compass { display: none; }
   width: 132px; height: 132px; opacity: 0.92;
 }
 #arena-radar.hidden { display: none; }
+#arena-class-btn {
+  position: absolute; left: 50%; top: 118px; transform: translateX(-50%); pointer-events: auto;
+  font: 600 10.5px var(--hud-font); letter-spacing: 2px; color: var(--hud-dim);
+  background: rgba(10, 16, 20, 0.5); border: 1px solid rgba(238, 241, 238, 0.3); padding: 3px 10px; cursor: pointer;
+}
+.cls-panel { max-width: 720px; width: calc(100% - 24px); max-height: 92vh; overflow: auto; }
+.cls-note { font-size: 13px; opacity: 0.85; margin: 4px 0 10px; }
+.cls-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cls-col h3 { font-size: 12px; letter-spacing: 2px; text-transform: uppercase; opacity: 0.7; margin: 0 0 6px; }
+.cls-col button { display: block; width: 100%; text-align: left; margin: 0 0 5px; padding: 7px 10px; }
+.cls-col button small { display: block; font-size: 11px; opacity: 0.7; font-weight: 400; }
+.cls-col button.on { outline: 2px solid #1fd6b4; background: rgba(31, 214, 180, 0.16); }
+.cls-col button:disabled { opacity: 0.3; }
+#cls-close { margin-top: 10px; }
 body.diag-open #arena-radar { top: 196px; }
 @media (max-height: 520px) { #arena-radar { width: 96px; height: 96px; top: 74px; } }
 #arena-feed {

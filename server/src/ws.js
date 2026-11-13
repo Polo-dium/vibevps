@@ -139,7 +139,7 @@ export function setupWs(httpServer) {
         // Arme tenue en main (optionnel, borné) : les autres la voient sur
         // l'avatar. 0 = rien en main. Voir WEAPON_IDS côté client.
         me.cr = msg.cr ? 1 : 0; // accroupi (optionnel)
-        me.wpn = Math.min(9, Math.max(0, Math.floor(Number(msg.wpn) || 0)));
+        me.wpn = Math.min(30, Math.max(0, Math.floor(Number(msg.wpn) || 0)));
         me.dirty = true;
         return;
       }
@@ -316,6 +316,13 @@ export function setupWs(httpServer) {
           dmg = Math.min(55, rawDmg);
         }
         dmg = arena.absorb(targetId, dmg); // armure de canut (série de 7)
+        // BOUCLIER (lance et bouclier en main, code 17) : un coup reçu de
+        // face (à ±65° du regard) ne passe qu'à 40 %
+        if (target.wpn === 17 && target.p && me.p) {
+          const dx = me.p[0] - target.p[0], dz = me.p[2] - target.p[2], l = Math.hypot(dx, dz) || 1;
+          const front = (-Math.sin(target.ry ?? 0) * dx - Math.cos(target.ry ?? 0) * dz) / l;
+          if (front > 0.42) dmg = Math.ceil(dmg * 0.4);
+        }
         if (dmg <= 0) return;
         target.hp -= dmg;
         target.lastDamagedAt = now;

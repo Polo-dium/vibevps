@@ -370,6 +370,17 @@ npm start          # serveur de prod (sert client/dist)
     50 s après chaque ramassage ; le joueur qui passe dessus reçoit le
     minigun jusqu'à sa mort (`special` dans arenaMatch.js → `setLoadout`,
     ses autres armes restent). Pas en snipers / couteaux, pas pour les bots.
+  - ARSENAL DE L'ARÈNE ET CLASSES : `mp5`, `m16`, `m4`, `famas`, `kar98k`,
+    `epee`, `dagues`, `lance` (lance et bouclier) ajoutés en FIN de
+    `WEAPON_IDS` (codes 10 à 17 ; grenade et quenelle du fil des
+    éliminations passées à 100/101). Modèles simples dans
+    `weaponModels2.js` — animations, sons et finitions restent à faire.
+    Bouclier : `ws.js` réduit à 40 % un coup reçu de face par un joueur qui
+    tient la lance (code 17). CLASSE (arenaMatch.js) : 2 armes parmi
+    `CLASS_WEAPONS`, menu touche K / bouton CLASSE, `localStorage
+    lyon_class` ; `classPick` (menu) ne devient `classActive` (en main)
+    qu'à la mort, au début d'une manche ou en entrant. Molette assignable :
+    codes `WheelUp` / `WheelDown` dans bindings.js.
   - MORT : RAGDOLL des avatars (`ragdollStart/Step/Stop` dans avatars.js) —
     15 points reliés par des tiges (Verlet, gravité, sol, frottement), tronc
     contreventé ; le groupe est tourné/déplacé pour suivre le tronc, chaque

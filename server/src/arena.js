@@ -28,7 +28,8 @@ const MODE_INFO = {
 const INTER_MS = 12000;
 const RESPAWN_MS = 3000;
 const SPAWN_SHIELD_MS = 1800;
-const WPN = { ak: 1, sniper: 8, couteau: 9, grenade: 10, quenelle: 11 };
+// (10 à 17 = armes de la 2e fournée ; grenade et quenelle hors de la plage des armes tenues)
+const WPN = { ak: 1, sniper: 8, couteau: 9, lance: 17, grenade: 100, quenelle: 101 };
 
 // Difficulté : facile → réaliste
 const DIFFS = [

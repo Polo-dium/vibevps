@@ -18,7 +18,7 @@ export const ACTIONS = [
   ]],
   ['Combat', [
     ['Digit1', 'Sortir / ranger l\'arme'], ['Digit2', 'Arme suivante'], ['KeyR', 'Recharger'],
-    ['KeyQ', 'Grenade (arène)'], ['KeyZ', 'Fumigène (arène)'],
+    ['KeyQ', 'Grenade (arène)'], ['KeyZ', 'Fumigène (arène)'], ['KeyK', 'Classe d\'armes (arène)'],
     ['Tab', 'Tableau des scores (arène)'],
   ]],
   ['Ville', [
@@ -34,7 +34,7 @@ export const ACTIONS = [
 
 const NAMES = {
   Space: 'Espace', ShiftLeft: 'Maj gauche', ShiftRight: 'Maj droite', ControlLeft: 'Ctrl gauche',
-  ControlRight: 'Ctrl droite', AltLeft: 'Alt', Mouse1: 'Clic molette', Mouse3: 'Souris latéral 1', Mouse4: 'Souris latéral 2', AltRight: 'Alt Gr', Enter: 'Entrée', Tab: 'Tab',
+  ControlRight: 'Ctrl droite', AltLeft: 'Alt', Mouse1: 'Clic molette', WheelUp: 'Molette ↑', WheelDown: 'Molette ↓', Mouse3: 'Souris latéral 1', Mouse4: 'Souris latéral 2', AltRight: 'Alt Gr', Enter: 'Entrée', Tab: 'Tab',
   ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Backquote: '²', CapsLock: 'Verr. maj',
 };
 
@@ -109,6 +109,25 @@ export function createBindings({ toast } = {}) {
     e.preventDefault();
     press(def, e.type === 'mousedown');
   };
+  // MOLETTE assignable (codes WheelUp / WheelDown) : un cran = un appui bref
+  // sur l'action choisie (arme suivante, grenade…). Tant qu'aucune action
+  // ne lui est donnée, la molette garde ses usages (lunette, couleur du tag).
+  window.addEventListener('wheel', (e) => {
+    if (Math.abs(e.deltaY) < 1) return;
+    const code = e.deltaY < 0 ? 'WheelUp' : 'WheelDown';
+    if (waiting) {
+      e.stopImmediatePropagation();
+      assign(waiting, code);
+      waiting = null;
+      render();
+      return;
+    }
+    const def = fromUser[code];
+    if (!def) return;
+    e.stopImmediatePropagation();
+    press(def, true);
+    setTimeout(() => press(def, false), 40);
+  }, { capture: true, passive: true });
   window.addEventListener('mousedown', onMouse, true);
   window.addEventListener('mouseup', onMouse, true);
   // Alt seul ouvre le menu du navigateur sous Windows : jamais en jeu

@@ -11,8 +11,18 @@ import { PBR, profileGeo, roundedRect } from '../render/materials.js';
 // Repère : -z = vers le canon, y = haut, x = droite. u = distance vers
 // l'avant (u > 0 → z < 0), v = hauteur.
 
+import { buildMp5Model, buildM16Model, buildM4Model, buildFamasModel, buildKar98kModel, buildEpeeModel, buildDaguesModel, buildLanceModel } from './weaponModels2.js';
+
 export function buildWeaponModel(id) {
   switch (id) {
+    case 'mp5': return buildMp5Model();
+    case 'm16': return buildM16Model();
+    case 'm4': return buildM4Model();
+    case 'famas': return buildFamasModel();
+    case 'kar98k': return buildKar98kModel();
+    case 'epee': return buildEpeeModel();
+    case 'dagues': return buildDaguesModel();
+    case 'lance': return buildLanceModel();
     case 'marteau': return buildMarteauModel();
     case 'pompe': return buildPompeModel();
     case 'minigun': return buildMinigunModel();

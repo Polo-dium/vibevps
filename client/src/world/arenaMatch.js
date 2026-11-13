@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { state } from '../state.js';
+import { WEAPONS } from '../player/weapon.js';
 import { ARENA, arenaBoxes, BASES, CONSOLE, CRATE, MEDS, PORTAL } from '../../../shared/arena-layout.js';
 
 // MATCHS DE L'ARÈNE — côté client. Le serveur (server/src/arena.js) simule
@@ -30,7 +31,9 @@ const DIFF_LABELS = ['Facile', 'Normal', 'Difficile', 'Réaliste'];
 // équipe — quelle que soit l'équipe (0 ou 1) où le serveur t'a mis. En
 // mêlée générale, tout le monde est rouge.
 const FOE_CSS = '#ff5a4d', ALLY_CSS = '#5b9bff';
-const WPN_ICON = { 1: '🔫', 2: '🔨', 3: '💥', 4: '🌀', 5: '🚀', 6: '🔫', 7: '🏏', 8: '🎯', 9: '🔪', 10: '💣', 11: '🥖' };
+const WPN_ICON = { 1: '🔫', 2: '🔨', 3: '💥', 4: '🌀', 5: '🚀', 6: '🔫', 7: '🏏', 8: '🎯', 9: '🔪', 10: '🔫', 11: '🔫', 12: '🔫', 13: '🔫', 14: '🎯', 15: '🗡️', 16: '🔪', 17: '🛡️', 100: '💣', 101: '🥖' };
+// CLASSES : les armes proposées dans l'arène (2 par classe, voir `classPick`)
+const CLASS_WEAPONS = ['ak', 'm4', 'm16', 'famas', 'mp5', 'pompe', 'kar98k', 'sniper', 'akimbo', 'epee', 'dagues', 'lance', 'marteau'];
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -154,18 +157,87 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     }
   }
   let special = false; // minigun de la caisse du Gros Caillou (pour cette vie)
+  // CLASSE : deux armes choisies dans l'arsenal de l'arène. On peut rouvrir
+  // le menu à tout moment (touche K, bouton CLASSE), mais le changement ne
+  // prend effet qu'à la PROCHAINE MORT (ou au début d'une manche) : pas de
+  // changement d'arme en plein duel. Mémorisée (localStorage lyon_class).
+  const readClass = () => {
+    try {
+      const c = JSON.parse(localStorage.getItem('lyon_class') || 'null');
+      if (Array.isArray(c) && c.length === 2 && c.every((id) => CLASS_WEAPONS.includes(id)) && c[0] !== c[1]) return c;
+    } catch { /* défaut */ }
+    return ['ak', 'akimbo'];
+  };
+  let classPick = readClass();   // choix du menu (appliqué à la prochaine mort)
+  let classActive = [...classPick]; // ce que le joueur a en main cette vie
   function applyLoadout() {
     const mode = ctx.inHiFi && snap ? snap.mode : null;
     if (mode === 'sniper' || mode === 'couteau' || !mode) special = false;
-    const want = mode && special ? `${mode}+minigun` : mode;
+    const want = !mode ? null : `${mode}|${mode === 'sniper' || mode === 'couteau' ? '' : classActive.join('+')}|${special ? 'm' : ''}`;
     if (want === loadoutMode) return;
     loadoutMode = want;
     weapon.setLoadout(null); // repart toujours de l'arsenal du joueur
+    if (!mode) return;
     if (mode === 'sniper') weapon.setLoadout(['sniper']);
     else if (mode === 'couteau') weapon.setLoadout(['couteau']);
-    else if (special) { weapon.setLoadout(['minigun', ...weapon.ownedIds.filter((id) => id !== 'minigun')]); weapon.toggle?.(true); }
+    else weapon.setLoadout(special ? ['minigun', ...classActive] : classActive);
+    weapon.toggle?.(true);
   }
-  net.on('death', (msg) => { if (msg.id === getMyId() && special) { special = false; applyLoadout(); } });
+  net.on('death', (msg) => {
+    if (msg.id !== getMyId()) return;
+    special = false;
+    classActive = [...classPick]; // la nouvelle classe arrive avec la réapparition
+    applyLoadout();
+  });
+
+  // --- Menu des classes ---------------------------------------------------------
+  const classEl = document.createElement('div');
+  classEl.className = 'overlay hidden';
+  classEl.id = 'arena-class';
+  document.body.appendChild(classEl);
+  const classBtn = document.createElement('button');
+  classBtn.id = 'arena-class-btn';
+  classBtn.type = 'button';
+  classBtn.textContent = 'CLASSE';
+  root.appendChild(classBtn);
+  function renderClass() {
+    const col = (slot, titre) => `<div class="cls-col"><h3>${titre}</h3>${CLASS_WEAPONS.map((id) => {
+      const w = WEAPONS[id];
+      const taken = classPick[1 - slot] === id;
+      return `<button type="button" data-slot="${slot}" data-id="${id}" class="${classPick[slot] === id ? 'on' : ''}" ${taken ? 'disabled' : ''}>
+        <b>${w.emoji} ${esc(w.nom)}</b><small>${w.melee ? `mêlée · ${w.dmg} dégâts · allonge ${w.range} m` : `${w.dmg} dégâts · ${Math.round(60 / w.fire)} coups/min · ${w.mag} balles`}</small></button>`;
+    }).join('')}</div>`;
+    const pending = classPick.join() !== classActive.join();
+    classEl.innerHTML = `<div class="panel cls-panel"><h2>Ta classe</h2>
+      <p class="cls-note">${pending ? '⏳ Changement pris en compte à ta <b>prochaine mort</b>.' : 'Deux armes, une dans chaque colonne. Tu ne changes de classe qu’en mourant.'}</p>
+      <div class="cls-cols">${col(0, 'Arme principale')}${col(1, 'Arme secondaire')}</div>
+      <button type="button" id="cls-close">Fermer</button></div>`;
+    classEl.querySelectorAll('button[data-id]').forEach((b) => {
+      b.onclick = () => {
+        classPick[Number(b.dataset.slot)] = b.dataset.id;
+        try { localStorage.setItem('lyon_class', JSON.stringify(classPick)); } catch { /* plein */ }
+        renderClass();
+      };
+    });
+    classEl.querySelector('#cls-close').onclick = () => toggleClass(false);
+  }
+  function toggleClass(show) {
+    if (show && ctx.inHiFi) {
+      renderClass();
+      classEl.classList.remove('hidden');
+      state.overlayOpen = true;
+      document.exitPointerLock?.();
+    } else if (!classEl.classList.contains('hidden')) {
+      classEl.classList.add('hidden');
+      state.overlayOpen = false;
+    }
+  }
+  classEl.addEventListener('click', (e) => { if (e.target === classEl) toggleClass(false); });
+  classBtn.addEventListener('click', () => toggleClass(classEl.classList.contains('hidden')));
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Escape') toggleClass(false);
+    if (e.code === 'KeyK' && ctx.inHiFi && !state.killcam && (!state.overlayOpen || !classEl.classList.contains('hidden'))) toggleClass(classEl.classList.contains('hidden'));
+  });
 
   // --- Drapeaux (capture) ---------------------------------------------------------
   const flags = BASES.map((b, t) => {
@@ -585,6 +657,7 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     applyLoadout();
     renderHud();
     renderBoard();
+    if (first && msg.st === 'play') { classActive = [...classPick]; applyLoadout(); } // nouvelle manche : nouvelle classe
     if (first && msg.st === 'play' && ctx.inHiFi) {
       banner(`<small>${esc(MODE_GOALS[msg.mode])}</small>${esc(MODE_LABELS[msg.mode])}<small>premier à ${msg.lim}</small>`, 3200);
       audio?.announce?.(MODE_LABELS[msg.mode]);
@@ -676,9 +749,11 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
         feedEl.innerHTML = '';
         boardEl.classList.add('hidden');
         toggleConsole(false);
+        toggleClass(false);
         remotes.resetTeams();
         applyLoadout();
       } else {
+        classActive = [...classPick]; // en entrant, la classe choisie est en main tout de suite
         modeEl.textContent = 'Arène de Bellecour';
         scoreEl.textContent = '';
         subEl.textContent = 'la partie démarre…';
