@@ -383,6 +383,10 @@ npm start          # serveur de prod (sert client/dist)
     Prises des mains (`GRIPS` dans weapon.js) relevées sur chaque modèle :
     poignée pistolet à droite, garde-main / poignée avant du M4 / fût du
     Kar98k / énarme du bouclier à gauche — à recaler si un modèle change.
+    Mains (`buildArm` dans arms.js) : doigts à 3 phalanges enroulés,
+    index droit tendu vers la détente, pouce en 2 phalanges, manchette de
+    gant, manche aplatie à plis — toutes les pièces fusionnées par matériau
+    (`add` + `mergeGeometries`), ne plus ajouter de Mesh isolé au bras.
     Kar98k : `kar98k` (sans lunette, 5 cartouches d'un coup) et `kar98ks`
     (code 18, lunette ×2,5 / ×6 via `spec.scope`, rechargement balle par
     balle `roundReload`, interrompu par le tir) — 55 dégâts au corps,

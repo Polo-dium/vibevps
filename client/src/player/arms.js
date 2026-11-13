@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PBR } from '../render/materials.js';
 
 // Avant-bras low-poly en vue subjective : purement cosmétique. Les deux bras
@@ -53,41 +54,62 @@ function buildArm(side) {
   const gloveMat = PBR.glove(0x2b2d31);
   const padMat = PBR.polymer(0x17181b);
   const skinMat = PBR.skin(SKIN);
-  // Cylindre couché le long du bras (axe z), r0 côté épaule, r1 côté main
-  const limb = (r0, r1, z0, z1, mat, seg = 14) => {
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(r0, r1, Math.abs(z1 - z0), seg), mat);
-    m.rotation.x = Math.PI / 2;
-    m.position.z = (z0 + z1) / 2;
-    group.add(m);
-    return m;
+  // Toutes les pièces du bras sont FUSIONNÉES par matériau à la fin (5 draw
+  // calls par bras, quel que soit le nombre de phalanges).
+  const parts = new Map(); // matériau → géométries déjà placées
+  const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler();
+  const add = (geo, mat, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => {
+    _m4.compose(new THREE.Vector3(x, y, z), _q.setFromEuler(_e.set(rx, ry, rz)), new THREE.Vector3(sx, sy, sz));
+    const g = geo.clone().applyMatrix4(_m4);
+    if (!parts.has(mat)) parts.set(mat, []);
+    parts.get(mat).push(g);
   };
+  // Cylindre couché le long du bras (axe z), r0 côté épaule, r1 côté main ;
+  // (ex, ey) = section aplatie (un avant-bras n'est pas un tube)
+  const limb = (r0, r1, z0, z1, mat, seg = 14, ex = 1, ey = 1) => {
+    add(new THREE.CylinderGeometry(r0, r1, Math.abs(z1 - z0), seg), mat, 0, 0, (z0 + z1) / 2, Math.PI / 2, 0, 0, ex, 1, ey);
+  };
+  const HZ = HAND_LOCAL_Z;
   // Manche de veste jusqu'au poignet (même emprise qu'avant : de l'épaule
-  // au poing, voir HAND_LOCAL_Z), revers au poignet, liseré de peau.
-  const zShoulder = 0.14, zWrist = HAND_LOCAL_Z + 0.07;
-  limb(0.058, 0.047, zShoulder, zWrist + 0.02, sleeveMat);
-  limb(0.05, 0.05, zWrist + 0.035, zWrist + 0.005, cuffMat);
-  limb(0.037, 0.035, zWrist + 0.01, zWrist - 0.012, skinMat, 10);
-  // Gant : paume arrondie, coque de phalanges, quatre doigts repliés, pouce
-  const palm = new THREE.Mesh(new THREE.CapsuleGeometry(0.036, 0.04, 4, 10), gloveMat);
-  palm.rotation.x = Math.PI / 2;
-  palm.scale.set(1.3, 1, 0.92);
-  palm.position.z = HAND_LOCAL_Z;
-  group.add(palm);
-  const pad = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.016, 0.03), padMat);
-  pad.position.set(0, 0.033, HAND_LOCAL_Z - 0.028);
-  group.add(pad);
-  const fingerGeo = new THREE.CapsuleGeometry(0.0115, 0.032, 3, 8);
+  // au poing), plus large que haute, deux plis de tissu, revers au poignet.
+  const zShoulder = 0.14, zWrist = HZ + 0.07;
+  limb(0.058, 0.046, zShoulder, zWrist + 0.02, sleeveMat, 16, 1.12, 0.92);
+  for (const z of [-0.04, -0.15]) add(new THREE.TorusGeometry(0.05, 0.0055, 6, 18), sleeveMat, 0, 0, z, 0, 0, 0, 1.12, 0.92, 1.6);
+  limb(0.05, 0.049, zWrist + 0.035, zWrist + 0.005, cuffMat, 16, 1.1, 0.94);
+  limb(0.036, 0.034, zWrist + 0.01, zWrist - 0.012, skinMat, 12, 1.15, 0.85);
+  // GANT : manchette resserrée par une patte, dos de main bombé, paume,
+  // coque de protection sur les phalanges
+  limb(0.041, 0.039, zWrist - 0.008, zWrist - 0.034, gloveMat, 14, 1.18, 0.88);
+  add(new THREE.BoxGeometry(0.05, 0.006, 0.016), padMat, 0, 0.036, zWrist - 0.022);          // patte de serrage
+  add(new THREE.CapsuleGeometry(0.036, 0.04, 4, 12), gloveMat, 0, 0, HZ, Math.PI / 2, 0, 0, 1.3, 1, 0.9); // paume + dos
+  add(new THREE.SphereGeometry(0.03, 10, 8), gloveMat, side * -0.026, -0.012, HZ + 0.006, 0, 0, 0, 1, 0.8, 1.25); // éminence du pouce
+  add(new THREE.BoxGeometry(0.078, 0.014, 0.03), padMat, 0, 0.034, HZ - 0.026);               // coque des phalanges
+  // DOIGTS : trois phalanges chacun, enroulés autour de la poignée ; longueurs
+  // vraies (majeur > index ≈ annulaire > auriculaire), léger éventail.
+  // L'INDEX de la main droite reste tendu vers la détente.
+  const seg = (r, len, mat, x, y, z, a) => { // phalange dans le plan (y, z), a = angle sous l'horizontale
+    const dy = -Math.sin(a), dz = -Math.cos(a);
+    add(new THREE.CapsuleGeometry(r, len, 3, 8), mat, x, y + dy * len / 2, z + dz * len / 2, Math.atan2(dz, dy));
+    return [y + dy * len, z + dz * len];
+  };
   for (let i = 0; i < 4; i++) {
-    const f = new THREE.Mesh(fingerGeo, gloveMat);
-    f.position.set(-0.033 + i * 0.022, -0.022, HAND_LOCAL_Z - 0.052);
-    f.rotation.x = 0.9; // repliés autour de la poignée
-    group.add(f);
+    const k = side > 0 ? i : 3 - i;           // 0 = index (côté pouce) … 3 = auriculaire
+    const x = -0.033 + i * 0.022 + (i - 1.5) * 0.0015;
+    const L = [1, 1.09, 1, 0.8][k], R = [0.0115, 0.012, 0.0112, 0.0098][k];
+    const trigger = side > 0 && k === 0;
+    const curl = trigger ? [0.2, 0.75, 1.25] : [0.55 + k * 0.05, 1.6 + k * 0.04, 2.55];
+    add(new THREE.SphereGeometry(R * 1.18, 8, 6), gloveMat, x, 0.014, HZ - 0.04);              // articulation
+    let [y, z] = seg(R, 0.03 * L, gloveMat, x, 0.012, HZ - 0.04, curl[0]);
+    add(new THREE.SphereGeometry(R * 1.05, 8, 6), gloveMat, x, y, z);
+    [y, z] = seg(R * 0.95, 0.021 * L, gloveMat, x, y, z, curl[1]);
+    [y, z] = seg(R * 0.9, 0.016 * L, gloveMat, x, y, z, curl[2]);
+    add(new THREE.SphereGeometry(R * 0.86, 6, 5), padMat, x, y, z);                            // pulpe renforcée
   }
-  // Pouce rabattu contre l'index (il ne pointe plus en l'air)
-  const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.045, 3, 8), gloveMat);
-  thumb.position.set(side * -0.04, -0.005, HAND_LOCAL_Z - 0.035);
-  thumb.rotation.set(Math.PI / 2 + 0.5, 0, side * 0.9);
-  group.add(thumb);
+  // POUCE en deux phalanges, rabattu le long de l'index
+  add(new THREE.CapsuleGeometry(0.0135, 0.034, 3, 8), gloveMat, side * -0.041, -0.004, HZ - 0.03, Math.PI / 2 + 0.45, 0, side * 0.85);
+  add(new THREE.CapsuleGeometry(0.0122, 0.024, 3, 8), gloveMat, side * -0.026, -0.016, HZ - 0.062, Math.PI / 2 + 0.75, 0, side * 0.35);
+  add(new THREE.SphereGeometry(0.0115, 6, 5), padMat, side * -0.02, -0.024, HZ - 0.078);
+  for (const [mat, geos] of parts) group.add(new THREE.Mesh(mergeGeometries(geos), mat));
 
   // Équipement propre au jetpack : une petite manette serrée dans la main
   // et une mitraillette fixée sur le côté EXTÉRIEUR de l'avant-bras. Tout
