@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { state } from '../state.js';
-import { ARENA, arenaBoxes, BASES, CONSOLE, MEDS, PORTAL } from '../../../shared/arena-layout.js';
+import { ARENA, arenaBoxes, BASES, CONSOLE, CRATE, MEDS, PORTAL } from '../../../shared/arena-layout.js';
 
 // MATCHS DE L'ARÈNE — côté client. Le serveur (server/src/arena.js) simule
 // les bots et arbitre tout ; ici on ne fait qu'AFFICHER et RÉGLER :
@@ -153,14 +153,19 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
       remotes.setTeam(id, foe ? 0 : 1, foe && performance.now() > revealUntil); // 0 = rouge (ennemi), 1 = bleu (allié)
     }
   }
+  let special = false; // minigun de la caisse du Gros Caillou (pour cette vie)
   function applyLoadout() {
-    const want = ctx.inHiFi && snap ? snap.mode : null;
+    const mode = ctx.inHiFi && snap ? snap.mode : null;
+    if (mode === 'sniper' || mode === 'couteau' || !mode) special = false;
+    const want = mode && special ? `${mode}+minigun` : mode;
     if (want === loadoutMode) return;
     loadoutMode = want;
-    if (want === 'sniper') weapon.setLoadout(['sniper']);
-    else if (want === 'couteau') weapon.setLoadout(['couteau']);
-    else weapon.setLoadout(null);
+    weapon.setLoadout(null); // repart toujours de l'arsenal du joueur
+    if (mode === 'sniper') weapon.setLoadout(['sniper']);
+    else if (mode === 'couteau') weapon.setLoadout(['couteau']);
+    else if (special) { weapon.setLoadout(['minigun', ...weapon.ownedIds.filter((id) => id !== 'minigun')]); weapon.toggle?.(true); }
   }
+  net.on('death', (msg) => { if (msg.id === getMyId() && special) { special = false; applyLoadout(); } });
 
   // --- Drapeaux (capture) ---------------------------------------------------------
   const flags = BASES.map((b, t) => {
@@ -304,6 +309,11 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
         rg.fillRect(px - 7, py - 2.5, 14, 5); rg.fillRect(px - 2.5, py - 7, 5, 14);
       });
     }
+    if (snap.c === 1) {
+      const [px, py] = put(OX + CRATE.x, CRATE.z);
+      rg.fillStyle = '#ffc94a';
+      rg.fillRect(px - 7, py - 7, 14, 14);
+    }
     if (snap.f) {
       snap.f.forEach((f, team) => {
         const [px, py] = put(OX + f[1], f[2]);
@@ -372,6 +382,36 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
       m.g.position.y = 0.75 + 0.08 * Math.sin(now / 420 + i);
     });
     haloMat.opacity = 0.28 + 0.12 * Math.sin(now / 300);
+  }
+
+  // --- Caisse du Gros Caillou : caisse militaire + colonne de lumière dorée ---
+  const crateG = new THREE.Group();
+  crateG.name = 'caisse-gros-caillou';
+  {
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.6, 0.7), new THREE.MeshLambertMaterial({ color: 0x4d5a36 }));
+    body.position.y = 0.3;
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.1, 0.76), new THREE.MeshLambertMaterial({ color: 0x3c472a }));
+    lid.position.y = 0.65;
+    const band = new THREE.Mesh(new THREE.BoxGeometry(1.32, 0.12, 0.72), new THREE.MeshBasicMaterial({ color: 0xe2b01f }));
+    band.position.y = 0.34;
+    crateG.add(body, lid, band);
+  }
+  const crateBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.9, 14, 16, 1, true), new THREE.MeshBasicMaterial({
+    color: 0xffc94a, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  }));
+  crateBeam.position.y = 7;
+  crateBeam.userData.noShadow = true;
+  crateG.add(crateBeam);
+  crateG.position.set(OX + CRATE.x, ARENA.GROUND, CRATE.z);
+  crateG.visible = false;
+  ctx.scene.add(crateG);
+  let crateGone = 0, crateWas = false;
+  function updateCrate(now) {
+    const on = Boolean(ctx.inHiFi && snap?.c === 1 && snap.st === 'play' && now > crateGone);
+    crateG.visible = on;
+    if (on && !crateWas) { feed('🔫 La caisse du Gros Caillou est arrivée au pied de la statue !'); audio?.announce?.('Caisse au centre'); }
+    crateWas = on;
+    if (on) crateBeam.material.opacity = 0.16 + 0.08 * Math.sin(now / 260);
   }
 
   // --- Bases au sol : bleu = la tienne, rouge = celle d'en face (modes par équipes) ---
@@ -580,6 +620,15 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
       audio?.reward?.();
     } else if (msg.k === 'zone') {
       feed('◎ La zone se déplace !');
+    } else if (msg.k === 'crate') {
+      crateGone = performance.now() + 1500;
+      feed(`🔫 ${esc(msg.name)} a pris le minigun du Gros Caillou`);
+      if (msg.id === getMyId()) {
+        special = true;
+        applyLoadout();
+        banner('<small>caisse du Gros Caillou</small>🔫 Minigun<small>à toi jusqu’à ta prochaine mort</small>', 2800);
+        audio?.reward?.();
+      }
     } else if (msg.k === 'med') {
       if (meds[msg.i]) meds[msg.i].gone = performance.now() + 1500;
       if (msg.id === getMyId()) {
@@ -639,6 +688,7 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     updateZone();
     updateMeds(performance.now());
     drawRadar(performance.now());
+    updateCrate(performance.now());
     updateBases();
   });
 

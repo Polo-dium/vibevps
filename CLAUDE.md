@@ -365,6 +365,11 @@ npm start          # serveur de prod (sert client/dist)
     (tireur déduit de l'origine du message `shot`) ou sous drone-pigeon.
     Explosion de grenade : `blast` dans nades.js (éclair, boule de feu, onde
     au sol, fumée, trace de brûlé — sprites additifs, aucun éclairage).
+    Caisse du Gros Caillou (`CRATE`, `tickCrate`, champ `c`, `aevt`
+    `crate`) : au pied de la statue 25 s après le début de la manche puis
+    50 s après chaque ramassage ; le joueur qui passe dessus reçoit le
+    minigun jusqu'à sa mort (`special` dans arenaMatch.js → `setLoadout`,
+    ses autres armes restent). Pas en snipers / couteaux, pas pour les bots.
   - MORT : RAGDOLL des avatars (`ragdollStart/Step/Stop` dans avatars.js) —
     15 points reliés par des tiges (Verlet, gravité, sol, frottement), tronc
     contreventé ; le groupe est tourné/déplacé pour suivre le tronc, chaque

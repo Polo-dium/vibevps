@@ -845,6 +845,7 @@ export function createWeapon(camera, scene, shootables, {
     give,
     equip,
     setLoadout,
+    get ownedIds() { return [...owned]; }, // (arène : caisse d'arme spéciale)
     cycle,
     // side 'r' (défaut) = détente principale, 'l' = pistolet gauche akimbo
     setTrigger(down, side = 'r') {

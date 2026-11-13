@@ -1,4 +1,4 @@
-import { ARENA, arenaBoxes, BASES, TEAM_SPAWNS, FFA_SPAWNS, MEDS } from '../../shared/arena-layout.js';
+import { ARENA, arenaBoxes, BASES, TEAM_SPAWNS, FFA_SPAWNS, MEDS, CRATE } from '../../shared/arena-layout.js';
 import { NADE, stepNade } from '../../shared/arena-nade.js';
 
 // ARÈNE DE BELLECOUR — MATCHS ET BOTS (autoritatif, côté serveur)
@@ -348,6 +348,7 @@ export function createArena({ players, broadcast, q }) {
     const m = MODE_INFO[mode] ? mode : 'ffa';
     cfg.mode = m;
     nextMode = null;
+    crate.at = now + 25000;
     round = {
       mode: m, st: 'play', endAt: now + MODE_INFO[m].dur * 1000, sc: [0, 0], win: null,
       flags: m === 'ctf' ? BASES.map((b) => ({ st: 0, x: b.x, z: b.z, by: null, dropAt: 0 })) : null,
@@ -415,6 +416,7 @@ export function createArena({ players, broadcast, q }) {
       f: round.flags?.map((f) => [f.st, Math.round(f.x * 10) / 10, Math.round(f.z * 10) / 10, f.by]) ?? null,
       z: round.zone ? [Math.round(round.zone.x * 10) / 10, Math.round(round.zone.z * 10) / 10, ZONE_R, round.zone.owner, Math.max(0, Math.ceil((round.zone.moveAt - now) / 1000))] : null,
       m: meds.map((m) => (now >= m.at ? 1 : 0)),
+      c: crateOn(now) ? 1 : 0,
       cfg: { ...cfg, next: nextMode },
     });
   }
@@ -442,6 +444,27 @@ export function createArena({ players, broadcast, q }) {
         m.at = now + MED_BACK;
         break;
       }
+    }
+  }
+
+  // --- Caisse du Gros Caillou ----------------------------------------------------
+  // Au pied de la statue : la première fois 25 s après le début de la manche,
+  // puis 50 s après chaque ramassage. Le premier JOUEUR qui passe dessus
+  // reçoit le minigun pour sa vie en cours (côté client : `aevt` `crate`).
+  // Pas en modes snipers / couteaux. Champ `c` de l'instantané `arena`.
+  const crate = { at: Infinity };
+  const crateOn = (now) => round?.st === 'play' && round.mode !== 'sniper' && round.mode !== 'couteau' && now >= crate.at;
+  function tickCrate(now) {
+    if (!crateOn(now)) return;
+    for (const p of parts.values()) {
+      if (p.bot) continue;
+      const e = players.get(p.id);
+      if (!e || e.hp <= 0) continue;
+      const q = posOf(p);
+      if (!q || Math.hypot(q.x - CRATE.x, q.z - CRATE.z) > 1.8) continue;
+      crate.at = now + 50000;
+      sendArena({ t: 'aevt', k: 'crate', id: p.id, name: p.name });
+      break;
     }
   }
 
@@ -1008,6 +1031,7 @@ export function createArena({ players, broadcast, q }) {
         if (round.zone) tickZone(now);
         tickNades(now);
         tickMeds(now);
+        tickCrate(now);
         const top = info().teams ? Math.max(round.sc[0], round.sc[1])
           : Math.max(0, ...[...parts.values()].map((p) => p.k));
         if (now >= round.endAt || top >= info().lim) endRound(now);

@@ -94,6 +94,9 @@ export const WALK_W = 1.5, WALK_T = 0.18, STEP_D = 0.6, STEP_H = 0.53, STEP_W = 
 // Rosettes de soin (+50 PV, reviennent 25 s après avoir été prises) : dans
 // les allées, à égale distance des deux bases
 export const MEDS = [[-36, 27], [36, -27], [-18, 16], [18, -16]];
+// Caisse du Gros Caillou : l'arme spéciale (minigun pour une vie), au pied
+// de Louis XIV — point chaud au centre de la carte
+export const CRATE = { x: 0, z: 6.5 };
 // Console de match et tableau des meilleurs (près du portail, au sud)
 export const CONSOLE = { x: 6.5, z: 38.5 };
 export const PORTAL = { x: 0, z: ARENA.D / 2 - 12 };
