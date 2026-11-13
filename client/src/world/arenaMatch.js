@@ -376,11 +376,11 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
 
   // --- Bases au sol : bleu = la tienne, rouge = celle d'en face (modes par équipes) ---
   const baseMats = BASES.map(() => new THREE.MeshBasicMaterial({
-    color: 0xffffff, transparent: true, opacity: 0.22, depthWrite: false,
+    color: 0xffffff, transparent: true, opacity: 0.1, depthWrite: false,
     polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
   }));
   const basePads = BASES.map((b, i) => {
-    const pad = new THREE.Mesh(new THREE.PlaneGeometry(13, 34), baseMats[i]);
+    const pad = new THREE.Mesh(new THREE.PlaneGeometry(11, 26), baseMats[i]);
     pad.rotation.x = -Math.PI / 2;
     pad.position.set(OX + b.x, 0.07, b.z);
     pad.visible = false;

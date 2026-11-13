@@ -370,7 +370,8 @@ npm start          # serveur de prod (sert client/dist)
     contreventé ; le groupe est tourné/déplacé pour suivre le tronc, chaque
     os de membre est pointé le long de sa tige (`aimWorld`). Piloté par
     `fall(id, by)` de remotes.js pendant 2,6 s (les humains sculptés gardent
-    la bascule). Pas de collision avec les murs. `render/gore.js` : gerbes de
+    la bascule) et par killcam.js pour son propre corps. Pas de collision
+    avec les murs. `render/gore.js` : gerbes de
     sang (Points recyclés) à chaque touche, flaque sous le corps (2 draw
     calls ; `localStorage lyon_gore = '0'` coupe). `audio.scream(vol,
     variante)` : cri synthétisé (dents de scie + 3 formants), 5 variantes.

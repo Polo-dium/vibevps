@@ -112,6 +112,7 @@ export function createKillcam(ctx, { camera, remotes, controls, net, fx, getName
   function stop() {
     if (!active) return;
     const { onDone, wasOverlay } = active;
+    if (active.rag) { ghost.ragdollStop?.(); ghost.group.rotation.set(0, 0, 0); }
     active = null;
     state.overlayOpen = wasOverlay;
     state.killcam = false;
@@ -154,10 +155,27 @@ export function createKillcam(ctx, { camera, remotes, controls, net, fx, getName
     // Moi : le fantôme marche jusqu'au coup fatal, puis s'écroule
     sample(mine, Math.min(sim, active.t0), _m);
     const gh = ghost.group;
-    gh.position.set(_m.x, _m.y, _m.z);
-    gh.rotation.y = _m.ry;
-    const fall = Math.max(0, Math.min(1, (sim - active.t0) / 0.45));
-    gh.rotation.x = -fall * fall * 1.45;
+    // Coup fatal : RAGDOLL (comme les autres combattants), poussé dans le
+    // sens du tir ; à défaut d'avatar, l'ancienne bascule en arrière.
+    if (sim >= active.t0 && !active.rag && !active.ragTried) {
+      active.ragTried = true;
+      gh.position.set(_m.x, _m.y, _m.z);
+      gh.rotation.set(0, _m.ry, 0);
+      let dx = Math.sin(_m.ry), dz = Math.cos(_m.ry);
+      if (sample(tracks.get(active.killerId), sim, _k)) { dx = _m.x - _k.x; dz = _m.z - _k.z; }
+      const l = Math.hypot(dx, dz) || 1;
+      active.rag = Boolean(ghost.ragdollStart?.(dx / l, dz / l));
+      active.ragT = sim;
+    }
+    if (active.rag) {
+      ghost.ragdollStep(Math.max(0, Math.min(0.25, sim - active.ragT)), _m.y);
+      active.ragT = sim;
+    } else {
+      gh.position.set(_m.x, _m.y, _m.z);
+      gh.rotation.y = _m.ry;
+    }
+    const fall = active.rag ? 0 : Math.max(0, Math.min(1, (sim - active.t0) / 0.45));
+    if (!active.rag) gh.rotation.x = -fall * fall * 1.45;
     gh.rotation.order = 'YXZ';
     // vitesse d'alors (pour marcher ou courir comme à ce moment-là)
     const v = Math.hypot(_m.x - (active.px ?? _m.x), _m.z - (active.pz ?? _m.z)) / Math.max(0.001, sim - active.lastSim);
@@ -165,7 +183,7 @@ export function createKillcam(ctx, { camera, remotes, controls, net, fx, getName
     active.v = (active.v ?? 0) * 0.8 + Math.min(v, 12) * 0.2;
     gh.userData.baseY = _m.y;
     gh.position.y += fall * 0.12;
-    try { ghost.animate(sim * 9, fall > 0 ? 0 : active.v * 2.6); } catch { /* avatar sans animation */ }
+    if (!active.rag) { try { ghost.animate(sim * 9, fall > 0 ? 0 : active.v * 2.6); } catch { /* avatar sans animation */ } }
 
     // Caméra par-dessus l'épaule du tireur, braquée sur moi
     if (sample(tracks.get(active.killerId), sim, _k)) {

@@ -333,7 +333,7 @@ export async function buildAvatar(name0, { seated = false } = {}) {
   }
   function ragStep(dt, gy) {
     if (!rag.on) return;
-    rag.acc = Math.min(0.1, rag.acc + dt);
+    rag.acc = Math.min(0.25, rag.acc + dt); // jusqu'à 15 pas d'un coup : la chute ne ralentit pas à bas débit d'images
     while (rag.acc >= 1 / 60) { ragSim(gy); rag.acc -= 1 / 60; }
     const P = rag.p;
     // tronc : rotation du groupe = (repère actuel) × (repère au départ)⁻¹

@@ -1570,6 +1570,7 @@ body.aircraft-touch-mode #hud-compass { display: none; }
   width: 132px; height: 132px; opacity: 0.92;
 }
 #arena-radar.hidden { display: none; }
+body.diag-open #arena-radar { top: 196px; }
 @media (max-height: 520px) { #arena-radar { width: 96px; height: 96px; top: 74px; } }
 #arena-feed {
   position: absolute; right: 16px; top: 34%;

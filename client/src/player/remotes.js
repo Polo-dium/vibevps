@@ -320,7 +320,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
       if (dead) {
         if (r.rag) {
           // ragdoll : le groupe et les os sont pilotés par la simulation
-          r.human.ragdollStep(Math.min(0.05, nowSec - r.ragLast), r.deadPos.y);
+          r.human.ragdollStep(Math.min(0.25, nowSec - r.ragLast), r.deadPos.y);
           r.ragLast = nowSec;
           if (r.weapon) r.weapon.visible = false; // l'arme ne reste pas plantée en l'air
         } else {

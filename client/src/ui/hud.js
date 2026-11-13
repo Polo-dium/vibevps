@@ -338,9 +338,11 @@ export function createUi() {
   // rendu — de quoi savoir ce qui coûte sur l'appareil qu'on a en main.
   let diagOn = false;
   try { diagOn = localStorage.getItem('lyon_diag') === '1'; } catch { /* stockage indisponible */ }
+  document.body.classList.toggle('diag-open', diagOn); // le radar de l'arène descend sous le diagnostic
   const toggleDiag = (e) => {
     e.preventDefault();
     diagOn = !diagOn;
+    document.body.classList.toggle('diag-open', diagOn);
     try { localStorage.setItem('lyon_diag', diagOn ? '1' : '0'); } catch { /* stockage indisponible */ }
     toast(diagOn ? '🔧 Diagnostic affiché (toucher de nouveau pour le replier).' : '🔧 Diagnostic replié.');
   };
