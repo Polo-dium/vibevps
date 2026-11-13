@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { state } from '../state.js';
-import { ARENA, BASES, CONSOLE, PORTAL } from '../../../shared/arena-layout.js';
+import { ARENA, BASES, CONSOLE, MEDS, PORTAL } from '../../../shared/arena-layout.js';
 
 // MATCHS DE L'ARÈNE — côté client. Le serveur (server/src/arena.js) simule
 // les bots et arbitre tout ; ici on ne fait qu'AFFICHER et RÉGLER :
@@ -236,6 +236,71 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     zoneMat.opacity = 0.16 + 0.06 * Math.sin(performance.now() / 300);
   }
 
+  // --- Rosettes de soin : caisse blanche à croix verte qui tourne, halo additif ---
+  const medGeo = new THREE.BoxGeometry(0.62, 0.42, 0.42);
+  const medMat = new THREE.MeshLambertMaterial({ color: 0xf2f0e8 });
+  const crossMat = new THREE.MeshBasicMaterial({ color: 0x35d06a });
+  const haloMat = new THREE.MeshBasicMaterial({
+    color: 0x35d06a, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending,
+    depthWrite: false, side: THREE.DoubleSide,
+  });
+  const meds = MEDS.map(([x, z]) => {
+    const g = new THREE.Group();
+    g.name = 'rosette';
+    const caisse = new THREE.Mesh(medGeo, medMat);
+    g.add(caisse);
+    for (const [w, h] of [[0.3, 0.1], [0.1, 0.3]]) {
+      for (const sz of [-1, 1]) {
+        const c = new THREE.Mesh(new THREE.PlaneGeometry(w, h), crossMat);
+        c.position.z = sz * 0.212;
+        if (sz < 0) c.rotation.y = Math.PI;
+        g.add(c);
+      }
+    }
+    const halo = new THREE.Mesh(new THREE.RingGeometry(0.75, 0.95, 24), haloMat);
+    halo.rotation.x = -Math.PI / 2;
+    halo.position.set(OX + x, 0.09, z);
+    halo.userData.noShadow = true;
+    g.position.set(OX + x, 0.75, z);
+    g.visible = halo.visible = false;
+    ctx.scene.add(g, halo);
+    return { g, halo, gone: 0 };
+  });
+  function updateMeds(now) {
+    const on = Boolean(ctx.inHiFi && snap?.m && snap.st === 'play');
+    meds.forEach((m, i) => {
+      // `gone` : ramassage annoncé à l'instant, sans attendre l'instantané (1/s)
+      const vis = on && snap.m[i] === 1 && now > m.gone;
+      m.g.visible = m.halo.visible = vis;
+      if (!vis) return;
+      m.g.rotation.y = now / 700 + i;
+      m.g.position.y = 0.75 + 0.08 * Math.sin(now / 420 + i);
+    });
+    haloMat.opacity = 0.28 + 0.12 * Math.sin(now / 300);
+  }
+
+  // --- Bases au sol : bleu = la tienne, rouge = celle d'en face (modes par équipes) ---
+  const baseMats = BASES.map(() => new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.22, depthWrite: false,
+    polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
+  }));
+  const basePads = BASES.map((b, i) => {
+    const pad = new THREE.Mesh(new THREE.PlaneGeometry(13, 34), baseMats[i]);
+    pad.rotation.x = -Math.PI / 2;
+    pad.position.set(OX + b.x, 0.07, b.z);
+    pad.visible = false;
+    pad.userData.noShadow = true;
+    ctx.scene.add(pad);
+    return pad;
+  });
+  function updateBases() {
+    const on = Boolean(ctx.inHiFi && snap?.teams && myTeam >= 0);
+    basePads.forEach((pad, i) => {
+      pad.visible = on;
+      if (on) baseMats[i].color.setHex(isAlly(i) ? 0x2f76f0 : 0xe23a2e);
+    });
+  }
+
   // --- Tableau des meilleurs, au-dessus du portail ---------------------------------
   const lbCanvas = document.createElement('canvas');
   lbCanvas.width = 1024; lbCanvas.height = 512;
@@ -420,6 +485,12 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
       audio?.reward?.();
     } else if (msg.k === 'zone') {
       feed('◎ La zone se déplace !');
+    } else if (msg.k === 'med') {
+      if (meds[msg.i]) meds[msg.i].gone = performance.now() + 1500;
+      if (msg.id === getMyId()) {
+        feed('🥓 Rosette avalée : +50 PV');
+        audio?.reward?.();
+      }
     } else if (msg.k === 'streak') {
       // SÉRIES D'ÉLIMINATIONS : 3 = drone-pigeon, 5 = frappe de quenelles, 7 = armure de canut
       const mine = msg.id === getMyId();
@@ -471,6 +542,8 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     }
     updateFlags(dt);
     updateZone();
+    updateMeds(performance.now());
+    updateBases();
   });
 
   return { get snap() { return snap; }, openConsole: () => toggleConsole(true) };

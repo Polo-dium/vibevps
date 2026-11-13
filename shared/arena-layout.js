@@ -78,6 +78,9 @@ export const FFA_SPAWNS = [
   [-72, -24], [72, 24], [-72, 26], [72, -26], [0, 28], [0, -28], [-36, 27], [36, -27],
   [-34, -27], [34, 27], [-56, 0], [56, 0], [-18, 16], [18, -16],
 ];
+// Rosettes de soin (+50 PV, reviennent 25 s après avoir été prises) : dans
+// les allées, à égale distance des deux bases
+export const MEDS = [[-36, 27], [36, -27], [-18, 16], [18, -16]];
 // Console de match et tableau des meilleurs (près du portail, au sud)
 export const CONSOLE = { x: 6.5, z: 38.5 };
 export const PORTAL = { x: 0, z: ARENA.D / 2 - 12 };

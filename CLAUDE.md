@@ -350,6 +350,12 @@ npm start          # serveur de prod (sert client/dist)
     champ `z` de l'instantané `arena`). Escalade : en l'air contre un rebord
     à moins de 1,3 m au-dessus des pieds, `controls.js` donne un second élan
     (on grimpe sur un conteneur en sautant contre lui).
+    Rosettes de soin (`MEDS` dans arena-layout.js) : +50 PV au premier
+    blessé qui passe dessus, retour 25 s après (`tickMeds`, champ `m` de
+    l'instantané `arena`, `aevt` `med`, message `hp` avec `regen`) ; les bots
+    sous 45 PV vont en chercher une (sauf en facile). Bases peintes au sol en
+    modes par équipes (bleu = la sienne). Nuit : plancher de lumière
+    « projecteurs » dans `updateEnvironment` quand `ctx.inHiFi`.
   - MANIEMENT : `weapon.js` `HANDLING` (dispersion, recul, zoom de visée par
     arme) — visée à l'épaule (clic droit / bouton VISER), dispersion qui
     grossit en rafale / en courant / en l'air et se resserre accroupi ou à

@@ -1,4 +1,4 @@
-import { ARENA, arenaBoxes, BASES, TEAM_SPAWNS, FFA_SPAWNS } from '../../shared/arena-layout.js';
+import { ARENA, arenaBoxes, BASES, TEAM_SPAWNS, FFA_SPAWNS, MEDS } from '../../shared/arena-layout.js';
 import { NADE, stepNade } from '../../shared/arena-nade.js';
 
 // ARÈNE DE BELLECOUR — MATCHS ET BOTS (autoritatif, côté serveur)
@@ -414,8 +414,35 @@ export function createArena({ players, broadcast, q }) {
       b: [...parts.values()].map((p) => [p.id, p.name, p.team, p.k, p.d, p.bot ? 1 : 0, p.caps]),
       f: round.flags?.map((f) => [f.st, Math.round(f.x * 10) / 10, Math.round(f.z * 10) / 10, f.by]) ?? null,
       z: round.zone ? [Math.round(round.zone.x * 10) / 10, Math.round(round.zone.z * 10) / 10, ZONE_R, round.zone.owner, Math.max(0, Math.ceil((round.zone.moveAt - now) / 1000))] : null,
+      m: meds.map((m) => (now >= m.at ? 1 : 0)),
       cfg: { ...cfg, next: nextMode },
     });
+  }
+
+  // --- Rosettes de soin ----------------------------------------------------------
+  // Quatre caisses dans les allées : +50 PV au premier blessé qui passe
+  // dessus (joueur ou bot), de retour 25 s plus tard. État dans l'instantané
+  // `arena` (champ `m`), ramassage annoncé par `aevt` `med`.
+  const MED_HEAL = 50, MED_BACK = 25000;
+  const meds = MEDS.map(([x, z]) => ({ x, z, at: 0 }));
+  function tickMeds(now) {
+    for (let i = 0; i < meds.length; i++) {
+      const m = meds[i];
+      if (now < m.at) continue;
+      for (const p of parts.values()) {
+        const e = p.bot ? null : players.get(p.id);
+        const hp = p.bot ? (p.alive ? p.hp : 0) : (e?.hp ?? 0);
+        if (hp <= 0 || hp >= 100) continue;
+        const q = posOf(p);
+        if (!q || Math.hypot(q.x - m.x, q.z - m.z) > 1.7) continue;
+        const nh = Math.min(100, hp + MED_HEAL);
+        if (p.bot) p.hp = nh; else e.hp = nh;
+        sendArena({ t: 'hp', id: p.id, hp: nh, regen: 1 });
+        sendArena({ t: 'aevt', k: 'med', i, id: p.id, name: p.name });
+        m.at = now + MED_BACK;
+        break;
+      }
+    }
   }
 
   // --- Zone à tenir ------------------------------------------------------------
@@ -747,6 +774,15 @@ export function createArena({ players, broadcast, q }) {
     return round.mode === 'sniper' ? WPN.sniper : round.mode === 'couteau' ? WPN.couteau : WPN.ak;
   }
   function chooseGoal(b, D, now) {
+    // amoché : la rosette libre la plus proche d'abord (pas les bots faciles)
+    if (b.hp < 45 && cfg.diff > 0) {
+      let best = null, bd = 45;
+      for (const m of meds) {
+        const d = Math.hypot(m.x - b.x, m.z - b.z);
+        if (now >= m.at && d < bd) { bd = d; best = m; }
+      }
+      if (best) return [best.x, best.z];
+    }
     if (round.zone) {
       // chacun vise un point à lui dans le cercle (pas tous au centre)
       const a = b.seed * Math.PI * 2, r = ZONE_R * 0.7 * ((b.seed * 7) % 1);
@@ -971,6 +1007,7 @@ export function createArena({ players, broadcast, q }) {
         if (round.flags) tickFlags(now);
         if (round.zone) tickZone(now);
         tickNades(now);
+        tickMeds(now);
         const top = info().teams ? Math.max(round.sc[0], round.sc[1])
           : Math.max(0, ...[...parts.values()].map((p) => p.k));
         if (now >= round.endAt || top >= info().lim) endRound(now);
