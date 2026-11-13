@@ -404,6 +404,10 @@ npm start          # serveur de prod (sert client/dist)
     même hauteur et descend pour que la ligne passe par l'œil. Une hausse
     doit laisser VOIR le guidon (œilleton en anneau, pas de bloc plein) ;
     tout nouveau modèle à visée ouverte doit avoir son entrée `SIGHTS`.
+    La ligne passe 3-4 mm AU-DESSUS du sommet du guidon (il ne cache pas le
+    point visé). Optiques (point rouge du M4) : tube CREUX
+    (`CylinderGeometry` ouvert, matériau `TUBE` double face), lentille
+    `LENS` quasi transparente, point `DOT` — jamais de cylindre plein.
     POSES DES AVATARS ARMÉS (`poseArmed`, avatars.js) par famille, choisie
     dans remotes.js : `fusil`, `double` (akimbo, dagues : une arme par main,
     support au milieu des mains), `melee` (épée, couteau, marteau, bâton),

@@ -106,12 +106,14 @@ const HANDLING = {
 // sur les modèles (u le long du canon, v la hauteur — voir weaponModels*.js).
 // La visée à l'épaule amène cette ligne dans l'axe de l'œil.
 const SIGHTS = {
-  ak: [0.362, 0.057, 0.6, 0.068],
+  // (la ligne passe 3-4 mm AU-DESSUS du sommet du guidon : il affleure sous
+  // le point visé sans le cacher ; œilletons : centre de l'anneau)
+  ak: [0.362, 0.061, 0.6, 0.0715],
   m16: [0.07, 0.091, 0.682, 0.091],
   m4: [0.09, 0.073, 0.2, 0.073],       // axe du point rouge
-  mp5: [0.045, 0.066, 0.5, 0.076],
+  mp5: [0.045, 0.067, 0.5, 0.074],
   famas: [-0.037, 0.068, 0.3, 0.068],
-  kar98k: [0.3, 0.037, 0.75, 0.03],
+  kar98k: [0.26, 0.044, 0.75, 0.034],
 };
 
 // Prises en main, par arme (repère du porte-arme, voir weaponModels.js) :

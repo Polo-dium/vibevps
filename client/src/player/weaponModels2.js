@@ -8,6 +8,12 @@ import { kit, triggerGuard } from './weaponModels.js';
 // les u positifs), v la hauteur (0 = axe du canon) — par profils extrudés
 // et biseautés, puis fusion par matériau (2 à 4 draw calls par arme).
 
+// Optiques : paroi de tube vue des deux côtés, lentille quasi transparente,
+// point rouge lumineux
+const TUBE = new THREE.MeshStandardMaterial({ color: 0x141517, metalness: 0.6, roughness: 0.5, side: THREE.DoubleSide });
+const LENS = new THREE.MeshBasicMaterial({ color: 0x9fc4d8, transparent: true, opacity: 0.08, depthWrite: false });
+const DOT = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
+
 // Chargeur droit ou courbe : axe échantillonné, comme celui de l'AK
 function magazine(k, mat, { u = 0.2, w = 0.03, len = 0.16, curve = 0.02, top = -0.03, half = 0.028 }) {
   const back = [], front = [];
@@ -59,7 +65,7 @@ export function buildM16Model() {
   // canon, tour de guidon, tenon de baïonnette, cache-flamme
   k.tube(0.0095, 0.3, 0.86, 0, dark);
   k.prof([[0.66, -0.012], [0.7, -0.012], [0.692, 0.07], [0.672, 0.07]], 0.018, black, 0, { bevel: 0.002 });
-  k.box(0.679, 0.685, 0.07, 0.092, 0.004, dark);
+  k.box(0.679, 0.685, 0.07, 0.087, 0.003, dark); // guidon : 4 mm sous la ligne de mire
   k.box(0.7, 0.725, -0.022, -0.012, 0.012, black);
   flashHider(k, black, dark, 0.85);
   // chargeur, poignée, pontet
@@ -89,8 +95,12 @@ export function buildM4Model() {
   k.prof([[0.37, -0.036], [0.41, -0.036], [0.405, -0.125], [0.375, -0.125]], 0.028, tan, 0, { bevel: 0.006, segments: 3 });
   // viseur point rouge : embase, tube, lentille
   k.box(0.1, 0.19, 0.037, 0.05, 0.03, dark);
-  k.tube(0.021, 0.09, 0.2, 0.073, black, 0, 14);
-  k.tube(0.0185, 0.196, 0.202, 0.073, PBR.glass(0xa02a1c), 0, 14);
+  // tube CREUX (ouvert aux deux bouts, paroi visible dedans) : on vise au
+  // travers ; lentille presque invisible et point rouge au centre
+  k.place(new THREE.CylinderGeometry(0.021, 0.021, 0.11, 18, 1, true), TUBE, 0, 0.073, -0.145, Math.PI / 2);
+  for (const u of [0.09, 0.2]) k.place(new THREE.TorusGeometry(0.021, 0.0025, 6, 18), black, 0, 0.073, -u);
+  k.place(new THREE.CircleGeometry(0.0195, 18), LENS, 0, 0.073, -0.196);
+  k.place(new THREE.CircleGeometry(0.0011, 8), DOT, 0, 0.073, -0.195);
   k.place(new THREE.CylinderGeometry(0.008, 0.008, 0.016, 8), dark, 0, 0.1, -0.145);
   // canon court, guidon rabattable, cache-flamme
   k.tube(0.0095, 0.3, 0.68, 0, dark);
@@ -136,7 +146,7 @@ export function buildMp5Model() {
   // tour de guidon : anneau protecteur + guidon, à cheval sur le tube
   k.prof([[0.488, 0.03], [0.512, 0.03], [0.508, 0.062], [0.492, 0.062]], 0.03, black, 0, { bevel: 0.002 });
   k.place(new THREE.TorusGeometry(0.0125, 0.0035, 6, 16), black, 0, 0.074, -0.5, 0, Math.PI / 2);
-  k.box(0.498, 0.502, 0.062, 0.078, 0.003, dark);
+  k.box(0.498, 0.502, 0.062, 0.071, 0.003, dark);
   // garde-main « tropical » : large, galbé, strié
   k.prof([[0.31, -0.018], [0.33, -0.042], [0.47, -0.046], [0.49, -0.03], [0.49, 0.026], [0.31, 0.026]], 0.05, poly, 0, { bevel: 0.011, segments: 3 });
   for (let u = 0.34; u < 0.47; u += 0.022) k.box(u, u + 0.007, -0.045, -0.01, 0.0515, dark);
@@ -183,7 +193,7 @@ export function buildFamasModel() {
   }
   k.prof([...arc(-0.07, 0.34, 0.082, 0.03), ...arc(-0.05, 0.32, 0.076, 0.022).reverse()], 0.024, body, 0, { bevel: 0.003 });
   k.place(new THREE.TorusGeometry(0.0065, 0.002, 6, 14), dark, 0, 0.068, 0.037); // œilleton (anneau)
-  k.box(0.297, 0.303, 0.04, 0.068, 0.003, dark);                       // guidon (sommet sur la ligne de mire)
+  k.box(0.297, 0.303, 0.04, 0.064, 0.003, dark);                       // guidon (sommet 4 mm sous la ligne de mire)
   k.prof([[0.1, 0.03], [0.18, 0.03], [0.17, 0.052], [0.11, 0.052]], 0.014, dark, 0, { bevel: 0.002 }); // levier d'armement sous l'arche
   // canon, bagues de lance-grenades, cache-flamme
   k.tube(0.0095, 0.4, 0.64, 0, dark);
