@@ -74,6 +74,23 @@ function wrap(model, at, parts) {
     c.position.sub(pivot.position);
   }
   model.add(pivot);
+  // Pointe de la lame (sommet le plus loin du poing) : la traînée part de là
+  pivot.updateMatrixWorld(true);
+  const inv = pivot.matrixWorld.clone().invert(), m = new THREE.Matrix4(), v = new THREE.Vector3();
+  let best = 0;
+  const tip = new THREE.Vector3();
+  for (const c of parts) c.traverse((o) => {
+    const pos = o.geometry?.attributes?.position;
+    if (!pos) return;
+    m.multiplyMatrices(inv, o.matrixWorld);
+    const step = Math.max(1, Math.floor(pos.count / 400));
+    for (let i = 0; i < pos.count; i += step) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m);
+      const d = v.lengthSq();
+      if (d > best) { best = d; tip.copy(v); }
+    }
+  });
+  pivot.userData.tip = tip;
   return pivot;
 }
 
@@ -103,7 +120,63 @@ export function pivotize(id, model, grips) {
 }
 
 // Animation : un état par main
-export function createMeleeAnimator() {
+// TRAÎNÉE DE LAME : ruban additif entre la pointe et le tiers de la lame,
+// échantillonné à chaque image pendant la frappe, qui s'efface en 0,12 s
+// (repère caméra ; 1 draw call par main, seulement pendant le geste)
+const TRAIL_N = 14, TRAIL_LIFE = 0.12;
+function makeTrail(camera, color) {
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(TRAIL_N * 2 * 3), col = new Float32Array(TRAIL_N * 2 * 3);
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const idx = [];
+  for (let i = 0; i < TRAIL_N - 1; i++) {
+    const a = i * 2;
+    idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+  }
+  geo.setIndex(idx);
+  const mat = new THREE.MeshBasicMaterial({
+    vertexColors: true, transparent: true, blending: THREE.AdditiveBlending,
+    depthWrite: false, side: THREE.DoubleSide, fog: false,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 5;
+  mesh.visible = false;
+  camera.add(mesh);
+  const samples = []; // { tip, base, age }
+  const c = new THREE.Color(color);
+  const _t = new THREE.Vector3(), _b = new THREE.Vector3();
+  return {
+    // active : la lame frappe ; pv : son pivot
+    step(dt, active, pv) {
+      for (const sm of samples) sm.age += dt;
+      while (samples.length && samples[samples.length - 1].age > (globalThis.__trailLife ?? TRAIL_LIFE)) samples.pop();
+      if (active && pv?.userData.tip) {
+        pv.updateMatrixWorld(true);
+        _t.copy(pv.userData.tip);
+        _b.copy(_t).multiplyScalar(0.4);
+        pv.localToWorld(_t); pv.localToWorld(_b);
+        camera.worldToLocal(_t); camera.worldToLocal(_b);
+        samples.unshift({ tip: _t.clone(), base: _b.clone(), age: 0 });
+        if (samples.length > TRAIL_N) samples.pop();
+      }
+      mesh.visible = samples.length > 1;
+      if (!mesh.visible) return;
+      for (let i = 0; i < TRAIL_N; i++) {
+        const sm = samples[Math.min(i, samples.length - 1)];
+        const f = i < samples.length ? Math.max(0, 1 - sm.age / (globalThis.__trailLife ?? TRAIL_LIFE)) * (1 - i / TRAIL_N) : 0;
+        pos.set([sm.tip.x, sm.tip.y, sm.tip.z, sm.base.x, sm.base.y, sm.base.z], i * 6);
+        col.set([c.r * f * 0.55, c.g * f * 0.55, c.b * f * 0.55, 0, 0, 0], i * 6);
+      }
+      geo.attributes.position.needsUpdate = true;
+      geo.attributes.color.needsUpdate = true;
+    },
+  };
+}
+
+export function createMeleeAnimator(camera = null) {
+  const trails = camera ? { R: makeTrail(camera, 0xcfe6ff), L: makeTrail(camera, 0xcfe6ff) } : null;
   const hands = { R: { t: 1, atk: null, last: -1, at: -10 }, L: { t: 1, atk: null, last: -1, at: -10 } };
   let side = 'L';
   globalThis.__meleeHands = hands; globalThis.__meleeAtk = ATTACKS; // ?debug
@@ -155,8 +228,9 @@ export function createMeleeAnimator() {
       const pv = pivots?.[s];
       if (globalThis.__meleeT != null && h.atk && h.at > 0) h.t = globalThis.__meleeT; // ?debug : geste figé
       else if (h.t < 1 && h.atk) h.t = Math.min(1, h.t + dt / h.atk.dur);
-      if (!pv) continue;
-      if (h.t >= 1 || !h.atk) {
+      if (!pv || h.t >= 1 || !h.atk) {
+        trails?.[s].step(dt, false, null);
+        if (!pv) continue;
         pv.position.copy(pv.userData.home);
         pv.quaternion.identity();
         continue;
@@ -166,6 +240,7 @@ export function createMeleeAnimator() {
       pv.position.x += pose.p[0]; pv.position.y += pose.p[1]; pv.position.z += pose.p[2];
       tmpE.set(pose.r[0], pose.r[1], pose.r[2], 'YXZ');
       pv.quaternion.copy(tmpQ.setFromEuler(tmpE));
+      trails?.[s].step(dt, h.t > 0.3 && h.t < 0.66, pv);
       lunge = Math.max(lunge, Math.sin(Math.min(1, h.t / 0.6) * Math.PI));
     }
     return lunge;

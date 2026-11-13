@@ -192,6 +192,13 @@ const GRIPS = {
 // main.js et remotes.js) : indice+1, 0 réservé à « pas d'arme en main ».
 // Ordre figé — ne jamais réordonner (casserait la compat avec les clients
 // déjà connectés), n'ajouter qu'à la fin.
+// Geste de la main gauche au rechargement (arms.js reloadHand) : chargeur
+// arraché puis claqué, cartouche par le dessus, ou glissée sous le boîtier
+const RELOAD_KIND = {
+  ak: 'mag', mp5: 'mag', m16: 'mag', m4: 'mag', famas: 'bullpup', sniper: 'mag',
+  kar98k: 'top', kar98ks: 'top', pompe: 'tube',
+};
+
 export const WEAPON_IDS = ['ak', 'marteau', 'pompe', 'minigun', 'bazooka', 'akimbo', 'baton', 'sniper', 'couteau',
   'mp5', 'm16', 'm4', 'famas', 'kar98k', 'epee', 'dagues', 'lance', 'kar98ks'];
 // PRISES DE L'ARSENAL DE L'ARÈNE, relevées sur chaque modèle (weaponModels2.js) :
@@ -219,7 +226,7 @@ export function createWeapon(camera, scene, shootables, {
   holder.visible = false;
   camera.add(holder);
   const models = {};
-  const meleeAnim = createMeleeAnimator();
+  const meleeAnim = createMeleeAnimator(camera);
   let curId = 'ak';
   let spec = WEAPONS.ak;
   const owned = ['ak'];
@@ -233,6 +240,7 @@ export function createWeapon(camera, scene, shootables, {
   }
   modelFor('ak').visible = true;
   holder.userData.grips = GRIPS.ak; // l'AK de départ n'appelle pas select()
+  holder.userData.reloadKind = 'mag';
 
   const raycaster = new THREE.Raycaster();
   raycaster.far = spec.range;
@@ -253,6 +261,10 @@ export function createWeapon(camera, scene, shootables, {
   let boltT = 0, swingSide = 1; // verrou du Kar98k en cours, main des dagues
   let recoil = 0;
   let swing = 0; // coup de marteau en cours (1 → 0)
+  // INERTIE de l'arme (elle traîne derrière les mouvements de la tête),
+  // sortie de l'arme (1 → 0) et tassement à l'atterrissage (1 → 0)
+  let swayYaw = 0, swayPitch = 0, lastYaw = null, lastPitch = 0;
+  let drawT = 0, landT = 0, wasAir = false;
   let bobTime = 0;
 
   // Flash de bouche
@@ -532,8 +544,10 @@ export function createWeapon(camera, scene, shootables, {
 
   function toggle(force) {
     setAiming(false); // ranger/sortir l'arme désarme toujours la lunette
+    const was = state.weaponEquipped;
     state.weaponEquipped = force ?? !state.weaponEquipped;
     holder.visible = state.weaponEquipped;
+    if (state.weaponEquipped && !was) drawT = 1; // l'arme remonte du bas de l'écran
     onAmmoChange(ammo, reloading > 0, spec);
   }
 
@@ -555,7 +569,10 @@ export function createWeapon(camera, scene, shootables, {
     // place de ses prises fusil par défaut).
     holder.userData.grips = GRIPS[id] ?? null;
     holder.userData.pivots = models[id].userData.pivots ?? null; // lames (melee.js)
+    holder.userData.reloadKind = RELOAD_KIND[id] ?? null; // geste de la main gauche (arms.js)
     toggle(true);
+    drawT = 1; // changement d'arme : la nouvelle sort du bas de l'écran
+    cooldown = Math.max(cooldown, 0.22);
     onWeaponChange?.(spec);
   }
 
@@ -639,6 +656,7 @@ export function createWeapon(camera, scene, shootables, {
         spawnImpact(hits[0].point);
         navigator.vibrate?.(24);
         if (curId === 'epee' || curId === 'dagues' || curId === 'lance') audio.bladeHit?.();
+        onKick?.(0.006, (Math.random() - 0.5) * 0.012); // le choc remonte dans le bras
       } else if (wallD <= spec.range) {
         spawnImpact(raycaster.ray.at(wallD, new THREE.Vector3())); // toc, le mur
       }
@@ -954,13 +972,46 @@ export function createWeapon(camera, scene, shootables, {
       adsZ = -sg[4] + sg[1] * s + sg[0] * c;
       sc = 1 + (ADS_SCALE - 1) * ads;
     }
+    // Inertie : l'arme garde un instant l'orientation d'avant (lacet et
+    // tangage), surtout hanche ; presque rien à l'épaule
+    const yawNow = camera.rotation.y, pitchNow = camera.rotation.x;
+    if (lastYaw != null && dt > 0) {
+      let dy = yawNow - lastYaw;
+      dy -= Math.round(dy / (Math.PI * 2)) * Math.PI * 2;
+      const dp = pitchNow - lastPitch;
+      const ky = Math.max(-0.11, Math.min(0.11, -dy * 1.6));
+      const kp = Math.max(-0.08, Math.min(0.08, -dp * 1.6));
+      swayYaw += (ky - swayYaw) * (1 - Math.exp(-dt * 6));
+      swayPitch += (kp - swayPitch) * (1 - Math.exp(-dt * 6));
+      swayYaw *= Math.exp(-dt * 5); swayPitch *= Math.exp(-dt * 5);
+    }
+    lastYaw = yawNow; lastPitch = pitchNow;
+    const sw = 1 - 0.85 * ads;
+    ry += swayYaw * sw; px += swayYaw * 0.12 * sw;
+    py += swayPitch * 0.1 * sw;
+    // Atterrissage : l'arme et les mains plongent puis remontent
+    if (wasAir && !moveState.air) landT = 1;
+    wasAir = moveState.air;
+    landT = Math.max(0, landT - dt * 3.2);
+    const land = Math.sin(landT * Math.PI) * (1 - 0.7 * ads);
+    py -= land * 0.035; rz += land * 0.03;
+    // Sortie de l'arme : elle remonte du bas, crosse d'abord, puis se cale
+    drawT = Math.max(0, drawT - dt * 3.4);
+    const dr = drawT * drawT * (3 - 2 * drawT);
+    py -= dr * 0.32; rz -= dr * 0.5; ry += dr * 0.25;
+    // Phase du rechargement pour arms.js (main gauche au chargeur)
+    holder.userData.reload = reloading > 0 && !spec.melee
+      ? (spec.roundReload
+        ? 1 - (reloading % spec.roundReload) / spec.roundReload
+        : 1 - reloading / (spec.reload || RELOAD_TIME))
+      : -1;
     holder.position.set(
       (spec.akimbo || spec.dual ? 0 : 0.26 * (1 - ads)) + bobX * calm + px,
       -0.24 + (adsY + 0.24) * ads - bobY * calm - reloadDip + lift + py,
       -0.45 + (adsZ + 0.45) * ads + recoil * 0.06 * (1 - 0.4 * ads) + pz
     ).multiplyScalar(sc);
     holder.scale.setScalar(sc);
-    holder.rotation.set(recoil * 0.09 * (1 - 0.6 * ads) - adsPitch * ads - reloadDip * 0.8 - swingTilt, ry, rz);
+    holder.rotation.set(recoil * 0.09 * (1 - 0.6 * ads) - adsPitch * ads - reloadDip * 0.8 - swingTilt + swayPitch * sw - dr * 0.9, ry, rz);
   }
 
   return {

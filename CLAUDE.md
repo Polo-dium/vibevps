@@ -442,6 +442,19 @@ npm start          # serveur de prod (sert client/dist)
     (gauche en miroir). Le porte-arme ne fait plus qu'un petit avancé.
     Portées : épée 4,9, dagues 3,7, lance 6,3, couteau 3,8, marteau 4,4,
     bâton 4,2. ?debug : `__meleeT` fige le geste, `__meleeHands`/`__meleeAtk`.
+    Traînée de lame : ruban additif pointe → 40 % de la lame (pointe =
+    sommet le plus loin du poing, `pivot.userData.tip`), 0,12 s, repère
+    caméra (`__trailLife` en ?debug). Coup au but : petit `onKick`.
+    VIE DE L'ARME (weapon.js) : inertie (lacet/tangage en retard sur la
+    tête, ~0 à l'épaule), sortie d'arme du bas de l'écran (`drawT`, 0,22 s
+    sans tir au changement), tassement à l'atterrissage (`landT`).
+    Rechargement : `holder.userData.reload` (phase 0 → 1) + `reloadKind`
+    (`RELOAD_KIND` : mag / bullpup FAMAS / top Kar98k / tube pompe) →
+    `reloadHand` d'arms.js promène la main gauche (puits, arraché, claqué).
+    Montre tactique au poignet gauche (cadran `DIAL`). Multi-éliminations
+    (arenaMatch.js, < 4 s) : doublé de gone, triplé lyonnais, quadruplette,
+    mâchon complet (bandeau + annonce). Banc d'essai : `state.pointerLocked =
+    true` pour tirer en headless (`gamepadActive` réécrit les détentes).
     DÉPLACEMENT (controls.js, 13/11/2026) : course 6,5 m/s (−35 %), saut
     8 m/s, gravité 17 (≈ 1,9 m), ACCEL 12 — « 10 m/s était injouable ».
     CLASSE (arenaMatch.js) : 2 armes parmi

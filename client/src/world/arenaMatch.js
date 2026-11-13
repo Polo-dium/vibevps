@@ -156,6 +156,12 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
       remotes.setTeam(id, foe ? 0 : 1, foe && performance.now() > revealUntil); // 0 = rouge (ennemi), 1 = bleu (allié)
     }
   }
+  let multiN = 0, multiAt = 0;
+  const MULTI = [null, null,
+    ['Doublé de gone !', 'deux d\'un coup'],
+    ['Triplé lyonnais !', 'le bouchon est servi'],
+    ['Quadruplette !', 'même Guignol applaudit'],
+    ['Mâchon complet !', 'personne ne t\'arrête']];
   let lastVictim = null; // dernier adversaire éliminé par le joueur (doigt d'honneur au doublé)
   let special = false; // minigun de la caisse du Gros Caillou (pour cette vie)
   // CLASSE : deux armes choisies dans l'arsenal de l'arène. On peut rouvrir
@@ -676,6 +682,15 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     if (!ctx.inHiFi) return;
     // Deux fois d'affilée le MÊME adversaire : doigt d'honneur
     if (msg.by === getMyId() && !msg.tk && msg.v !== getMyId()) {
+      // MULTI-ÉLIMINATIONS : chaque élimination à moins de 4 s de la précédente
+      const now = performance.now();
+      multiN = now - multiAt < 4000 ? multiN + 1 : 1;
+      multiAt = now;
+      const multi = MULTI[Math.min(multiN, MULTI.length - 1)];
+      if (multi) {
+        banner(`<small>${multiN} éliminations en 4 s</small>${multi[0]}<small>${multi[1]}</small>`, 1800);
+        audio?.announce?.(multi[0].replace(/[^\p{L}\s'!-]/gu, '').trim());
+      }
       if (msg.v === lastVictim) {
         ctx.flipOff?.();
         feed(`🖕 ${esc(msg.byName ?? 'Toi')} remet ça sur ${esc(msg.vName ?? '')}`);

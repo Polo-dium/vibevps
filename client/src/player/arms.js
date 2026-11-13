@@ -47,6 +47,9 @@ function mirror(pose) {
 // la longueur du bras.
 const HAND_LOCAL_Z = -0.35;
 
+// cadran de montre : vert phosphorescent, lisible la nuit
+const DIAL = new THREE.MeshBasicMaterial({ color: 0x1f4d3a });
+
 function buildArm(side, { finger = false } = {}) {
   const group = new THREE.Group();
   const sleeveMat = PBR.fabric(SLEEVE);
@@ -82,6 +85,11 @@ function buildArm(side, { finger = false } = {}) {
   // coque de protection sur les phalanges
   limb(0.041, 0.039, zWrist - 0.008, zWrist - 0.034, gloveMat, 14, 1.18, 0.88);
   add(new THREE.BoxGeometry(0.05, 0.006, 0.016), padMat, 0, 0.036, zWrist - 0.022);          // patte de serrage
+  if (side < 0 && !finger) { // montre tactique au poignet gauche, cadran phosphorescent
+    add(new THREE.TorusGeometry(0.047, 0.006, 5, 20), padMat, 0, 0, zWrist + 0.018, 0, 0, 0, 1.1, 0.9, 2.2);
+    add(new THREE.CylinderGeometry(0.017, 0.018, 0.011, 16), padMat, 0, 0.046, zWrist + 0.018);
+    add(new THREE.CylinderGeometry(0.0135, 0.0135, 0.002, 16), DIAL, 0, 0.0525, zWrist + 0.018);
+  }
   add(new THREE.CapsuleGeometry(0.036, 0.04, 4, 12), gloveMat, 0, 0, HZ, Math.PI / 2, 0, 0, 1.3, 1, 0.9); // paume + dos
   add(new THREE.SphereGeometry(0.03, 10, 8), gloveMat, side * -0.026, -0.012, HZ + 0.006, 0, 0, 0, 1, 0.8, 1.25); // éminence du pouce
   add(new THREE.BoxGeometry(0.078, 0.014, 0.03), padMat, 0, 0.034, HZ - 0.026);               // coque des phalanges
@@ -281,6 +289,28 @@ export function createArms(camera) {
     if (fingerT <= 0) { fingerArm.visible = false; left.visible = viewVisible; }
   }
 
+  // Trajet de la main gauche au rechargement (repère du porte-arme)
+  const _rh = [0, 0, 0];
+  function reloadHand(g, r, t, kind) {
+    const magZ = r[2] + (kind === 'bullpup' ? 0.19 : -0.13), magY = r[1] - 0.05; // FAMAS : chargeur derrière la poignée
+    let key;
+    if (kind === 'top') {        // cartouche poussée par le dessus (Kar98k)
+      key = [[0, g], [0.35, [r[0] - 0.03, r[1] + 0.07, r[2] - 0.1]], [0.6, [r[0] - 0.02, r[1] + 0.02, r[2] - 0.11]], [1, g]];
+    } else if (kind === 'tube') { // fusil à pompe : cartouche glissée sous le boîtier
+      key = [[0, g], [0.3, [-0.05, -0.2, magZ + 0.05]], [0.55, [0, -0.1, magZ - 0.05]], [1, g]];
+    } else {                      // chargeur : saisir, arracher, remettre, claquer
+      key = [[0, g], [0.18, [0, magY - 0.04, magZ]], [0.38, [-0.07, magY - 0.32, magZ + 0.08]],
+        [0.58, [-0.04, magY - 0.22, magZ + 0.04]], [0.72, [0, magY - 0.02, magZ]], [0.78, [0, magY + 0.01, magZ]], [1, g]];
+    }
+    let i = 1;
+    while (i < key.length - 1 && t > key[i][0]) i++;
+    const [t0, a] = key[i - 1], [t1, b] = key[i];
+    let k = Math.min(1, Math.max(0, (t - t0) / (t1 - t0)));
+    k = k * k * (3 - 2 * k);
+    for (let j = 0; j < 3; j++) _rh[j] = a[j] + (b[j] - a[j]) * k;
+    return _rh;
+  }
+
   // IK de l'avant-bras d'une arme blanche (voir update) — repère monde
   const _F = new THREE.Vector3(), _S = new THREE.Vector3(), _D = new THREE.Vector3();
   const _qa = new THREE.Quaternion(), _qr = new THREE.Quaternion(), _qp = new THREE.Quaternion();
@@ -381,8 +411,17 @@ export function createArms(camera) {
         const host = grip.cam ? camera : pv ?? weaponHolder;
         if (arm.parent !== host) host.add(arm);
         arm.rotation.set(...grip.rot);
+        // RECHARGEMENT : la main gauche quitte le garde-main, va au puits
+        // de chargeur, tire le vide vers le bas, revient avec le plein, le
+        // claque et regagne sa prise (balle par balle : le pouce au-dessus
+        // de la culasse à chaque cartouche)
+        let gp = grip.pos;
+        const rl = weaponHolder.userData.reload ?? -1;
+        if (arm === left && rl >= 0 && !pv && !grip.cam && weaponHolder.userData.reloadKind) {
+          gp = reloadHand(grip.pos, (custom?.r ?? GRIP_R).pos, rl, weaponHolder.userData.reloadKind);
+        }
         _fist.set(0, 0, HAND_LOCAL_Z).applyEuler(arm.rotation);
-        arm.position.set(grip.pos[0] - _fist.x, grip.pos[1] - _fist.y, grip.pos[2] - _fist.z);
+        arm.position.set(gp[0] - _fist.x, gp[1] - _fist.y, gp[2] - _fist.z);
         if (pv) {
           arm.position.sub(pv.userData.home);
           // En plein geste, l'avant-bras ne tourne pas avec la lame : il
