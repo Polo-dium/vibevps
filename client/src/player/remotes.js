@@ -8,13 +8,14 @@ import { createMusicSource, gainForDistance } from '../music.js';
 import { buildWeaponModel, WEAPON_IDS } from './weapon.js';
 import * as net from '../net.js';
 import { state } from '../state.js';
+import { audio } from '../audio.js';
 
 const INTERP_DELAY = 0.12; // secondes de retard de rendu pour interpoler
 
 const PANTS = [0x39404e, 0x4e4439, 0x2e3a4e, 0x44394e];
 
 
-export function createRemotePlayers(scene, shootables, { onHitRemote, getListenerPos } = {}) {
+export function createRemotePlayers(scene, shootables, { onHitRemote, getListenerPos, gore = null } = {}) {
   const remotes = new Map();
 
   function spawn(id, name, p, ry) {
@@ -154,14 +155,30 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
 
   // MORT : le personnage s'écroule sur place (2,6 s) au lieu de disparaître
   // d'un coup — sa position est figée là où il est tombé pendant ce temps.
-  function fall(id) {
+  // `by` = tueur (id) : le corps part dans le sens du tir. Avatars : vrai
+  // RAGDOLL (world/avatars.js) ; humains sculptés : bascule en arrière.
+  function fall(id, by = null) {
     const r = remotes.get(id);
     const t = performance.now() / 1000;
     if (!r || (r.deadUntil ?? 0) > t) return;
+    const g = r.human.group;
     r.deadAt = t;
     r.deadUntil = t + 2.6;
-    r.deadPos = r.human.group.position.clone();
-    r.deadRy = r.human.group.rotation.y;
+    r.deadPos = g.position.clone();
+    r.deadRy = g.rotation.y;
+    const from = by != null ? (remotes.get(by)?.human.group.position ?? getListenerPos?.()) : null;
+    let dx = Math.sin(r.deadRy), dz = Math.cos(r.deadRy); // à défaut : à la renverse
+    if (from) { dx = g.position.x - from.x; dz = g.position.z - from.z; }
+    const l = Math.hypot(dx, dz) || 1;
+    r.rag = Boolean(r.human.ragdollStart?.(dx / l, dz / l));
+    r.ragLast = t;
+    const cy = r.human.chestY?.() ?? g.position.y + 1.3;
+    gore?.burst(g.position.x, cy, g.position.z, dx / l, dz / l, 26);
+    r.poolAt = t + 0.9; // la flaque vient quand le corps est au sol
+    // cri : plus fort de près, inaudible au-delà de 60 m
+    const lp = getListenerPos?.();
+    const d = lp ? Math.hypot(lp.x - g.position.x, lp.z - g.position.z) : 30;
+    if (d < 60) audio.scream?.(Math.max(0.05, 1 - d / 60), (id.length * 7 + id.charCodeAt(id.length - 1)) % 5);
   }
 
   function flash(id) {
@@ -187,9 +204,19 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
   });
   net.on('pjoin', (msg) => spawn(msg.id, msg.name, msg.p, msg.ry));
   net.on('pleave', (msg) => remove(msg.id));
-  net.on('hp', (msg) => flash(msg.id));
-  net.on('death', (msg) => { flash(msg.id); fall(msg.id); });
-  net.on('akill', (msg) => fall(msg.v));
+  net.on('hp', (msg) => {
+    flash(msg.id);
+    // touché : petite gerbe de sang (pas pour un soin)
+    const r = msg.regen ? null : remotes.get(msg.id);
+    if (r && gore) {
+      const g = r.human.group, from = msg.by != null ? (remotes.get(msg.by)?.human.group.position ?? getListenerPos?.()) : null;
+      let dx = 0, dz = 0;
+      if (from) { dx = g.position.x - from.x; dz = g.position.z - from.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l; }
+      gore.burst(g.position.x, g.position.y + 1.25, g.position.z, dx, dz, 9);
+    }
+  });
+  net.on('death', (msg) => { flash(msg.id); fall(msg.id, msg.by); });
+  net.on('akill', (msg) => fall(msg.v, msg.by));
   net.on('chat', (msg) => showChat(msg.id, msg.text));
   net.on('states', (msg) => {
     const now = performance.now() / 1000;
@@ -291,14 +318,28 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
       // Mort récente : figé à l'endroit de la chute, le corps bascule en arrière
       const dead = (r.deadUntil ?? 0) > nowSec;
       if (dead) {
-        g.position.copy(r.deadPos);
-        const k = Math.min(1, (nowSec - r.deadAt) / 0.5);
-        g.rotation.order = 'YXZ';
-        g.rotation.set(-k * k * 1.5, r.deadRy, 0);
-        g.position.y += k * 0.12; // le dos repose sur le sol, pas dedans
+        if (r.rag) {
+          // ragdoll : le groupe et les os sont pilotés par la simulation
+          r.human.ragdollStep(Math.min(0.05, nowSec - r.ragLast), r.deadPos.y);
+          r.ragLast = nowSec;
+          if (r.weapon) r.weapon.visible = false; // l'arme ne reste pas plantée en l'air
+        } else {
+          g.position.copy(r.deadPos);
+          const k = Math.min(1, (nowSec - r.deadAt) / 0.5);
+          g.rotation.order = 'YXZ';
+          g.rotation.set(-k * k * 1.5, r.deadRy, 0);
+          g.position.y += k * 0.12; // le dos repose sur le sol, pas dedans
+        }
+        if (r.poolAt && nowSec > r.poolAt) {
+          r.poolAt = 0;
+          gore?.pool(g.position.x + (r.rag ? 0 : -Math.sin(r.deadRy) * 0.6), r.deadPos.y, g.position.z + (r.rag ? 0 : -Math.cos(r.deadRy) * 0.6));
+        }
       } else if (r.deadUntil) {
         r.deadUntil = 0;
-        g.rotation.x = 0;
+        if (r.rag) { r.human.ragdollStop(); r.rag = false; }
+        if (r.weapon) r.weapon.visible = true;
+        g.rotation.order = 'YXZ';
+        g.rotation.set(0, r.deadRy, 0);
       }
       // Accroupi : vraie posture pour les avatars, silhouette tassée sinon
       const crouching = !veh && !dead && Boolean(b.cr ?? 0);
@@ -401,6 +442,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
   function count() { return remotes.size; }
   function getPos(id) { return remotes.get(id)?.human.group.position ?? null; }
   function getGroup(id) { return remotes.get(id)?.human.group ?? null; } // (killcam)
+  function getHuman(id) { return remotes.get(id)?.human ?? null; } // (hook de debug : ragdoll)
   // Joueur distant le plus proche (défi en duel : E près de quelqu'un)
   function nearest(pos, maxD = 4) {
     let best = null;
@@ -423,7 +465,7 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
 
   const colorOf = (id) => remotes.get(id)?.baseColor.getHex();
 
-  return { update, count, showChat, getPos, nearest, list, colorOf, setTeam, resetTeams, getGroup };
+  return { update, count, showChat, getPos, nearest, list, colorOf, setTeam, resetTeams, getGroup, getHuman };
 }
 
 // Avion fantôme des pilotes distants (veh: 2), teinté à leur couleur

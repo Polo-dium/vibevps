@@ -365,6 +365,15 @@ npm start          # serveur de prod (sert client/dist)
     (tireur déduit de l'origine du message `shot`) ou sous drone-pigeon.
     Explosion de grenade : `blast` dans nades.js (éclair, boule de feu, onde
     au sol, fumée, trace de brûlé — sprites additifs, aucun éclairage).
+  - MORT : RAGDOLL des avatars (`ragdollStart/Step/Stop` dans avatars.js) —
+    15 points reliés par des tiges (Verlet, gravité, sol, frottement), tronc
+    contreventé ; le groupe est tourné/déplacé pour suivre le tronc, chaque
+    os de membre est pointé le long de sa tige (`aimWorld`). Piloté par
+    `fall(id, by)` de remotes.js pendant 2,6 s (les humains sculptés gardent
+    la bascule). Pas de collision avec les murs. `render/gore.js` : gerbes de
+    sang (Points recyclés) à chaque touche, flaque sous le corps (2 draw
+    calls ; `localStorage lyon_gore = '0'` coupe). `audio.scream(vol,
+    variante)` : cri synthétisé (dents de scie + 3 formants), 5 variantes.
   - DÉTENTES (`weapon.js`) : sources `mouse0/mouse2` + `ext` (manette,
     tactile) recombinées à chaque `update`. Arme normale : clic gauche /
     gâchette droite = tir, clic droit / gâchette gauche = visée ; fusil de

@@ -187,6 +187,7 @@ export async function buildAvatar(name0, { seated = false } = {}) {
   // Rocketbox fait ~1,35 m/s). speed > 0.3 → marche, sinon repos/causette.
   // `speed` arrive au format de human.js (m/s × 2,6) : on le ramène.
   function animate(_phase, speed) {
+    if (rag.on) return; // mort : le squelette appartient au ragdoll
     const now = performance.now();
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
@@ -248,8 +249,105 @@ export async function buildAvatar(name0, { seated = false } = {}) {
     b.parent.getWorldQuaternion(_qp).invert();
     b.quaternion.copy(_qp.multiply(_qw));
   }
+  // RAGDOLL à la mort : 15 points (bassin, cou, tête, épaules, coudes, mains,
+  // hanches, genoux, pieds) reliés par des tiges (intégration de Verlet,
+  // gravité, sol, frottement). Le tronc est contreventé (il reste d'un bloc),
+  // les membres pendent et se plient. Chaque image, le groupe est tourné et
+  // déplacé pour que le tronc suive ses points, puis chaque os de membre est
+  // pointé le long de sa tige (même principe que aimBone : aucune hypothèse
+  // sur le repère des os). ~0,05 ms par corps, 2,6 s au plus.
+  const RAG_BONES = ['Bip01_Pelvis', 'Bip01_Neck', 'Bip01_Head',
+    'Bip01_L_UpperArm', 'Bip01_L_Forearm', 'Bip01_L_Hand', 'Bip01_R_UpperArm', 'Bip01_R_Forearm', 'Bip01_R_Hand',
+    'Bip01_L_Thigh', 'Bip01_L_Calf', 'Bip01_L_Foot', 'Bip01_R_Thigh', 'Bip01_R_Calf', 'Bip01_R_Foot'].map(bone);
+  const RAG_LINKS = [[0, 1], [1, 2], [1, 3], [1, 6], [3, 6], [0, 9], [0, 12], [9, 12], [3, 9], [6, 12], [3, 12], [6, 9],
+    [3, 4], [4, 5], [6, 7], [7, 8], [9, 10], [10, 11], [12, 13], [13, 14]];
+  const RAG_LIMBS = [[1, 2], [3, 4], [4, 5], [6, 7], [7, 8], [9, 10], [10, 11], [12, 13], [13, 14]]; // os → enfant
+  const rag = {
+    on: false, ok: RAG_BONES.every(Boolean), p: new Float32Array(45), q: new Float32Array(45), len: new Float32Array(RAG_LINKS.length),
+    acc: 0, m0: new THREE.Matrix4(), q0: new THREE.Quaternion(),
+  };
+  const _rx = new THREE.Vector3(), _ry = new THREE.Vector3(), _rz = new THREE.Vector3(), _rm = new THREE.Matrix4(), _rq = new THREE.Quaternion();
+  function torsoBasis(P, out) {
+    _ry.set(P[3] - P[0], P[4] - P[1], P[5] - P[2]).normalize();          // bassin → cou
+    _rx.set(P[18] - P[9], P[19] - P[10], P[20] - P[11]);                  // épaule G → épaule D
+    _rx.addScaledVector(_ry, -_rx.dot(_ry)).normalize();
+    _rz.crossVectors(_rx, _ry);
+    return out.makeBasis(_rx, _ry, _rz);
+  }
+  function ragStart(dx, dz) {
+    if (!rag.ok) return false;
+    group.updateWorldMatrix(true, true);
+    const P = rag.p, Q = rag.q;
+    RAG_BONES.forEach((b, i) => { b.getWorldPosition(_a); P[i * 3] = _a.x; P[i * 3 + 1] = _a.y; P[i * 3 + 2] = _a.z; });
+    RAG_LINKS.forEach(([a, b], k) => { rag.len[k] = Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]); });
+    torsoBasis(P, rag.m0).invert();
+    rag.q0.copy(group.quaternion);
+    // élan : le haut du corps part dans le sens du tir, les genoux lâchent
+    const l = Math.hypot(dx, dz) || 1, ux = dx / l, uz = dz / l, h = 1 / 60;
+    for (let i = 0; i < 15; i++) {
+      const k = i === 2 ? 3.4 : i === 1 || i === 3 || i === 6 ? 2.7 : i === 0 ? 1.3 : i === 10 || i === 13 ? -0.9 : 0.5;
+      Q[i * 3] = P[i * 3] - (ux * k + (Math.random() - 0.5) * 0.7) * h;
+      Q[i * 3 + 1] = P[i * 3 + 1] - (i < 9 ? 0.9 : 0) * h;
+      Q[i * 3 + 2] = P[i * 3 + 2] - (uz * k + (Math.random() - 0.5) * 0.7) * h;
+    }
+    rag.acc = 0;
+    rag.on = true;
+    return true;
+  }
+  function ragSim(gy) {
+    const P = rag.p, Q = rag.q, h = 1 / 60;
+    for (let i = 0; i < 15; i++) {
+      const o = i * 3;
+      const vx = (P[o] - Q[o]) * 0.985, vy = (P[o + 1] - Q[o + 1]) * 0.985 - 15 * h * h, vz = (P[o + 2] - Q[o + 2]) * 0.985;
+      Q[o] = P[o]; Q[o + 1] = P[o + 1]; Q[o + 2] = P[o + 2];
+      P[o] += vx; P[o + 1] += vy; P[o + 2] += vz;
+    }
+    for (let it = 0; it < 7; it++) {
+      for (let k = 0; k < RAG_LINKS.length; k++) {
+        const a = RAG_LINKS[k][0] * 3, b = RAG_LINKS[k][1] * 3;
+        const dx = P[b] - P[a], dy = P[b + 1] - P[a + 1], dz = P[b + 2] - P[a + 2];
+        const d = Math.hypot(dx, dy, dz) || 1e-6, f = ((d - rag.len[k]) / d) * 0.5;
+        P[a] += dx * f; P[a + 1] += dy * f; P[a + 2] += dz * f;
+        P[b] -= dx * f; P[b + 1] -= dy * f; P[b + 2] -= dz * f;
+      }
+      for (let i = 0; i < 15; i++) {
+        const o = i * 3, floor = gy + (i === 2 ? 0.11 : 0.07);
+        if (P[o + 1] < floor) {
+          P[o + 1] = floor;
+          // frottement au sol : le corps ne glisse pas comme sur de la glace
+          Q[o] += (P[o] - Q[o]) * 0.35; Q[o + 2] += (P[o + 2] - Q[o + 2]) * 0.35;
+        }
+      }
+    }
+  }
+  function aimWorld(b, child, x, y, z) {
+    b.updateWorldMatrix(true, true);
+    b.getWorldPosition(_a);
+    child.getWorldPosition(_b);
+    _b.sub(_a).normalize();
+    _d.set(x, y, z).normalize();
+    _q.setFromUnitVectors(_b, _d);
+    b.getWorldQuaternion(_qw).premultiply(_q);
+    b.parent.getWorldQuaternion(_qp).invert();
+    b.quaternion.copy(_qp.multiply(_qw));
+  }
+  function ragStep(dt, gy) {
+    if (!rag.on) return;
+    rag.acc = Math.min(0.1, rag.acc + dt);
+    while (rag.acc >= 1 / 60) { ragSim(gy); rag.acc -= 1 / 60; }
+    const P = rag.p;
+    // tronc : rotation du groupe = (repère actuel) × (repère au départ)⁻¹
+    torsoBasis(P, _rm).multiply(rag.m0);
+    group.quaternion.setFromRotationMatrix(_rm).multiply(rag.q0);
+    group.updateWorldMatrix(true, true);
+    RAG_BONES[0].getWorldPosition(_a);
+    group.position.x += P[0] - _a.x; group.position.y += P[1] - _a.y; group.position.z += P[2] - _a.z;
+    for (const [i, j] of RAG_LIMBS) {
+      aimWorld(RAG_BONES[i], RAG_BONES[j], P[j * 3] - P[i * 3], P[j * 3 + 1] - P[i * 3 + 1], P[j * 3 + 2] - P[i * 3 + 2]);
+    }
+  }
   function poseArmed() {
-    if (!armed || !canPose) return;
+    if (!armed || !canPose || rag.on) return;
     group.getWorldQuaternion(_qg);
     // (repère du groupe : -z = devant, +x = à droite du personnage)
     // + secousse de recul à chaque coup (kick, retombe en ~0,15 s)
@@ -272,6 +370,12 @@ export async function buildAvatar(name0, { seated = false } = {}) {
   avatarStats.models.push(model);
   return {
     armR,
+    // ragdoll : start(dx, dz) = sens de la poussée ; step(dt, solY) ; stop()
+    ragdollStart: ragStart,
+    ragdollStep: ragStep,
+    ragdollStop() { rag.on = false; },
+    // hauteur monde de la poitrine (sang, cris)
+    chestY() { return rag.ok ? RAG_BONES[1].getWorldPosition(_a).y : group.position.y + 1.3; },
     setArmed(on) { armed = Boolean(on); },
     // BRASSARD D'ÉQUIPE : un anneau de couleur franche autour de chaque bras
     // (null = retiré). Posé sur l'os du bras, orienté le long du segment

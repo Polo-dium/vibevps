@@ -168,6 +168,52 @@ export const audio = {
   },
 
   // Explosion (bazooka) : souffle grave + débris
+  // CRI de douleur (mort d'un combattant) : voix synthétisée — une source en
+  // dents de scie (cordes vocales) dont la hauteur monte puis retombe, avec
+  // du tremblement, filtrée par trois formants de voyelle (« a » / « o »),
+  // plus un souffle rauque. 5 variantes (hauteur, durée, voyelle) ; `vol`
+  // 0..1 selon la distance.
+  scream(vol = 1, variant = 0) {
+    ensure();
+    const V = [
+      { f: 185, peak: 1.5, end: 0.6, dur: 0.55, fm: [760, 1180, 2600] },
+      { f: 150, peak: 1.35, end: 0.55, dur: 0.75, fm: [640, 1050, 2450] },
+      { f: 230, peak: 1.6, end: 0.7, dur: 0.42, fm: [820, 1300, 2800] },
+      { f: 165, peak: 1.25, end: 0.5, dur: 0.9, fm: [560, 900, 2400] },
+      { f: 205, peak: 1.7, end: 0.65, dur: 0.5, fm: [700, 1500, 2700] },
+    ][Math.abs(variant) % 5];
+    const t = ctx.currentTime, d = V.dur;
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(V.f, t);
+    osc.frequency.linearRampToValueAtTime(V.f * V.peak, t + d * 0.18);
+    osc.frequency.exponentialRampToValueAtTime(V.f * V.end, t + d);
+    // tremblement de la voix (de plus en plus marqué)
+    const lfo = ctx.createOscillator(), lfoG = ctx.createGain();
+    lfo.frequency.value = 9 + (variant % 3) * 2;
+    lfoG.gain.setValueAtTime(3, t);
+    lfoG.gain.linearRampToValueAtTime(16, t + d);
+    lfo.connect(lfoG).connect(osc.frequency);
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.exponentialRampToValueAtTime(0.5 * vol, t + 0.04);
+    env.gain.setValueAtTime(0.5 * vol, t + d * 0.45);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    V.fm.forEach((fq, i) => {
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(fq, t);
+      bp.frequency.linearRampToValueAtTime(fq * 0.82, t + d); // la bouche se referme
+      bp.Q.value = 7 - i;
+      const g = ctx.createGain();
+      g.gain.value = [1, 0.7, 0.3][i];
+      osc.connect(bp).connect(g).connect(env);
+    });
+    env.connect(master);
+    osc.start(t); lfo.start(t);
+    osc.stop(t + d + 0.05); lfo.stop(t + d + 0.05);
+    noise(d * 0.8, { type: 'bandpass', freq: 1400, q: 0.8, gain: 0.07 * vol });
+  },
   explosion() {
     ensure();
     noise(0.15, { type: 'lowpass', freq: 900, gain: 0.5 });

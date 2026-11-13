@@ -65,6 +65,7 @@ import { createTalk } from './ui/talk.js';
 import { createProgress } from './progress.js';
 import { createCapture } from './capture.js';
 import { createQuality, fogDensityFor } from './quality.js';
+import { createGore } from './render/gore.js';
 import { createPost } from './render/post.js';
 import { createEnvMap } from './render/envmap.js';
 import { setAtmosphere } from './render/atmosphere.js';
@@ -951,7 +952,10 @@ async function boot() {
     window.__game.net = net;
   }
   let lastHit = { id: null, headshot: false, at: 0 }; // pour le son d'élimination
+  const gore = createGore(scene, { groundAt: (x, z) => ctx.terrainHeight?.(x, z) ?? 0 });
+  ctx.updatables.push((dt) => gore.update(dt));
   const remotes = createRemotePlayers(scene, ctx.shootables, {
+    gore,
     getListenerPos: () => controls.position, // enceintes des autres joueurs
     onHitRemote: (id, hit, headshot) => {
       lastHit = { id, headshot, at: performance.now() };
