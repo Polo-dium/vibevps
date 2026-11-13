@@ -363,6 +363,39 @@ export async function buildAvatar(name0, { seated = false } = {}) {
     group.worldToLocal(_a);
     armR.position.set(_a.x - 0.03, _a.y + 0.1, _a.z + 0.16);
   }
+  // DOIGT D'HONNEUR (deux éliminations d'affilée sur le même adversaire) :
+  // le bras gauche se lève, avant-bras dressé, et un poing au majeur tendu
+  // vient coiffer la main (les doigts du squelette ne sont pas pilotés un à
+  // un : la pièce rapportée fait le geste, lisible de loin).
+  let flipT = 0, flipLast = 0, flipProp = null;
+  function poseFlip() {
+    if (flipT <= 0 || rag.on) { if (flipProp) flipProp.visible = false; return; }
+    const now = performance.now();
+    flipT -= Math.min(0.1, (now - flipLast) / 1000);
+    flipLast = now;
+    if (!flipProp) {
+      flipProp = new THREE.Group();
+      const skin = new THREE.MeshLambertMaterial({ color: 0xcf9f7c });
+      const fist = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), skin);
+      fist.scale.set(1.15, 0.95, 0.9);
+      const majeur = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.085, 3, 8), skin);
+      majeur.position.y = 0.085;
+      flipProp.add(fist, majeur);
+      flipProp.traverse((o) => { o.frustumCulled = false; });
+      group.add(flipProp);
+    }
+    const t = 1 - Math.max(0, flipT) / 1.7;
+    const up = Math.min(1, t / 0.15) * Math.min(1, (1 - t) / 0.15);
+    group.getWorldQuaternion(_qg);
+    // (repère du groupe : -z = devant, -x = à gauche du personnage)
+    aimBone(arm.l[0], arm.l[1], -0.3, -0.55 + 0.8 * up, -0.75);
+    aimBone(arm.l[1], arm.l[2], -0.05, -0.3 + 1.3 * up, -0.35);
+    arm.l[2].updateWorldMatrix(true, false);
+    arm.l[2].getWorldPosition(_a);
+    group.worldToLocal(_a);
+    flipProp.position.set(_a.x, _a.y + 0.05, _a.z);
+    flipProp.visible = flipT > 0 && up > 0.5;
+  }
   const animate0 = animate;
   const emi = new THREE.Color(0);
   const red = new THREE.Color(0xffffff);
@@ -404,7 +437,9 @@ export async function buildAvatar(name0, { seated = false } = {}) {
     },
     kickShot() { kick = 1; },
     model, bone,
-    animateArmed(phase, speed) { animate0(phase, speed); poseArmed(); },
+    animateArmed(phase, speed) { animate0(phase, speed); poseArmed(); poseFlip(); },
+    // doigt d'honneur (1,7 s) : vu par tous les joueurs, voir remotes.js
+    flipOff() { if (canPose) { flipT = 1.7; flipLast = performance.now(); } },
     group,
     mesh: meshes[0],
     hitMeshes: meshes,

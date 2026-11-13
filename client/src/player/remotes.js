@@ -216,7 +216,16 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
     }
   });
   net.on('death', (msg) => { flash(msg.id); fall(msg.id, msg.by); });
-  net.on('akill', (msg) => fall(msg.v, msg.by));
+  // Doigt d'honneur VU PAR TOUS : chacun reçoit les éliminations, donc
+  // chacun sait quand un combattant (joueur ou bot) vient d'abattre deux fois
+  // de suite le même adversaire — aucun message réseau en plus.
+  const lastVictimOf = new Map(); // tueur → dernière victime
+  net.on('akill', (msg) => {
+    fall(msg.v, msg.by);
+    if (msg.by == null || msg.tk || msg.by === msg.v) return;
+    if (lastVictimOf.get(msg.by) === msg.v) remotes.get(msg.by)?.human.flipOff?.();
+    lastVictimOf.set(msg.by, msg.v);
+  });
   net.on('chat', (msg) => showChat(msg.id, msg.text));
   net.on('states', (msg) => {
     const now = performance.now() / 1000;

@@ -390,6 +390,9 @@ npm start          # serveur de prod (sert client/dist)
     Doigt d'honneur : deux éliminations d'affilée sur le même adversaire
     (`lastVictim` dans arenaMatch.js, message `akill`) → `ctx.flipOff()` →
     `arms.flipOff()` (bras gauche à part, `buildArm(-1, { finger: true })`).
+    Vu par TOUS sans message réseau : remotes.js suit `lastVictimOf` sur les
+    `akill` et appelle `human.flipOff()` (avatars.js `poseFlip` : bras gauche
+    levé par `aimBone` + poing au majeur tendu rapporté sur la main).
     Tirs des autres : `net.on('shot')` (main.js) joue `audio.shotOf(arme,
     vol)` atténué par la distance (120 m, 1 son / 70 ms au plus), l'arme
     venant de `remotes.weaponIdOf(id)`. Bots : arme AFFICHÉE variée
