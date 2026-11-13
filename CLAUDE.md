@@ -380,6 +380,9 @@ npm start          # serveur de prod (sert client/dist)
     Gestes dans la pose de `weapon.js` : taille de l'épée, estocs alternés
     des dagues (`swingSide`), coup de lance, verrou (`boltT`), bascule de
     l'arme au rechargement.
+    Prises des mains (`GRIPS` dans weapon.js) relevées sur chaque modèle :
+    poignée pistolet à droite, garde-main / poignée avant du M4 / fût du
+    Kar98k / énarme du bouclier à gauche — à recaler si un modèle change.
     Kar98k : `kar98k` (sans lunette, 5 cartouches d'un coup) et `kar98ks`
     (code 18, lunette ×2,5 / ×6 via `spec.scope`, rechargement balle par
     balle `roundReload`, interrompu par le tir) — 55 dégâts au corps,

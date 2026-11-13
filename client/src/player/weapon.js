@@ -154,8 +154,8 @@ const GRIPS = {
     l: { pos: [-0.2, -0.06, -0.12], rot: [0.5, -0.2, 1.5] },
   },
   lance: {
-    r: { pos: [0.13, -0.01, -0.05], rot: [0.5, 0.3, -1.5] },
-    l: { pos: [-0.3, -0.04, -0.1], rot: [0.5, -0.2, 1.5] },
+    r: { pos: [0.125, -0.005, -0.05], rot: [0.5, 0.3, -1.5] },
+    l: { pos: [-0.4, -0.25, -0.31], rot: [0.5, -0.2, 1.5] }, // le poing dans l'énarme, derrière le bouclier
   },
   // Akimbo : chaque main sur SON pistolet
   akimbo: {
@@ -170,8 +170,20 @@ const GRIPS = {
 // déjà connectés), n'ajouter qu'à la fin.
 export const WEAPON_IDS = ['ak', 'marteau', 'pompe', 'minigun', 'bazooka', 'akimbo', 'baton', 'sniper', 'couteau',
   'mp5', 'm16', 'm4', 'famas', 'kar98k', 'epee', 'dagues', 'lance', 'kar98ks'];
-for (const id of ['mp5', 'm16', 'm4', 'famas']) GRIPS[id] = GRIPS.ak;
-GRIPS.kar98k = GRIPS.kar98ks = GRIPS.sniper;
+// PRISES DE L'ARSENAL DE L'ARÈNE, relevées sur chaque modèle (weaponModels2.js) :
+// main droite au milieu de la poignée pistolet (paume contre le flanc droit),
+// main gauche SOUS le garde-main — ou sur la poignée avant du M4, sous le
+// fût en bois du Kar98k, derrière le bouclier pour la lance.
+const R_GRIP = [0.7, 0.25, -1.5], L_UNDER = [0.2, -0.3, 3.1], L_VERT = [0.6, -0.3, 1.5];
+Object.assign(GRIPS, {
+  m16: { r: { pos: [0.032, -0.09, -0.068], rot: R_GRIP }, l: { pos: [0, -0.083, -0.45], rot: L_UNDER } },
+  m4: { r: { pos: [0.032, -0.09, -0.068], rot: R_GRIP }, l: { pos: [-0.014, -0.088, -0.39], rot: L_VERT } },
+  mp5: { r: { pos: [0.031, -0.092, -0.066], rot: R_GRIP }, l: { pos: [0, -0.089, -0.4], rot: L_UNDER } },
+  famas: { r: { pos: [0.033, -0.105, -0.066], rot: R_GRIP }, l: { pos: [0, -0.094, -0.29], rot: L_UNDER } },
+  // crosse droite : le poing enserre le col de crosse, poignet moins cassé
+  kar98k: { r: { pos: [0.03, -0.062, 0.0], rot: [0.55, 0.25, -1.5] }, l: { pos: [0, -0.074, -0.3], rot: L_UNDER } },
+});
+GRIPS.kar98ks = GRIPS.kar98k;
 
 export function createWeapon(camera, scene, shootables, {
   onAmmoChange, onShot, onRocketExplosion, getGroundY, onWeaponChange, worldHit,
