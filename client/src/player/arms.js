@@ -47,7 +47,7 @@ function mirror(pose) {
 // la longueur du bras.
 const HAND_LOCAL_Z = -0.35;
 
-function buildArm(side) {
+function buildArm(side, { finger = false } = {}) {
   const group = new THREE.Group();
   const sleeveMat = PBR.fabric(SLEEVE);
   const cuffMat = PBR.fabric(0x2a3444);
@@ -97,7 +97,10 @@ function buildArm(side) {
     const x = -0.033 + i * 0.022 + (i - 1.5) * 0.0015;
     const L = [1, 1.09, 1, 0.8][k], R = [0.0115, 0.012, 0.0112, 0.0098][k];
     const trigger = side > 0 && k === 0;
-    const curl = trigger ? [0.2, 0.75, 1.25] : [0.55 + k * 0.05, 1.6 + k * 0.04, 2.55];
+    // (variante « doigt d'honneur » : majeur dressé dans l'axe du bras, les
+    // autres serrés dans le poing)
+    const curl = finger ? (k === 1 ? [-0.12, -0.06, 0] : [1.0, 2.05, 2.75])
+      : trigger ? [0.2, 0.75, 1.25] : [0.55 + k * 0.05, 1.6 + k * 0.04, 2.55];
     add(new THREE.SphereGeometry(R * 1.18, 8, 6), gloveMat, x, 0.014, HZ - 0.04);              // articulation
     let [y, z] = seg(R, 0.03 * L, gloveMat, x, 0.012, HZ - 0.04, curl[0]);
     add(new THREE.SphereGeometry(R * 1.05, 8, 6), gloveMat, x, y, z);
@@ -245,6 +248,27 @@ export function createArms(camera) {
   rcRadio.visible = false;
   solRig.add(rcRadio);
 
+  // DOIGT D'HONNEUR (arène : deux éliminations d'affilée sur le même
+  // adversaire) : un bras gauche à part, majeur dressé, qui monte devant
+  // l'écran 1,7 s pendant que la main gauche lâche l'arme.
+  const fingerArm = buildArm(-1, { finger: true }).group;
+  fingerArm.visible = false;
+  camera.add(fingerArm);
+  let fingerT = 0;
+  function updateFinger(dt) {
+    if (fingerT <= 0) return;
+    fingerT -= dt;
+    const t = 1 - fingerT / 1.7;                                   // 0 → 1
+    const up = Math.min(1, t / 0.14) * Math.min(1, (1 - t) / 0.16); // monte, tient, redescend
+    const e = up * up * (3 - 2 * up);
+    fingerArm.visible = fingerT > 0 && viewVisible;
+    left.visible = false;
+    // avant-bras dressé (poing en haut), dos de la main vers soi, petit coup de poignet
+    fingerArm.position.set(-0.17, -0.62 + 0.44 * e, -0.44);
+    fingerArm.rotation.set(1.28 + 0.06 * Math.sin(t * 22), 0.12, Math.PI);
+    if (fingerT <= 0) { fingerArm.visible = false; left.visible = viewVisible; }
+  }
+
   let bobTime = 0;
   const cur = {
     r: { pos: new THREE.Vector3(...RIGHT_POSES.idle.pos), rot: new THREE.Euler(...RIGHT_POSES.idle.rot) },
@@ -361,7 +385,8 @@ export function createArms(camera) {
   }
 
   return {
-    update,
+    update(...args) { update(...args); updateFinger(args[0]); },
+    flipOff() { fingerT = 1.7; },
     setVisible(v) {
       viewVisible = Boolean(v);
       right.visible = viewVisible;

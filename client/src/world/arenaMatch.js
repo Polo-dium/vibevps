@@ -156,6 +156,7 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
       remotes.setTeam(id, foe ? 0 : 1, foe && performance.now() > revealUntil); // 0 = rouge (ennemi), 1 = bleu (allié)
     }
   }
+  let lastVictim = null; // dernier adversaire éliminé par le joueur (doigt d'honneur au doublé)
   let special = false; // minigun de la caisse du Gros Caillou (pour cette vie)
   // CLASSE : deux armes choisies dans l'arsenal de l'arène. On peut rouvrir
   // le menu à tout moment (touche K, bouton CLASSE), mais le changement ne
@@ -673,6 +674,14 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
   });
   net.on('akill', (msg) => {
     if (!ctx.inHiFi) return;
+    // Deux fois d'affilée le MÊME adversaire : doigt d'honneur
+    if (msg.by === getMyId() && !msg.tk && msg.v !== getMyId()) {
+      if (msg.v === lastVictim) {
+        ctx.flipOff?.();
+        feed(`🖕 ${esc(msg.byName ?? 'Toi')} remet ça sur ${esc(msg.vName ?? '')}`);
+      }
+      lastVictim = msg.v;
+    }
     if (msg.tk) {
       feed(`🤡 ${nameHtml(msg.byName, msg.bt)} a descendu son collègue ${nameHtml(msg.vName, msg.vt)}`);
       return;

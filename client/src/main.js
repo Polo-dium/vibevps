@@ -1545,6 +1545,7 @@ async function boot() {
   // Avant-bras en vue subjective. En jetpack, ils portent aussi les deux
   // mitraillettes dont les bouches servent d'origine réelle aux traceurs.
   const arms = createArms(camera);
+  ctx.flipOff = () => arms.flipOff();
 
   const jetpackRaycaster = new THREE.Raycaster();
   const jetpackDirection = new THREE.Vector3();

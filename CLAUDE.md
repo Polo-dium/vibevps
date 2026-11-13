@@ -387,6 +387,9 @@ npm start          # serveur de prod (sert client/dist)
     index droit tendu vers la détente, pouce en 2 phalanges, manchette de
     gant, manche aplatie à plis — toutes les pièces fusionnées par matériau
     (`add` + `mergeGeometries`), ne plus ajouter de Mesh isolé au bras.
+    Doigt d'honneur : deux éliminations d'affilée sur le même adversaire
+    (`lastVictim` dans arenaMatch.js, message `akill`) → `ctx.flipOff()` →
+    `arms.flipOff()` (bras gauche à part, `buildArm(-1, { finger: true })`).
     Kar98k : `kar98k` (sans lunette, 5 cartouches d'un coup) et `kar98ks`
     (code 18, lunette ×2,5 / ×6 via `spec.scope`, rechargement balle par
     balle `roundReload`, interrompu par le tir) — 55 dégâts au corps,
