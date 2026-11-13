@@ -37,11 +37,28 @@ export function fogDensityFor(viewDistance) {
 
 const STORAGE_KEY = 'lyon_quality';
 
+const MANUAL_KEY = 'lyon_quality_manual'; // palier choisi à la main (touche O / réglages)
+
+function weakGpu() {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl');
+    const ext = gl?.getExtension('WEBGL_debug_renderer_info');
+    const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    if (/\bArc\b/i.test(name)) return false; // Intel Arc : vraie carte
+    return /Intel|SwiftShader|llvmpipe|Basic Render/i.test(name);
+  } catch { return false; }
+}
+
 function autoDetect(isTouch) {
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored && PRESETS[stored]) return stored;
   const cores = navigator.hardwareConcurrency || 4;
   if (isTouch) return cores <= 4 ? 'bas' : 'moyen';
+  // Puce graphique INTÉGRÉE (Intel UHD/HD/Iris des PC de bureau, rendu
+  // logiciel) : le palier Élevé y tombait à 20 images/s — beaucoup de cœurs
+  // ne dit rien de la carte graphique. Moyen d'office ; la touche O reste là.
+  if (weakGpu()) return 'moyen';
   return cores <= 4 ? 'moyen' : 'eleve';
 }
 
@@ -56,6 +73,10 @@ export function createQuality(isTouch) {
     get level() { return level; },
     get preset() { return PRESETS[level]; },
     get label() { return LABELS[level]; },
+    // vrai si le joueur a choisi lui-même : on ne redescend alors jamais
+    // le palier à sa place (voir la garde de fluidité dans main.js)
+    get manual() { return localStorage.getItem(MANUAL_KEY) === '1'; },
+    lower() { return LEVELS[Math.max(0, LEVELS.indexOf(level) - 1)]; },
     onChange(fn) { listeners.push(fn); },
     set(next) {
       if (!PRESETS[next] || next === level) return level;
@@ -64,6 +85,7 @@ export function createQuality(isTouch) {
       return level;
     },
     cycle() {
+      localStorage.setItem(MANUAL_KEY, '1');
       level = LEVELS[(LEVELS.indexOf(level) + 1) % LEVELS.length];
       notify();
       return level;

@@ -533,7 +533,9 @@ async function boot() {
   function updateEnvironment() {
     const ang = envPhase() * Math.PI * 2; // 0 = aube, π/2 = midi
     const elev = Math.sin(ang);
-    const daylight = THREE.MathUtils.clamp(elev * 2.4, 0, 1);
+    // (arène : jamais moins qu'un jour couvert — de nuit on n'y voyait rien,
+    // même avec les projecteurs ; fenêtres et lampes y restent à demi allumées)
+    const daylight = THREE.MathUtils.clamp(Math.max(elev * 2.4, ctx.inHiFi ? 0.75 : 0), 0, 1);
     const dusk = Math.max(0, 1 - Math.abs(elev) * 4); // pic aube/crépuscule
     env.daylight = daylight;
     env.night = 1 - daylight;
@@ -2180,7 +2182,7 @@ async function boot() {
 
   // --- Boucle principale ---
   const clock = new THREE.Clock();
-  let fpsAccum = 0, fpsFrames = 0, fpsValue = 60;
+  let fpsAccum = 0, fpsFrames = 0, fpsValue = 60, slowTicks = 0;
   let dynCooldown = 6; // laisse le démarrage se stabiliser avant d'ajuster
   let infoTimer = 0;
 
@@ -2362,6 +2364,17 @@ async function boot() {
       fpsValue = Math.round(fpsFrames / fpsAccum);
       fpsAccum = 0;
       fpsFrames = 0;
+      // GARDE DE FLUIDITÉ : moins de 26 images/s pendant ~8 s d'affilée (hors
+      // chargement) → on descend d'un palier tout seul, sauf si le joueur a
+      // choisi le sien. Mémorisé : la prochaine visite se bâtit directement
+      // au bon palier (matériaux et décor allégés compris).
+      if (!document.hidden && performance.now() > 25000 && fpsValue < 26) slowTicks += 1;
+      else slowTicks = Math.max(0, slowTicks - 2);
+      if (slowTicks >= 16 && quality.level !== 'bas' && !quality.manual) {
+        slowTicks = 0;
+        quality.set(quality.lower());
+        ui.toast(`🖥️ Ça ramait : graphismes passés en ${quality.label} (touche O pour choisir toi-même).`);
+      }
       // Résolution dynamique : si ça rame, on baisse la définition interne
       // par petits crans (jusqu'à 0,6×) ; quand ça respire, on remonte
       // doucement. Invisible sur une machine à l'aise, salvateur ailleurs.

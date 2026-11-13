@@ -354,8 +354,13 @@ npm start          # serveur de prod (sert client/dist)
     blessé qui passe dessus, retour 25 s après (`tickMeds`, champ `m` de
     l'instantané `arena`, `aevt` `med`, message `hp` avec `regen`) ; les bots
     sous 45 PV vont en chercher une (sauf en facile). Bases peintes au sol en
-    modes par équipes (bleu = la sienne). Nuit : plancher de lumière
-    « projecteurs » dans `updateEnvironment` quand `ctx.inHiFi`.
+    modes par équipes (bleu = la sienne). Lumière : dans l'arène
+    (`ctx.inHiFi`), `daylight` ne descend jamais sous 0,75 (jour couvert) +
+    plancher « projecteurs » dans `updateEnvironment`.
+  - PALIER AUTOMATIQUE (`quality.js`) : puce intégrée (Intel UHD/HD/Iris,
+    rendu logiciel — `weakGpu`) → Moyen d'office sur PC. Garde de fluidité
+    (main.js) : moins de 26 images/s pendant ~8 s → un palier plus bas, sauf
+    palier choisi à la main (`lyon_quality_manual`, posé par `cycle()`).
   - MANIEMENT : `weapon.js` `HANDLING` (dispersion, recul, zoom de visée par
     arme) — visée à l'épaule (clic droit / bouton VISER), dispersion qui
     grossit en rafale / en courant / en l'air et se resserre accroupi ou à
