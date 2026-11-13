@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { state } from '../state.js';
-import { ARENA, BASES, CONSOLE, MEDS, PORTAL } from '../../../shared/arena-layout.js';
+import { ARENA, arenaBoxes, BASES, CONSOLE, MEDS, PORTAL } from '../../../shared/arena-layout.js';
 
 // MATCHS DE L'ARÈNE — côté client. Le serveur (server/src/arena.js) simule
 // les bots et arbitre tout ; ici on ne fait qu'AFFICHER et RÉGLER :
@@ -12,6 +12,7 @@ import { ARENA, BASES, CONSOLE, MEDS, PORTAL } from '../../../shared/arena-layou
 //  - tableau des meilleurs du mode, au-dessus du portail (canvas → texture)
 
 const OX = ARENA.OFFSET;
+const radarBoxes = arenaBoxes().filter((b) => b.y1 > 1.2); // murs qui comptent sur le radar
 export const MODE_LABELS = {
   ffa: 'Mêlée générale',
   tdm: 'Match à mort par équipes',
@@ -52,6 +53,7 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
       <div id="arena-score"></div>
       <div id="arena-sub"></div>
     </div>
+    <canvas id="arena-radar" width="264" height="264"></canvas>
     <div id="arena-feed"></div>
     <div id="arena-banner" class="hidden"></div>
     <div id="arena-board" class="hidden"></div>`;
@@ -234,6 +236,99 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     zoneMat.color.setHex(hex);
     zoneRing.material.color.setHex(hex);
     zoneMat.opacity = 0.16 + 0.06 * Math.sin(performance.now() / 300);
+  }
+
+  // --- RADAR (coin haut gauche) : toi au centre, le haut = là où tu regardes.
+  // Alliés toujours visibles ; un ennemi n'apparaît que 2,5 s après avoir
+  // tiré (ou pendant le drone-pigeon). Rosettes libres, drapeaux et zone
+  // y figurent aussi. Redessiné 8 fois par seconde sur un petit canvas.
+  const radarEl = $('#arena-radar');
+  const rg = radarEl.getContext('2d');
+  const RADAR_M = 48; // portée en mètres
+  const firedAt = new Map(); // id → instant du dernier tir
+  net.on('shot', (msg) => {
+    if (!ctx.inHiFi || !snap || !msg.a) return;
+    // le tireur = le combattant le plus proche de l'origine du tir
+    let best = null, bd = 9;
+    for (const r of snap.b) {
+      const p = r[0] === getMyId() ? null : remotes.getPos(r[0]);
+      if (!p) continue;
+      const d = (p.x - msg.a[0]) ** 2 + (p.z - msg.a[2]) ** 2;
+      if (d < bd) { bd = d; best = r[0]; }
+    }
+    if (best) firedAt.set(best, performance.now());
+  });
+  let radarAt = 0;
+  function drawRadar(now) {
+    const on = Boolean(ctx.inHiFi && snap);
+    radarEl.classList.toggle('hidden', !on);
+    if (!on || now < radarAt) return;
+    radarAt = now + 125;
+    const S = 264, C = S / 2, k = (C - 10) / RADAR_M;
+    const me = controls.position, yaw = controls.yaw;
+    const cs = Math.cos(yaw), sn = Math.sin(yaw);
+    // monde → radar (le regard, −z tourné de yaw, pointe vers le haut)
+    const put = (x, z) => {
+      const dx = x - me.x, dz = z - me.z;
+      const rx = dx * cs - dz * sn, rz = dx * sn + dz * cs;
+      let px = rx * k, py = rz * k;
+      const d = Math.hypot(px, py), lim = C - 12;
+      const out = d > lim;
+      if (out) { px *= lim / d; py *= lim / d; }
+      return [C + px, C + py, out];
+    };
+    rg.clearRect(0, 0, S, S);
+    rg.save();
+    rg.beginPath(); rg.arc(C, C, C - 4, 0, Math.PI * 2);
+    rg.fillStyle = 'rgba(10, 16, 20, 0.55)'; rg.fill();
+    rg.lineWidth = 3; rg.strokeStyle = 'rgba(238, 241, 238, 0.45)'; rg.stroke();
+    rg.clip();
+    rg.lineWidth = 1; rg.strokeStyle = 'rgba(238, 241, 238, 0.14)';
+    for (const r of [0.33, 0.66]) { rg.beginPath(); rg.arc(C, C, (C - 4) * r, 0, Math.PI * 2); rg.stroke(); }
+    // conteneurs et obstacles en gris (plan de l'arène)
+    rg.fillStyle = 'rgba(200, 206, 210, 0.2)';
+    for (const b of radarBoxes) {
+      const [ax, ay] = put(OX + b.x0, b.z0), [bx, by] = put(OX + b.x1, b.z0), [cx2, cy2] = put(OX + b.x1, b.z1), [dx2, dy2] = put(OX + b.x0, b.z1);
+      rg.beginPath(); rg.moveTo(ax, ay); rg.lineTo(bx, by); rg.lineTo(cx2, cy2); rg.lineTo(dx2, dy2); rg.closePath(); rg.fill();
+    }
+    if (snap.z && snap.st === 'play') {
+      const [zx, zy] = put(OX + snap.z[0], snap.z[1]);
+      rg.beginPath(); rg.arc(zx, zy, snap.z[2] * k, 0, Math.PI * 2);
+      rg.strokeStyle = '#f0b648'; rg.lineWidth = 3; rg.stroke();
+    }
+    if (snap.m) {
+      rg.fillStyle = '#35d06a';
+      MEDS.forEach(([x, z], i) => {
+        if (snap.m[i] !== 1) return;
+        const [px, py] = put(OX + x, z);
+        rg.fillRect(px - 7, py - 2.5, 14, 5); rg.fillRect(px - 2.5, py - 7, 5, 14);
+      });
+    }
+    if (snap.f) {
+      snap.f.forEach((f, team) => {
+        const [px, py] = put(OX + f[1], f[2]);
+        rg.fillStyle = isAlly(team) ? ALLY_CSS : FOE_CSS;
+        rg.beginPath(); rg.moveTo(px - 5, py + 9); rg.lineTo(px - 5, py - 10); rg.lineTo(px + 10, py - 4); rg.lineTo(px - 2, py + 1); rg.lineTo(px - 2, py + 9); rg.closePath(); rg.fill();
+      });
+    }
+    const reveal = now < revealUntil;
+    for (const r of snap.b) {
+      if (r[0] === getMyId()) continue;
+      const p = remotes.getPos(r[0]);
+      if (!p) continue;
+      const ally = isAlly(r[2]);
+      const shot = now - (firedAt.get(r[0]) ?? -1e9);
+      if (!ally && !reveal && shot > 2500) continue;
+      const [px, py, out] = put(p.x, p.z);
+      rg.globalAlpha = ally ? 1 : reveal ? 1 : Math.max(0.25, 1 - shot / 2500);
+      rg.fillStyle = ally ? ALLY_CSS : FOE_CSS;
+      rg.beginPath(); rg.arc(px, py, out ? 4.5 : 7, 0, Math.PI * 2); rg.fill();
+      rg.globalAlpha = 1;
+    }
+    rg.restore();
+    // toi : flèche vers le haut
+    rg.fillStyle = '#eef1ee';
+    rg.beginPath(); rg.moveTo(C, C - 11); rg.lineTo(C + 8, C + 8); rg.lineTo(C, C + 3); rg.lineTo(C - 8, C + 8); rg.closePath(); rg.fill();
   }
 
   // --- Rosettes de soin : caisse blanche à croix verte qui tourne, halo additif ---
@@ -543,6 +638,7 @@ export function createArenaMatch(ctx, { ui, net, remotes, weapon, controls, audi
     updateFlags(dt);
     updateZone();
     updateMeds(performance.now());
+    drawRadar(performance.now());
     updateBases();
   });
 

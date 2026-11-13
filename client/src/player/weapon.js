@@ -166,6 +166,15 @@ export function createWeapon(camera, scene, shootables, {
   let reloading = 0;
   let cooldown = 0;
   let triggerDown = false;
+  // Sources des détentes, recombinées à chaque image (voir update) :
+  // souris (clic gauche / droit) et « ext » = manette et boutons tactiles.
+  //  · arme normale : clic gauche / gâchette droite = tir, clic droit /
+  //    gâchette gauche = visée
+  //  · double pistolets : chaque main son pistolet — clic GAUCHE / gâchette
+  //    gauche = pistolet gauche, clic DROIT / gâchette droite = pistolet droit
+  let mouse0 = false, mouse2 = false;
+  const ext = { r: false, l: false, ads: false };
+  let sniperHeld = false;
   let recoil = 0;
   let swing = 0; // coup de marteau en cours (1 → 0)
   let bobTime = 0;
@@ -418,15 +427,13 @@ export function createWeapon(camera, scene, shootables, {
   // --- Entrées ---
   window.addEventListener('mousedown', (e) => {
     if (IS_TOUCH) return;
-    if (e.button === 0) triggerDown = true;
-    // Akimbo : clic DROIT = pistolet gauche
-    if (e.button === 2 && spec.akimbo && state.weaponEquipped) triggerLeftDown = true;
-    if (e.button === 2 && !spec.akimbo) adsDown = true;
+    if (e.button === 0) mouse0 = true;
+    if (e.button === 2) mouse2 = true;
   });
   window.addEventListener('mouseup', (e) => {
     if (IS_TOUCH) return;
-    if (e.button === 0) triggerDown = false;
-    if (e.button === 2) { triggerLeftDown = false; adsDown = false; }
+    if (e.button === 0) mouse0 = false;
+    if (e.button === 2) mouse2 = false;
   });
   window.addEventListener('contextmenu', (e) => {
     if (spec.akimbo && state.weaponEquipped && state.pointerLocked) e.preventDefault();
@@ -625,6 +632,15 @@ export function createWeapon(camera, scene, shootables, {
 
   function update(dt, isMoving, move = null) {
     if (move) Object.assign(moveState, move);
+    if (spec.akimbo && state.weaponEquipped) {
+      triggerDown = mouse2 || ext.r;
+      triggerLeftDown = mouse0 || ext.l || ext.ads;
+      adsDown = false;
+    } else {
+      triggerDown = mouse0 || ext.r;
+      triggerLeftDown = ext.l;
+      adsDown = mouse2 || ext.ads;
+    }
     // Visée à l'épaule, échauffement, recul rendu, dispersion courante
     const hd = HANDLING[curId];
     const canAds = Boolean(hd?.ads) && state.weaponEquipped && reloading <= 0 &&
@@ -764,8 +780,15 @@ export function createWeapon(camera, scene, shootables, {
       inputOk && !state.overlayOpen && !state.tagMode && !state.sanctuary &&
       !state.photoMode && // en mode photo, le clic déclenche l'appareil
       Date.now() >= (state.duelLockUntil ?? 0); // gelé pendant le décompte de duel
-    if (spec.sniper && state.weaponEquipped) {
-      // Fusil de précision : MAINTENIR met en joue, RELÂCHER tire.
+    if (spec.sniper && state.weaponEquipped && (!IS_TOUCH || state.gamepadActive)) {
+      // Fusil de précision, souris ou manette : clic droit / gâchette gauche
+      // = lunette, clic gauche / gâchette droite = tir (lunette ou non).
+      const want = adsDown && freeToAct && reloading <= 0;
+      if (want !== aiming) setAiming(want);
+      if (triggerDown && !sniperHeld && freeToAct && cooldown <= 0 && reloading <= 0 && ammo > 0) shoot();
+      sniperHeld = triggerDown;
+    } else if (spec.sniper && state.weaponEquipped) {
+      // Fusil de précision au tactile : MAINTENIR met en joue, RELÂCHER tire.
       if (triggerDown && !aiming && freeToAct &&
           cooldown <= 0 && reloading <= 0 && ammo > 0) {
         setAiming(true);
@@ -825,8 +848,8 @@ export function createWeapon(camera, scene, shootables, {
     cycle,
     // side 'r' (défaut) = détente principale, 'l' = pistolet gauche akimbo
     setTrigger(down, side = 'r') {
-      if (side === 'l') triggerLeftDown = down;
-      else triggerDown = down;
+      if (side === 'l') ext.l = Boolean(down);
+      else ext.r = Boolean(down);
     },
     // Lunette du fusil de précision : bascule ×6 ↔ ×12 (molette ou bouton)
     toggleScopeZoom() {
@@ -841,7 +864,7 @@ export function createWeapon(camera, scene, shootables, {
     get aiming() { return aiming; },
     // Visée à l'épaule : bouton VISER (tactile) = bascule
     toggleAds() { adsToggle = !adsToggle; return adsToggle; },
-    setAds(down) { adsDown = Boolean(down); }, // gâchette gauche de la manette
+    setAds(down) { ext.ads = Boolean(down); }, // gâchette gauche de la manette
     get ads() { return ads; },
     get canAds() { return Boolean(HANDLING[curId]?.ads); },
     // Dispersion courante (unités d'écran) : le réticule s'ouvre avec

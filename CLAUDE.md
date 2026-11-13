@@ -357,6 +357,22 @@ npm start          # serveur de prod (sert client/dist)
     modes par équipes (bleu = la sienne). Lumière : dans l'arène
     (`ctx.inHiFi`), `daylight` ne descend jamais sous 0,75 (jour couvert) +
     plancher « projecteurs » dans `updateEnvironment`.
+    Passerelles et escaliers (`WALKS`, `STAIRS` dans arena-layout.js) :
+    dalles minces à hauteur de toit de conteneur + marches de 53 cm
+    (≤ `STEP_UP`), dans `arenaBoxes()` — la grille des bots ignore les boîtes
+    dont le bas est au-dessus de 1,4 m. Radar (`drawRadar`, arenaMatch.js) :
+    canvas redessiné 8×/s, alliés toujours, ennemis 2,5 s après un tir
+    (tireur déduit de l'origine du message `shot`) ou sous drone-pigeon.
+    Explosion de grenade : `blast` dans nades.js (éclair, boule de feu, onde
+    au sol, fumée, trace de brûlé — sprites additifs, aucun éclairage).
+  - DÉTENTES (`weapon.js`) : sources `mouse0/mouse2` + `ext` (manette,
+    tactile) recombinées à chaque `update`. Arme normale : clic gauche /
+    gâchette droite = tir, clic droit / gâchette gauche = visée ; fusil de
+    précision (souris, manette) : visée = lunette, tir = clic gauche ;
+    double pistolets : chaque main son pistolet. Glissade : action
+    `AltLeft` (bindings.js), boutons de souris assignables (`Mouse1/3/4`).
+  - Ombres : les maillages de moins de 45 cm de rayon ne portent pas
+    d'ombre (traversée de main.js).
   - PALIER AUTOMATIQUE (`quality.js`) : puce intégrée (Intel UHD/HD/Iris,
     rendu logiciel — `weakGpu`) → Moyen d'office sur PC. Garde de fluidité
     (main.js) : moins de 26 images/s pendant ~8 s → un palier plus bas, sauf

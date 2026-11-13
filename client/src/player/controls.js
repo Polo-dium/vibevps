@@ -79,7 +79,7 @@ export function createControls(camera, domElement, colliders, terrain = null) {
   // lente, tir plus précis (weapon.js). Enclenché en pleine course, il
   // lance une glissade.
   const CROUCH_H = 1.15, CROUCH_DROP = 0.62;
-  let crouched = false, crouchTouch = false, crouchWas = false, crouchAmt = 0;
+  let crouched = false, crouchTouch = false, crouchWas = false, crouchAmt = 0, slideWas = false;
   let bodyH = HEIGHT;
   let lastMantle = 0; // dernière escalade de rebord (ms)
   let airTime = 0;
@@ -592,7 +592,13 @@ export function createControls(camera, domElement, colliders, terrain = null) {
 
     // Accroupi ? (au sol seulement ; on ne se relève pas sous un obstacle)
     const wantCrouch = active && onGround && (keys.has('ShiftLeft') || keys.has('ShiftRight') || crouchTouch);
-    if (wantCrouch && !crouchWas && fwd > 0.4 && slide <= 0 && Math.hypot(vel.x, vel.z) > 7) {
+    // Touche de GLISSADE dédiée (Alt gauche par défaut, reconfigurable —
+    // clavier ou bouton latéral de la souris) : glisse dès qu'on court, sans
+    // passer par l'accroupi.
+    const slideKey = active && onGround && keys.has('AltLeft');
+    const slideNow = slideKey && !slideWas;
+    slideWas = slideKey;
+    if (((wantCrouch && !crouchWas) || slideNow) && fwd > 0.4 && slide <= 0 && Math.hypot(vel.x, vel.z) > (slideNow ? 4.5 : 7)) {
       // en pleine course : glissade
       slide = SLIDE_TIME;
       slideDir.set(vel.x, 0, vel.z).normalize();

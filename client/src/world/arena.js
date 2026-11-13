@@ -10,7 +10,7 @@ import { roadShaderPatch } from '../render/road.js';
 import { enhanceScene } from '../render/enhance.js';
 import { detail } from '../render/detail.js';
 import {
-  ARENA, CANS, CRATES, JERSEYS, HAZARDS, BARRELS, PALLETS, CONES, FORKLIFTS, MASTS, TREES,
+  ARENA, CANS, CRATES, WALKS, STAIRS, WALK_W, WALK_T, STEP_D, STEP_H, STEP_W, JERSEYS, HAZARDS, BARRELS, PALLETS, CONES, FORKLIFTS, MASTS, TREES,
   CONSOLE, arenaBoxes,
 } from '../../../shared/arena-layout.js';
 
@@ -414,6 +414,35 @@ export function buildBellecourArena(ctx, group, OFFSET) {
   for (const p of PALLETS) pallet(...p);
   for (const c of CONES) cone(...c);
   for (const f of FORKLIFTS) forklift(...f);
+
+  // Passerelles de caillebotis (tablier + garde-corps) et escaliers d'accès
+  // aux toits des conteneurs — mêmes boîtes que les collisions (arena-layout)
+  {
+    const topY = ARENA.GROUND + ARENA.CH;
+    for (const [x0, z0, x1, z1] of WALKS) {
+      const alongX = Math.abs(x1 - x0) > Math.abs(z1 - z0);
+      const len = alongX ? Math.abs(x1 - x0) : Math.abs(z1 - z0);
+      const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, ry = alongX ? 0 : Math.PI / 2;
+      put(box(len, WALK_T, WALK_W, 0x4a4f55), mx, topY - WALK_T / 2, mz, ry);
+      for (const sd of [-1, 1]) {
+        const ox = alongX ? 0 : sd * (WALK_W / 2 - 0.04), oz = alongX ? sd * (WALK_W / 2 - 0.04) : 0;
+        put(box(len, 0.05, 0.05, 0xe2b01f), mx + ox, topY + 1.0, mz + oz, ry);   // main courante jaune
+        put(box(len, 0.04, 0.04, 0x2b2e33), mx + ox, topY + 0.5, mz + oz, ry);   // lisse
+        const n = Math.max(2, Math.round(len / 2.2));
+        for (let i = 0; i <= n; i++) {
+          const t = (i / n - 0.5) * (len - 0.1);
+          put(box(0.05, 1.0, 0.05, 0x2b2e33), mx + ox + (alongX ? t : 0), topY + 0.5, mz + oz + (alongX ? 0 : t));
+        }
+      }
+    }
+    for (const [x, z, dx, dz] of STAIRS) {
+      for (let k = 0; k < 5; k++) {
+        const c = STEP_D * (k + 0.5), h = Math.min(topY, STEP_H * (5 - k));
+        put(box(dx ? STEP_D : STEP_W, h, dx ? STEP_W : STEP_D, k % 2 ? 0x50555b : 0x5b6066), x + dx * c, h / 2, z + dz * c);
+        put(box(dx ? 0.08 : STEP_W, 0.03, dx ? STEP_W : 0.08, 0xe2b01f), x + dx * (c + STEP_D / 2 - 0.05), h + 0.016, z + dz * (c + STEP_D / 2 - 0.05)); // nez de marche
+      }
+    }
+  }
 
   // Console de match (réglages de la partie : world/arenaMatch.js)
   put(box(0.9, 1.1, 0.6, 0x2b2e33), CONSOLE.x, 0.55, CONSOLE.z);

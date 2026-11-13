@@ -1810,12 +1810,24 @@ async function boot() {
   // déjà construit — TOUJOURS (même si les ombres démarrent désactivées),
   // sinon la touche O ne pourrait jamais les rallumer plus tard : c'est
   // renderer.shadowMap.enabled qui pilote le coût réel, pas ces drapeaux.
+  let tinyNoShadow = 0;
   scene.traverse((o) => {
     if (o.isMesh && !o.userData.noShadow) {
-      o.castShadow = true;
+      // Le TOUT PETIT décor (moins de 45 cm de rayon : bornes, pots, poignées,
+      // petites caisses…) ne porte pas d'ombre : invisible dans la carte
+      // d'ombre, mais chaque pièce y coûtait un draw call de plus.
+      let petit = false;
+      if (!o.isInstancedMesh && !o.isSkinnedMesh && o.geometry) {
+        if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+        const sc = Math.max(o.scale.x, o.scale.y, o.scale.z);
+        petit = (o.geometry.boundingSphere?.radius ?? 9) * sc < 0.45;
+      }
+      o.castShadow = !petit;
       o.receiveShadow = true;
+      if (petit) tinyNoShadow++;
     }
   });
+  if (new URLSearchParams(location.search).has('debug')) console.log(`Ombres : ${tinyNoShadow} petites pièces sans ombre portée.`);
 
   // Peinture à main levée : clic maintenu en mode bombe
   window.addEventListener('mousedown', (e) => {

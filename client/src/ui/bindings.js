@@ -14,6 +14,7 @@ export const ACTIONS = [
   ['Déplacements', [
     ['KeyW', 'Avancer'], ['KeyS', 'Reculer'], ['KeyA', 'Gauche'], ['KeyD', 'Droite'],
     ['Space', 'Sauter'], ['ShiftLeft', 'S\'accroupir / glisser'],
+    ['AltLeft', 'Glissade'],
   ]],
   ['Combat', [
     ['Digit1', 'Sortir / ranger l\'arme'], ['Digit2', 'Arme suivante'], ['KeyR', 'Recharger'],
@@ -33,7 +34,7 @@ export const ACTIONS = [
 
 const NAMES = {
   Space: 'Espace', ShiftLeft: 'Maj gauche', ShiftRight: 'Maj droite', ControlLeft: 'Ctrl gauche',
-  ControlRight: 'Ctrl droite', AltLeft: 'Alt', AltRight: 'Alt Gr', Enter: 'Entrée', Tab: 'Tab',
+  ControlRight: 'Ctrl droite', AltLeft: 'Alt', Mouse1: 'Clic molette', Mouse3: 'Souris latéral 1', Mouse4: 'Souris latéral 2', AltRight: 'Alt Gr', Enter: 'Entrée', Tab: 'Tab',
   ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Backquote: '²', CapsLock: 'Verr. maj',
 };
 
@@ -89,6 +90,29 @@ export function createBindings({ toast } = {}) {
   };
   window.addEventListener('keydown', onKey, true);
   window.addEventListener('keyup', onKey, true);
+  // Boutons de SOURIS assignables (molette cliquée et boutons latéraux ; les
+  // clics gauche et droit restent le tir et la visée) : codes Mouse1/3/4
+  const onMouse = (e) => {
+    if (e.button !== 1 && e.button !== 3 && e.button !== 4) return;
+    const code = `Mouse${e.button}`;
+    if (waiting) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (e.type !== 'mousedown') return;
+      assign(waiting, code);
+      waiting = null;
+      render();
+      return;
+    }
+    const def = fromUser[code];
+    if (!def) return;
+    e.preventDefault();
+    press(def, e.type === 'mousedown');
+  };
+  window.addEventListener('mousedown', onMouse, true);
+  window.addEventListener('mouseup', onMouse, true);
+  // Alt seul ouvre le menu du navigateur sous Windows : jamais en jeu
+  window.addEventListener('keydown', (e) => { if (e.code === 'AltLeft' && !e.__remapped) e.preventDefault(); });
 
   function assign(def, code) {
     // la touche servait déjà à une autre action : les deux échangent

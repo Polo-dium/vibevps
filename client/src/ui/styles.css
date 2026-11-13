@@ -1565,6 +1565,12 @@ body.aircraft-touch-mode #hud-compass { display: none; }
 #arena-score b { font-size: 30px; font-weight: 700; letter-spacing: 0; }
 #arena-score i { font-style: normal; font-size: 10px; color: var(--hud-dim); padding: 1px 6px; border: 1px solid rgba(238, 241, 238, 0.3); }
 #arena-sub { font-size: 10.5px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--hud-dim); }
+#arena-radar {
+  position: absolute; left: calc(14px + env(safe-area-inset-left)); top: 92px;
+  width: 132px; height: 132px; opacity: 0.92;
+}
+#arena-radar.hidden { display: none; }
+@media (max-height: 520px) { #arena-radar { width: 96px; height: 96px; top: 74px; } }
 #arena-feed {
   position: absolute; right: 16px; top: 34%;
   display: flex; flex-direction: column; align-items: flex-end; gap: 4px;

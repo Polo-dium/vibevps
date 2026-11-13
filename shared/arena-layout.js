@@ -78,6 +78,19 @@ export const FFA_SPAWNS = [
   [-72, -24], [72, 24], [-72, 26], [72, -26], [0, 28], [0, -28], [-36, 27], [36, -27],
   [-34, -27], [34, 27], [-56, 0], [56, 0], [-18, 16], [18, -16],
 ];
+// PASSERELLES entre conteneurs, à hauteur de toit (niveau 1) : [x0, z0, x1,
+// z1], le long de x ou de z, 1,5 m de large. On circule dessous ; les bots
+// (au sol) ne les empruntent pas mais elles coupent leur ligne de tir.
+const mirror4 = (list) => list.flatMap((w) => [w, w.map((v) => -v)]);
+export const WALKS = mirror4([
+  [-19, -21.5, -19, -10.2],   // conteneur sud ↔ pile centrale
+  [-17.8, -24, -8, -24],      // conteneur sud ↔ conteneur du bord
+  [-48.8, 8.5, -43, 8.5],     // pile ouest ↔ conteneur isolé
+]);
+// ESCALIERS d'accès aux toits : [x, z, dx, dz] = pied du conteneur et sens
+// de la descente ; 5 marches de 53 cm (franchies sans sauter), 1,4 m de large
+export const STAIRS = mirror4([[-1.97, -24, 1, 0], [-36.97, 8, 1, 0]]);
+export const WALK_W = 1.5, WALK_T = 0.18, STEP_D = 0.6, STEP_H = 0.53, STEP_W = 1.4;
 // Rosettes de soin (+50 PV, reviennent 25 s après avoir été prises) : dans
 // les allées, à égale distance des deux bases
 export const MEDS = [[-36, 27], [36, -27], [-18, 16], [18, -16]];
@@ -112,6 +125,23 @@ export function arenaBoxes() {
   for (const [x, z] of FORKLIFTS) add(x - 1.1, x + 1.1, z - 1.1, z + 1.1, 0, 2.3);
   for (const [x, z] of MASTS) add(x - 0.55, x + 0.55, z - 0.55, z + 0.55, 0, 13);
   for (const [x, z] of TREES) add(x - 0.3, x + 0.3, z - 0.3, z + 0.3, 0, 3.4);
+  // Passerelles (dalle mince en hauteur) et escaliers (marches pleines)
+  const top = GROUND + CH;
+  for (const [x0, z0, x1, z1] of WALKS) {
+    const alongX = Math.abs(x1 - x0) > Math.abs(z1 - z0), h = WALK_W / 2;
+    if (alongX) add(Math.min(x0, x1), Math.max(x0, x1), z0 - h, z0 + h, top - WALK_T, top);
+    else add(x0 - h, x0 + h, Math.min(z0, z1), Math.max(z0, z1), top - WALK_T, top);
+    out[out.length - 1].metal = true;
+  }
+  for (const [x, z, dx, dz] of STAIRS) {
+    for (let k = 0; k < 5; k++) {
+      // k = 0 : marche la plus haute, contre le conteneur
+      const c = STEP_D * (k + 0.5), cx = x + dx * c, cz = z + dz * c;
+      const hx = dx ? STEP_D / 2 : STEP_W / 2, hz = dx ? STEP_W / 2 : STEP_D / 2;
+      add(cx - hx, cx + hx, cz - hz, cz + hz, 0, Math.min(top, STEP_H * (5 - k)));
+      out[out.length - 1].metal = true;
+    }
+  }
   // Louis XIV : emmarchement, socle, statue
   add(-4.7, 4.7, -3.7, 3.7, 0, 0.5);
   add(-4.3, 4.3, -3.3, 3.3, 0.5, 1.0);
