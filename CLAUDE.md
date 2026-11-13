@@ -399,6 +399,16 @@ npm start          # serveur de prod (sert client/dist)
     (`BOT_GUNS` : AK, MP5, M16, M4, FAMAS selon `seed`), dégâts inchangés.
     Bruit de pluie RETIRÉ (demande de Polo, 13/11/2026) : `audio.rain` ne
     fait plus que couper le son — ne pas le rétablir.
+    VISÉE ALIGNÉE : `SIGHTS` (weapon.js) = [u, v] de la hausse et du guidon
+    par arme ; à l'épaule, l'arme pique de l'angle qui met les deux à la
+    même hauteur et descend pour que la ligne passe par l'œil. Une hausse
+    doit laisser VOIR le guidon (œilleton en anneau, pas de bloc plein) ;
+    tout nouveau modèle à visée ouverte doit avoir son entrée `SIGHTS`.
+    POSES DES AVATARS ARMÉS (`poseArmed`, avatars.js) par famille, choisie
+    dans remotes.js : `fusil`, `double` (akimbo, dagues : une arme par main,
+    support au milieu des mains), `melee` (épée, couteau, marteau, bâton),
+    `lance` (bouclier remonté devant le bras gauche). Réglage : mannequin
+    immobile par `net.inject` (?debug) — `pjoin` puis `states` répétés.
     Kar98k : `kar98k` (sans lunette, 5 cartouches d'un coup) et `kar98ks`
     (code 18, lunette ×2,5 / ×6 via `spec.scope`, rechargement balle par
     balle `roundReload`, interrompu par le tir) — 55 dégâts au corps,

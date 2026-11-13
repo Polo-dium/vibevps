@@ -49,7 +49,9 @@ export function buildM16Model() {
   k.place(new THREE.CylinderGeometry(0.008, 0.008, 0.012, 10), dark, 0.024, 0.0, -0.06, 0, 0, Math.PI / 2); // assistance de culasse
   // poignée de transport + hausse
   k.prof([[0.03, 0.036], [0.05, 0.036], [0.065, 0.07], [0.215, 0.07], [0.235, 0.036], [0.255, 0.036], [0.23, 0.084], [0.05, 0.084]], 0.022, black, 0, { bevel: 0.003 });
-  k.box(0.055, 0.085, 0.084, 0.098, 0.026, dark);
+  // hausse : œilleton (anneau) entre deux oreilles — on voit le guidon au travers
+  for (const x of [-0.011, 0.011]) k.box(0.055, 0.085, 0.084, 0.1, 0.004, dark, x);
+  k.place(new THREE.TorusGeometry(0.0055, 0.002, 6, 14), dark, 0, 0.091, -0.07);
   // garde-main triangulaire nervuré
   k.prof([[0.3, -0.04], [0.6, -0.034], [0.6, 0.028], [0.3, 0.03]], 0.05, poly, 0, { bevel: 0.01, segments: 3 });
   for (let u = 0.32; u < 0.59; u += 0.03) k.box(u, u + 0.012, -0.038, 0.027, 0.0525, dark);
@@ -174,11 +176,14 @@ export function buildFamasModel() {
   // garde-main arrondi sous le pont
   k.prof(roundedRect(0.16, -0.05, 0.4, 0.03, 0.014), 0.054, body, 0, { bevel: 0.012, segments: 3 });
   // POIGNÉE DE TRANSPORT en pont : deux montants + arche bombée
-  k.prof([[-0.1, 0.03], [-0.06, 0.03], [-0.03, 0.082], [-0.062, 0.082]], 0.024, body, 0, { bevel: 0.004 });
-  k.prof([[0.33, 0.03], [0.37, 0.03], [0.332, 0.082], [0.3, 0.082]], 0.024, body, 0, { bevel: 0.004 });
+  // (montants en DEUX joues : le canal de visée reste ouvert entre elles)
+  for (const x of [-0.0105, 0.0105]) {
+    k.prof([[-0.1, 0.03], [-0.06, 0.03], [-0.03, 0.082], [-0.062, 0.082]], 0.004, body, x, { bevel: 0.001 });
+    k.prof([[0.33, 0.03], [0.37, 0.03], [0.332, 0.082], [0.3, 0.082]], 0.004, body, x, { bevel: 0.001 });
+  }
   k.prof([...arc(-0.07, 0.34, 0.082, 0.03), ...arc(-0.05, 0.32, 0.076, 0.022).reverse()], 0.024, body, 0, { bevel: 0.003 });
-  k.box(-0.045, -0.03, 0.05, 0.08, 0.008, dark);                       // œilleton
-  k.box(0.296, 0.304, 0.05, 0.08, 0.004, dark);                        // guidon
+  k.place(new THREE.TorusGeometry(0.0065, 0.002, 6, 14), dark, 0, 0.068, 0.037); // œilleton (anneau)
+  k.box(0.297, 0.303, 0.04, 0.068, 0.003, dark);                       // guidon (sommet sur la ligne de mire)
   k.prof([[0.1, 0.03], [0.18, 0.03], [0.17, 0.052], [0.11, 0.052]], 0.014, dark, 0, { bevel: 0.002 }); // levier d'armement sous l'arche
   // canon, bagues de lance-grenades, cache-flamme
   k.tube(0.0095, 0.4, 0.64, 0, dark);

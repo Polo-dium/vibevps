@@ -16,6 +16,10 @@ function emit(type, payload) {
   for (const fn of listeners.get(type) ?? []) fn(payload);
 }
 
+// (débogage ?debug : rejoue un message comme s'il venait du serveur — sert à
+// poser un joueur factice immobile pour régler les poses des avatars)
+export function inject(msg) { emit(msg.t, msg); }
+
 export function send(obj) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
 }

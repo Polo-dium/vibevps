@@ -102,6 +102,18 @@ const HANDLING = {
   kar98ks: { spread: 0.0, kick: 0.06 },
 };
 
+// LIGNE DE MIRE par arme : [u, v] de la hausse puis [u, v] du guidon, relevés
+// sur les modèles (u le long du canon, v la hauteur — voir weaponModels*.js).
+// La visée à l'épaule amène cette ligne dans l'axe de l'œil.
+const SIGHTS = {
+  ak: [0.362, 0.057, 0.6, 0.068],
+  m16: [0.07, 0.091, 0.682, 0.091],
+  m4: [0.09, 0.073, 0.2, 0.073],       // axe du point rouge
+  mp5: [0.045, 0.066, 0.5, 0.076],
+  famas: [-0.037, 0.068, 0.3, 0.068],
+  kar98k: [0.3, 0.037, 0.75, 0.03],
+};
+
 // Prises en main, par arme (repère du porte-arme, voir weaponModels.js) :
 // main DROITE sur la poignée pistolet, index vers la détente (paume contre
 // le flanc droit de la poignée : roulis ≈ −π/2) ; main GAUCHE sous le
@@ -915,12 +927,23 @@ export function createWeapon(camera, scene, shootables, {
     if (reloadDip > 0 && !spec.melee) { rz += reloadDip * 2.6; ry -= reloadDip * 1.4; }
     // À l'épaule : l'arme vient dans l'axe de l'œil, le balancement se calme
     const calm = 1 - 0.8 * ads;
+    // VISÉE ALIGNÉE : à l'épaule, la ligne de mire (hausse → guidon) passe
+    // PAR L'ŒIL et reste parallèle au regard — l'arme pique du nez de
+    // l'angle qui met les deux organes de visée à la même hauteur, puis
+    // descend de ce qu'il faut pour que la hausse soit dans l'axe. Sans
+    // relevé de mire (SIGHTS) : ancienne pose, un peu sous l'œil.
+    const sg = SIGHTS[curId];
+    let adsY = -0.165, adsPitch = 0;
+    if (sg) {
+      adsPitch = Math.atan2(sg[3] - sg[1], sg[2] - sg[0]);
+      adsY = -(sg[1] * Math.cos(adsPitch) - sg[0] * Math.sin(adsPitch));
+    }
     holder.position.set(
       (spec.akimbo || spec.dual ? 0 : 0.26 * (1 - ads)) + bobX * calm + px,
-      -0.24 + 0.075 * ads - bobY * calm - reloadDip + lift + py,
+      -0.24 + (adsY + 0.24) * ads - bobY * calm - reloadDip + lift + py,
       -0.45 + 0.1 * ads + recoil * 0.06 * (1 - 0.4 * ads) + pz
     );
-    holder.rotation.set(recoil * 0.09 - reloadDip * 0.8 - swingTilt, ry, rz);
+    holder.rotation.set(recoil * 0.09 * (1 - 0.6 * ads) - adsPitch * ads - reloadDip * 0.8 - swingTilt, ry, rz);
   }
 
   return {

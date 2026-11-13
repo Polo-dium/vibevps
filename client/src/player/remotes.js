@@ -363,6 +363,9 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
           r.weapon = buildWeaponModel(wid);
           if (r.human.isAvatar) {
             r.weapon.position.set(0, 0, 0); // support déjà calé sur la main, pointé devant
+            // lance et bouclier : le bouclier (réglé pour la vue subjective,
+            // bas à gauche) remonte devant l'avant-bras gauche du personnage
+            if (wid === 'lance') r.weapon.children[1]?.position.set(-0.36, 0.2, -0.2);
           } else {
             r.weapon.position.set(0.02, -0.5, -0.06);
             r.weapon.rotation.set(-1.15, 0, 0);
@@ -438,7 +441,12 @@ export function createRemotePlayers(scene, shootables, { onHitRemote, getListene
       if (r.human.isAvatar) {
         // avatar réaliste : bras en position de tir si l'arme est sortie,
         // animation allégée au-delà de 40 m, vitesse au format des avatars
-        r.human.setArmed(Boolean(r.weapon) && !dead);
+        // famille de pose d'après l'arme tenue (avatars.js `poseArmed`)
+        const wk = WEAPON_IDS[(r.weaponCode ?? 0) - 1];
+        r.human.setArmed(Boolean(r.weapon) && !dead,
+          wk === 'akimbo' || wk === 'dagues' ? 'double'
+            : wk === 'lance' ? 'lance'
+              : wk === 'epee' || wk === 'couteau' || wk === 'marteau' || wk === 'baton' ? 'melee' : 'fusil');
         const lp = getListenerPos?.();
         g.userData.far = lp ? g.position.distanceToSquared(lp) > 1600 : false;
         r.human.animate(r.animTime, veh || dead ? 0 : speed * 2.6);

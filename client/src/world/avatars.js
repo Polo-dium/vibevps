@@ -234,7 +234,7 @@ export async function buildAvatar(name0, { seated = false } = {}) {
   const armR = new THREE.Group();
   armR.position.set(0.16, 1.25, -0.3);
   group.add(armR);
-  let armed = false, kick = 0;
+  let armed = false, kick = 0, armKind = 'fusil';
   const bands = [];
   const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3();
   const _q = new THREE.Quaternion(), _qw = new THREE.Quaternion(), _qp = new THREE.Quaternion(), _qg = new THREE.Quaternion();
@@ -353,6 +353,38 @@ export async function buildAvatar(name0, { seated = false } = {}) {
     // + secousse de recul à chaque coup (kick, retombe en ~0,15 s)
     const k = kick;
     kick = Math.max(0, kick - 0.14);
+    // UNE POSE PAR FAMILLE D'ARME (armKind, donné par remotes.js) :
+    //  fusil  : crosse à l'épaule, main gauche sous le garde-main
+    //  double : un pistolet / une dague par main, bras tendus écartés
+    //  melee  : arme au poing droit, en garde ; le bras gauche garde son animation
+    //  lance  : lance couchée à la hanche, bouclier porté devant par le bras gauche
+    const hand = (b) => { b.updateWorldMatrix(true, false); b.getWorldPosition(_a); return group.worldToLocal(_a); };
+    if (armKind === 'double') {
+      aimBone(arm.r[0], arm.r[1], 0.05, -0.34 + k * 0.2, -0.94);
+      aimBone(arm.r[1], arm.r[2], -0.02, 0.06 + k * 0.4, -1);
+      aimBone(arm.l[0], arm.l[1], -0.05, -0.34 + k * 0.2, -0.94);
+      aimBone(arm.l[1], arm.l[2], 0.02, 0.06 + k * 0.4, -1);
+      // les deux armes du modèle sont à ±16 cm : support au milieu des mains
+      const r = hand(arm.r[2]).clone(), l = hand(arm.l[2]);
+      armR.position.set((r.x + l.x) / 2, (r.y + l.y) / 2 + 0.05, (r.z + l.z) / 2 + 0.1);
+      return;
+    }
+    if (armKind === 'melee') {
+      aimBone(arm.r[0], arm.r[1], 0.22, -0.7, -0.68);
+      aimBone(arm.r[1], arm.r[2], -0.12, 0.25 + k * 0.5, -0.96);
+      const r = hand(arm.r[2]);
+      armR.position.set(r.x, r.y + 0.03, r.z - 0.03);
+      return;
+    }
+    if (armKind === 'lance') {
+      aimBone(arm.r[0], arm.r[1], 0.25, -0.86, -0.45);
+      aimBone(arm.r[1], arm.r[2], 0.0, -0.12, -1);
+      aimBone(arm.l[0], arm.l[1], -0.2, -0.62, -0.76);
+      aimBone(arm.l[1], arm.l[2], 0.55, 0.3, -0.78);
+      const r = hand(arm.r[2]);
+      armR.position.set(r.x - 0.1, r.y, r.z);
+      return;
+    }
     aimBone(arm.r[0], arm.r[1], 0.12, -0.72, -0.68 + k * 0.25);
     aimBone(arm.r[1], arm.r[2], -0.42, 0.18 + k * 0.5, -0.89);
     aimBone(arm.l[0], arm.l[1], 0.1, -0.5, -0.86 + k * 0.2);
@@ -409,7 +441,7 @@ export async function buildAvatar(name0, { seated = false } = {}) {
     ragdollStop() { rag.on = false; },
     // hauteur monde de la poitrine (sang, cris)
     chestY() { return rag.ok ? RAG_BONES[1].getWorldPosition(_a).y : group.position.y + 1.3; },
-    setArmed(on) { armed = Boolean(on); },
+    setArmed(on, kind = 'fusil') { armed = Boolean(on); armKind = kind; },
     // BRASSARD D'ÉQUIPE : un anneau de couleur franche autour de chaque bras
     // (null = retiré). Posé sur l'os du bras, orienté le long du segment
     // bras → avant-bras, dimensionné d'après l'échelle monde de l'os.
