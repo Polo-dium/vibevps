@@ -380,6 +380,11 @@ npm start          # serveur de prod (sert client/dist)
     Gestes dans la pose de `weapon.js` : taille de l'épée, estocs alternés
     des dagues (`swingSide`), coup de lance, verrou (`boltT`), bascule de
     l'arme au rechargement.
+    Kar98k : `kar98k` (sans lunette, 5 cartouches d'un coup) et `kar98ks`
+    (code 18, lunette ×2,5 / ×6 via `spec.scope`, rechargement balle par
+    balle `roundReload`, interrompu par le tir) — 55 dégâts au corps,
+    `headKill` = 100 à la tête (main.js) ; plafond serveur des gros calibres
+    ramené à 0,9 s. `spec.dual` (dagues) centre le porte-arme comme l'akimbo.
     Bouclier : `ws.js` réduit à 40 % un coup reçu de face par un joueur qui
     tient la lance (code 17). CLASSE (arenaMatch.js) : 2 armes parmi
     `CLASS_WEAPONS`, menu touche K / bouton CLASSE, `localStorage

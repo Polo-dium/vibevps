@@ -970,6 +970,8 @@ async function boot() {
       // Tir à la tête : ×1,5, borné au plafond serveur des armes légères
       // (55) — le fusil de précision (100) n'en a pas besoin.
       if (headshot && dmg < 55) dmg = Math.min(55, Math.round(dmg * 1.5));
+      // Kar98k : une balle dans la tête suffit (deux au corps)
+      if (headshot && weapon.headKill && !hit?.aircraft && !hit?.jetpack) dmg = 100;
       net.send({ t: 'hit', target: id, dmg });
     },
   });

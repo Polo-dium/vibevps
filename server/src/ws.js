@@ -277,7 +277,7 @@ export function setupWs(httpServer) {
           if (!arena.allowHit(id, targetId, now)) return;
           const raw = Math.max(1, Math.floor(Number(msg.dmg) || HIT_DAMAGE));
           if (raw > 55) {
-            if (now - (me.lastBigHitAt ?? 0) < 1400) return;
+            if (now - (me.lastBigHitAt ?? 0) < 900) return;
             me.lastBigHitAt = now;
           }
           arena.hitBot(id, targetId, raw > 55 ? Math.min(100, raw) : Math.min(55, raw), now);
@@ -309,7 +309,7 @@ export function setupWs(httpServer) {
         const rawDmg = Math.max(1, Math.floor(Number(msg.dmg) || HIT_DAMAGE));
         let dmg;
         if (rawDmg > 55) {
-          if (now - (me.lastBigHitAt ?? 0) < 1400) return;
+          if (now - (me.lastBigHitAt ?? 0) < 900) return;
           me.lastBigHitAt = now;
           dmg = Math.min(100, rawDmg);
         } else {

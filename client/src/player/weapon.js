@@ -68,9 +68,15 @@ export const WEAPONS = {
   m16: { nom: 'M16', emoji: '🔫', fire: 0.115, mag: 30, reload: 1.7, range: 150, dmg: 22 },       // précis, posé
   m4: { nom: 'M4', emoji: '🔫', fire: 0.085, mag: 30, reload: 1.5, range: 110, dmg: 17 },         // polyvalent
   famas: { nom: 'FAMAS', emoji: '🔫', fire: 0.065, mag: 25, reload: 1.6, range: 100, dmg: 16 },   // le clairon : très rapide, petit chargeur
-  kar98k: { nom: 'Kar98k', emoji: '🎯', fire: 1.4, mag: 5, reload: 2.6, range: 300, dmg: 85 },    // verrou, sans lunette (1,4 s : plafond serveur des gros calibres)
+  // Kar98k : plus vif que le gros fusil de précision. DEUX balles au corps,
+  // UNE à la tête (`headKill`). Sans lunette : les 5 cartouches d'un coup
+  // (lame-chargeur). Avec lunette ×2,5 / ×6 (`kar98ks`) : la lunette barre la
+  // culasse, on recharge BALLE PAR BALLE (`roundReload` s par cartouche).
+  kar98k: { nom: 'Kar98k', emoji: '🎯', fire: 0.95, mag: 5, reload: 2.0, range: 300, dmg: 55, headKill: true },
+  kar98ks: { nom: 'Kar98k à lunette', emoji: '🔭', fire: 0.95, mag: 5, reload: 0.6, roundReload: 0.6, range: 380, dmg: 55,
+    headKill: true, sniper: true, scope: [2.5, 6] },
   epee: { nom: 'Épée', emoji: '🗡️', fire: 0.5, mag: 0, reload: 0, range: 3.9, dmg: 55, melee: true },
-  dagues: { nom: 'Doubles dagues', emoji: '🔪🔪', fire: 0.2, mag: 0, reload: 0, range: 2.8, dmg: 30, melee: true },
+  dagues: { nom: 'Doubles dagues', emoji: '🔪🔪', fire: 0.2, mag: 0, reload: 0, range: 2.8, dmg: 30, melee: true, dual: true },
   // Lance et bouclier : longue allonge ; tenu en main, le bouclier réduit
   // les balles reçues DE FACE (décidé par le serveur, voir ws.js)
   lance: { nom: 'Lance et bouclier', emoji: '🛡️', fire: 0.7, mag: 0, reload: 0, range: 5.4, dmg: 50, melee: true, shield: true },
@@ -93,6 +99,7 @@ const HANDLING = {
   m4: { spread: 0.01, kick: 0.009, ads: 1.4 },
   famas: { spread: 0.013, kick: 0.0085, ads: 1.35 },
   kar98k: { spread: 0.0, kick: 0.06, ads: 1.9 },
+  kar98ks: { spread: 0.0, kick: 0.06 },
 };
 
 // Prises en main, par arme (repère du porte-arme, voir weaponModels.js) :
@@ -162,9 +169,9 @@ const GRIPS = {
 // Ordre figé — ne jamais réordonner (casserait la compat avec les clients
 // déjà connectés), n'ajouter qu'à la fin.
 export const WEAPON_IDS = ['ak', 'marteau', 'pompe', 'minigun', 'bazooka', 'akimbo', 'baton', 'sniper', 'couteau',
-  'mp5', 'm16', 'm4', 'famas', 'kar98k', 'epee', 'dagues', 'lance'];
+  'mp5', 'm16', 'm4', 'famas', 'kar98k', 'epee', 'dagues', 'lance', 'kar98ks'];
 for (const id of ['mp5', 'm16', 'm4', 'famas']) GRIPS[id] = GRIPS.ak;
-GRIPS.kar98k = GRIPS.sniper;
+GRIPS.kar98k = GRIPS.kar98ks = GRIPS.sniper;
 
 export function createWeapon(camera, scene, shootables, {
   onAmmoChange, onShot, onRocketExplosion, getGroundY, onWeaponChange, worldHit,
@@ -479,8 +486,9 @@ export function createWeapon(camera, scene, shootables, {
 
   function reload() {
     if (state.weaponEquipped && !spec.melee && reloading <= 0 && ammo < spec.mag) {
-      reloading = spec.reload;
-      audio.reload();
+      // balle par balle : la durée dépend de ce qui manque
+      reloading = spec.roundReload ? spec.roundReload * (spec.mag - ammo) : spec.reload;
+      if (!spec.roundReload) audio.reload();
       onAmmoChange(ammo, true, spec);
     }
   }
@@ -501,6 +509,7 @@ export function createWeapon(camera, scene, shootables, {
     spec = WEAPONS[id];
     modelFor(id).visible = true;
     ammo = spec.mag;
+    scopeZoom = (spec.scope ?? [6, 12])[0];
     refillAkimbo();
     reloading = 0;
     cooldown = 0;
@@ -608,7 +617,7 @@ export function createWeapon(camera, scene, shootables, {
     if (spec.rocket) audio.rocket();
     else if (spec.pellets) audio.shotgun();
     else if (!audio.shotOf?.(curId)) audio.gunshot();
-    if (curId === 'kar98k') boltT = 1; // manœuvre du verrou après chaque coup
+    if (curId === 'kar98k' || curId === 'kar98ks') boltT = 1; // manœuvre du verrou après chaque coup
     if (!spec.rocket) spawnShell();
     onAmmoChange(ammo, false, spec);
 
@@ -659,8 +668,9 @@ export function createWeapon(camera, scene, shootables, {
     heat = Math.min(1, heat + (spec.fire < 0.2 ? 0.2 : 0.5));
 
     if (ammo <= 0) {
-      reloading = spec.reload;
-      audio.reload();
+      // balle par balle : la durée dépend de ce qui manque
+      reloading = spec.roundReload ? spec.roundReload * (spec.mag - ammo) : spec.reload;
+      if (!spec.roundReload) audio.reload();
       onAmmoChange(0, true, spec);
     }
   }
@@ -793,7 +803,14 @@ export function createWeapon(camera, scene, shootables, {
 
     if (!state.weaponEquipped) return;
 
-    if (reloading > 0) {
+    if (reloading > 0 && spec.roundReload) {
+      // BALLE PAR BALLE : une cartouche de plus à chaque tranche de temps ;
+      // tirer interrompt le rechargement s'il reste de quoi tirer
+      reloading -= dt;
+      const have = Math.min(spec.mag, spec.mag - Math.ceil(Math.max(0, reloading) / spec.roundReload));
+      if (have > ammo) { ammo = have; audio.roundIn?.(); onAmmoChange(ammo, reloading > 0, spec); }
+      if (reloading <= 0 || (triggerDown && ammo > 0)) { reloading = 0; onAmmoChange(ammo, false, spec); }
+    } else if (reloading > 0) {
       reloading -= dt;
       if (reloading <= 0) {
         ammo = spec.mag;
@@ -887,7 +904,7 @@ export function createWeapon(camera, scene, shootables, {
     // À l'épaule : l'arme vient dans l'axe de l'œil, le balancement se calme
     const calm = 1 - 0.8 * ads;
     holder.position.set(
-      (spec.akimbo ? 0 : 0.26 * (1 - ads)) + bobX * calm + px,
+      (spec.akimbo || spec.dual ? 0 : 0.26 * (1 - ads)) + bobX * calm + px,
       -0.24 + 0.075 * ads - bobY * calm - reloadDip + lift + py,
       -0.45 + 0.1 * ads + recoil * 0.06 * (1 - 0.4 * ads) + pz
     );
@@ -910,7 +927,8 @@ export function createWeapon(camera, scene, shootables, {
     },
     // Lunette du fusil de précision : bascule ×6 ↔ ×12 (molette ou bouton)
     toggleScopeZoom() {
-      scopeZoom = scopeZoom === 6 ? 12 : 6;
+      const sc = spec.scope ?? [6, 12];
+      scopeZoom = scopeZoom === sc[0] ? sc[1] : sc[0];
       if (aiming) {
         camera.zoom = scopeZoom;
         camera.updateProjectionMatrix();
@@ -934,6 +952,7 @@ export function createWeapon(camera, scene, shootables, {
       return owned.map((id) => ({ id, ...WEAPONS[id], equipped: id === curId && state.weaponEquipped }));
     },
     get damage() { return spec.dmg; },
+    get headKill() { return Boolean(spec.headKill); }, // une balle dans la tête suffit
     // Le porte-arme lui-même : les bras (arms.js) lisent sa position/rotation
     // en direct chaque frame pour rester parfaitement calés sur le recul,
     // le balancement de course et le coup de marteau — pas de resynchro à

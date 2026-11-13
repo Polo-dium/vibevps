@@ -31,9 +31,9 @@ const DIFF_LABELS = ['Facile', 'Normal', 'Difficile', 'Réaliste'];
 // équipe — quelle que soit l'équipe (0 ou 1) où le serveur t'a mis. En
 // mêlée générale, tout le monde est rouge.
 const FOE_CSS = '#ff5a4d', ALLY_CSS = '#5b9bff';
-const WPN_ICON = { 1: '🔫', 2: '🔨', 3: '💥', 4: '🌀', 5: '🚀', 6: '🔫', 7: '🏏', 8: '🎯', 9: '🔪', 10: '🔫', 11: '🔫', 12: '🔫', 13: '🔫', 14: '🎯', 15: '🗡️', 16: '🔪', 17: '🛡️', 100: '💣', 101: '🥖' };
+const WPN_ICON = { 1: '🔫', 2: '🔨', 3: '💥', 4: '🌀', 5: '🚀', 6: '🔫', 7: '🏏', 8: '🎯', 9: '🔪', 10: '🔫', 11: '🔫', 12: '🔫', 13: '🔫', 14: '🎯', 15: '🗡️', 16: '🔪', 17: '🛡️', 18: '🔭', 100: '💣', 101: '🥖' };
 // CLASSES : les armes proposées dans l'arène (2 par classe, voir `classPick`)
-const CLASS_WEAPONS = ['ak', 'm4', 'm16', 'famas', 'mp5', 'pompe', 'kar98k', 'sniper', 'akimbo', 'epee', 'dagues', 'lance', 'marteau'];
+const CLASS_WEAPONS = ['ak', 'm4', 'm16', 'famas', 'mp5', 'pompe', 'kar98k', 'kar98ks', 'sniper', 'akimbo', 'epee', 'dagues', 'lance', 'marteau'];
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;

@@ -122,13 +122,13 @@ export const audio = {
       m16: { crack: [2200, 0.07, 0.36], body: [150, 52, 0.11, 0.24], tail: [480, 0.22, 0.24], click: 2500 },
       famas: { crack: [3000, 0.05, 0.34], body: [190, 70, 0.07, 0.2], tail: [750, 0.12, 0.16], click: 3600 },
       kar98k: { crack: [1500, 0.12, 0.5], body: [110, 36, 0.3, 0.34], tail: [320, 0.5, 0.42], click: 1900 },
-    }[id];
+    }[id === 'kar98ks' ? 'kar98k' : id];
     if (!S) return false;
     noise(S.crack[1], { type: 'highpass', freq: S.crack[0], gain: S.crack[2] });
     tone(S.body[0], S.body[2], { type: 'square', gain: S.body[3], slideTo: S.body[1] });
     noise(S.tail[1], { type: 'lowpass', freq: S.tail[0], gain: S.tail[2], at: 0.012 });
     tone(S.click, 0.018, { type: 'sine', gain: 0.08 });
-    if (id === 'kar98k') {
+    if (id === 'kar98k' || id === 'kar98ks') {
       // verrou : levée, recul, poussée, verrouillage
       for (const [at, f] of [[0.42, 1500], [0.56, 900], [0.78, 1100], [0.92, 1900]]) {
         tone(f, 0.035, { type: 'square', gain: 0.09, at });
@@ -136,6 +136,12 @@ export const audio = {
       }
     }
     return true;
+  },
+  // Une cartouche poussée dans le magasin (rechargement balle par balle)
+  roundIn() {
+    if (!ctx) return;
+    tone(1250, 0.03, { type: 'square', gain: 0.09 });
+    noise(0.05, { type: 'highpass', freq: 1800, gain: 0.08, at: 0.02 });
   },
   // Coups de mêlée : sifflement de la lame (bruit filtré qui glisse) + tintement
   swingOf(id) {

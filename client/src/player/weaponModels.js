@@ -20,6 +20,7 @@ export function buildWeaponModel(id) {
     case 'm4': return buildM4Model();
     case 'famas': return buildFamasModel();
     case 'kar98k': return buildKar98kModel();
+    case 'kar98ks': return buildKar98kModel(true);
     case 'epee': return buildEpeeModel();
     case 'dagues': return buildDaguesModel();
     case 'lance': return buildLanceModel();

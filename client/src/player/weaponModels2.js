@@ -105,66 +105,101 @@ export function buildM4Model() {
   return k.bake();
 }
 
-// --- MP5 : tube d'armement au-dessus du canon, guidon annulaire, chargeur courbe ---
+// Arc échantillonné (dessus bombé) : points de (u0, v) à (u1, v) avec une flèche h
+const arc = (u0, u1, v, h, n = 8) => Array.from({ length: n + 1 }, (_, i) => {
+  const t = i / n;
+  return [u0 + (u1 - u0) * t, v + h * Math.sin(t * Math.PI)];
+});
+
+// --- MP5A2 : boîtier embouti mince, tube d'armement AU-DESSUS du canon avec son
+// levier à gauche, guidon sous anneau, hausse tambour, garde-main « tropical »
+// galbé, chargeur courbe de 30, bloc détente polymère, crosse fixe pleine ---
 export function buildMp5Model() {
   const k = kit();
-  const black = PBR.gunmetal(0x1a1b1e), dark = PBR.gunmetal(0x0f1012), poly = PBR.polymer(0x1b1c1f);
-  // boîtier embouti arrondi + tube d'armement
-  k.prof(roundedRect(0, -0.03, 0.3, 0.03, 0.01), 0.04, black, 0, { bevel: 0.006, segments: 3 });
-  k.tube(0.014, 0.2, 0.44, 0.03, black, 0, 12);
-  k.place(new THREE.CylinderGeometry(0.006, 0.006, 0.034, 8), dark, -0.03, 0.03, -0.33, 0, 0, Math.PI / 2); // levier d'armement (à gauche)
-  k.box(0.1, 0.17, -0.004, 0.012, 0.042, dark); // fenêtre d'éjection
-  // hausse à tambour + guidon annulaire
-  k.tube(0.013, 0.03, 0.06, 0.045, dark, 0, 12);
-  k.place(new THREE.TorusGeometry(0.014, 0.004, 6, 14), black, 0, 0.058, -0.43, 0, Math.PI / 2);
-  k.box(0.427, 0.433, 0.03, 0.058, 0.004, dark);
-  // garde-main bombé
-  k.prof(roundedRect(0.3, -0.04, 0.44, 0.012, 0.014), 0.048, poly, 0, { bevel: 0.01, segments: 3 });
-  for (let u = 0.32; u < 0.43; u += 0.025) k.box(u, u + 0.008, -0.039, -0.02, 0.0495, dark);
-  // canon court et ses trois tenons
-  k.tube(0.0095, 0.3, 0.5, 0, dark);
-  k.tube(0.012, 0.47, 0.485, 0, black, 0, 10);
-  // chargeur courbe 30 coups, puits, poignée, pontet
-  k.box(0.2, 0.26, -0.05, -0.03, 0.034, black);
-  magazine(k, PBR.gunmetal(0x232427), { u: 0.232, len: 0.19, curve: 0.05, top: -0.045, half: 0.02, w: 0.026 });
-  grip(k, poly, dark, 0.05, -0.03);
-  triggerGuard(k, 0.098, 0.19, -0.03, black);
-  // crosse coulissante : deux tiges + plaque de couche
-  for (const x of [-0.016, 0.016]) k.place(new THREE.CylinderGeometry(0.004, 0.004, 0.22, 6), dark, x, 0.012, 0.11, Math.PI / 2);
-  k.prof(roundedRect(-0.235, -0.06, -0.218, 0.04, 0.006), 0.04, poly, 0, { bevel: 0.004 });
-  k.prof(roundedRect(-0.02, -0.03, 0, 0.03, 0.006), 0.042, black, 0, { bevel: 0.004 }); // flasque arrière
+  const black = PBR.gunmetal(0x1b1c1f), dark = PBR.gunmetal(0x0e0f11), poly = PBR.polymer(0x17181a);
+  // boîtier : tôle emboutie mince, nervures horizontales, capot arrière
+  k.prof(roundedRect(0, -0.022, 0.31, 0.03, 0.008), 0.036, black, 0, { bevel: 0.005, segments: 3 });
+  for (const v of [-0.008, 0.008]) k.box(0.03, 0.2, v, v + 0.003, 0.0375, dark);
+  k.box(0.13, 0.2, 0.012, 0.027, 0.0375, dark);                        // fenêtre d'éjection
+  k.prof(roundedRect(-0.012, -0.024, 0.004, 0.032, 0.005), 0.04, black, 0, { bevel: 0.003 }); // capot arrière
+  // tube d'armement, plus haut et plus long que le boîtier, bouché à l'avant
+  k.tube(0.0125, 0.24, 0.52, 0.043, black, 0, 14);
+  k.tube(0.0135, 0.515, 0.527, 0.043, dark, 0, 14);
+  k.box(0.4, 0.5, 0.039, 0.047, 0.004, dark, -0.0125);                 // lumière du levier
+  k.place(new THREE.CylinderGeometry(0.0055, 0.0055, 0.03, 8), dark, -0.028, 0.043, -0.47, 0, 0, Math.PI / 2); // levier (à gauche, vers l'avant)
+  k.place(new THREE.SphereGeometry(0.008, 8, 6), dark, -0.044, 0.043, -0.47);
+  // hausse à tambour sur son embase
+  k.box(0.02, 0.07, 0.03, 0.04, 0.03, black);
+  k.place(new THREE.CylinderGeometry(0.014, 0.014, 0.022, 14), dark, 0, 0.052, -0.045);
+  // tour de guidon : anneau protecteur + guidon, à cheval sur le tube
+  k.prof([[0.488, 0.03], [0.512, 0.03], [0.508, 0.062], [0.492, 0.062]], 0.03, black, 0, { bevel: 0.002 });
+  k.place(new THREE.TorusGeometry(0.0125, 0.0035, 6, 16), black, 0, 0.074, -0.5, 0, Math.PI / 2);
+  k.box(0.498, 0.502, 0.062, 0.078, 0.003, dark);
+  // garde-main « tropical » : large, galbé, strié
+  k.prof([[0.31, -0.018], [0.33, -0.042], [0.47, -0.046], [0.49, -0.03], [0.49, 0.026], [0.31, 0.026]], 0.05, poly, 0, { bevel: 0.011, segments: 3 });
+  for (let u = 0.34; u < 0.47; u += 0.022) k.box(u, u + 0.007, -0.045, -0.01, 0.0515, dark);
+  // canon court qui dépasse, trois tenons
+  k.tube(0.0085, 0.31, 0.575, 0.004, dark);
+  k.tube(0.0115, 0.545, 0.556, 0.004, black, 0, 10);
+  // bloc détente polymère : puits de chargeur à l'avant, poignée galbée, sélecteur
+  k.prof([[0.035, -0.022], [0.3, -0.022], [0.3, -0.052], [0.215, -0.056], [0.2, -0.04], [0.035, -0.036]], 0.034, poly, 0, { bevel: 0.004 });
+  k.prof([[0.04, -0.034], [0.092, -0.034], [0.07, -0.142], [0.03, -0.148], [0.016, -0.136]], 0.031, poly, 0, { bevel: 0.007, segments: 3 });
+  k.place(new THREE.CylinderGeometry(0.007, 0.007, 0.038, 10), dark, 0, -0.028, -0.115, 0, 0, Math.PI / 2); // axe du sélecteur
+  k.box(0.105, 0.135, -0.03, -0.026, 0.004, dark, 0.018);
+  triggerGuard(k, 0.09, 0.2, -0.036, poly);
+  k.box(0.2, 0.214, -0.075, -0.056, 0.012, dark);                      // palette d'arrêtoir de chargeur
+  // chargeur courbe de 30 (étroit, nervuré)
+  magazine(k, PBR.gunmetal(0x202124), { u: 0.257, len: 0.2, curve: 0.062, top: -0.05, half: 0.019, w: 0.024 });
+  // crosse fixe pleine (A2) : col, corps, plaque de couche
+  k.prof([[-0.012, 0.03], [-0.012, -0.024], [-0.07, -0.03], [-0.25, -0.078], [-0.268, -0.078], [-0.268, 0.034], [-0.07, 0.032]], 0.036, poly, 0, { bevel: 0.008, segments: 3 });
+  k.box(-0.277, -0.267, -0.077, 0.033, 0.038, dark);
+  k.box(-0.2, -0.09, -0.01, 0.004, 0.0375, dark);                      // évidement de la crosse
   return k.bake();
 }
 
-// --- FAMAS : le « clairon » — bullpup, longue poignée de transport, bipied replié ---
+// --- FAMAS F1 : le « clairon ». Bullpup trapu ; grande poignée de transport
+// arquée EN PONT au-dessus du fût (visée logée dedans, levier d'armement
+// dessous), appui-joue, chargeur droit de 25 derrière la poignée, bipied
+// replié le long du garde-main, canon à bagues de lance-grenades ---------------
 export function buildFamasModel() {
   const k = kit();
-  const grey = PBR.polymer(0x3b4036), dark = PBR.gunmetal(0x121315), black = PBR.gunmetal(0x1c1d20);
-  // carcasse monobloc (crosse comprise : l'arme recule jusque derrière la poignée)
-  k.prof([[-0.3, -0.07], [-0.02, -0.05], [0.24, -0.04], [0.36, -0.03], [0.36, 0.03], [-0.02, 0.032], [-0.3, 0.036]], 0.046, grey, 0, { bevel: 0.008, segments: 3 });
-  k.box(-0.31, -0.299, -0.069, 0.035, 0.048, dark); // plaque de couche
-  k.box(-0.15, -0.08, -0.005, 0.014, 0.048, dark);  // fenêtre d'éjection
-  k.prof(roundedRect(-0.26, -0.01, -0.17, 0.03, 0.008), 0.05, PBR.polymer(0x2a2d27), 0, { bevel: 0.006 }); // appui-joue
-  // longue poignée de transport (le clairon) abritant la visée
-  k.prof([[-0.08, 0.032], [-0.05, 0.032], [-0.02, 0.085], [0.27, 0.085], [0.3, 0.032], [0.33, 0.032], [0.29, 0.1], [-0.04, 0.1]], 0.02, grey, 0, { bevel: 0.004 });
-  k.box(0.0, 0.02, 0.05, 0.085, 0.006, dark);  // hausse
-  k.box(0.25, 0.262, 0.05, 0.085, 0.004, dark); // guidon
-  k.box(0.1, 0.16, 0.036, 0.05, 0.012, dark);   // levier d'armement sous la poignée
-  // canon, cache-flamme long (lance-grenades)
-  k.tube(0.0105, 0.36, 0.56, 0, dark);
-  k.tube(0.014, 0.46, 0.56, 0, black, 0, 12);
-  for (let u = 0.475; u < 0.55; u += 0.02) k.tube(0.0155, u, u + 0.006, 0, dark, 0, 12);
-  // bipied replié le long du fût
-  for (const x of [-0.027, 0.027]) k.place(new THREE.CylinderGeometry(0.004, 0.004, 0.26, 6), black, x, 0.012, -0.2, Math.PI / 2);
-  // chargeur droit DERRIÈRE la poignée (bullpup), poignée, grand pontet
-  magazine(k, PBR.gunmetal(0x232427), { u: -0.1, len: 0.14, curve: 0.006, top: -0.055, half: 0.026 });
-  grip(k, grey, dark, 0.07, -0.04);
-  k.prof([[0.115, -0.04], [0.26, -0.04], [0.26, -0.046], [0.24, -0.046], [0.13, -0.13], [0.105, -0.14], [0.1, -0.134], [0.12, -0.124], [0.225, -0.046], [0.115, -0.046]], 0.012, grey, 0, { bevel: 0.002 });
+  const body = PBR.polymer(0x2b2d2e), dark = PBR.gunmetal(0x101113), steel = PBR.gunmetal(0x1d1e21), rubber = PBR.polymer(0x0f0f10);
+  // crosse et boîtier d'un seul bloc, dessus droit, dessous qui remonte vers l'avant
+  k.prof([[-0.33, -0.085], [-0.31, -0.092], [-0.06, -0.066], [-0.02, -0.046], [0.3, -0.046], [0.4, -0.034], [0.4, 0.03], [-0.33, 0.03]],
+    0.05, body, 0, { bevel: 0.009, segments: 3 });
+  k.prof(roundedRect(-0.345, -0.09, -0.328, 0.03, 0.006), 0.052, rubber, 0, { bevel: 0.004 }); // plaque de couche caoutchouc
+  k.prof(roundedRect(-0.28, 0.02, -0.14, 0.046, 0.01), 0.04, body, 0, { bevel: 0.008, segments: 3 }); // appui-joue
+  k.box(-0.13, -0.055, 0.0, 0.02, 0.0515, dark);                       // fenêtre d'éjection
+  for (const u of [-0.3, -0.03, 0.2]) k.place(new THREE.CylinderGeometry(0.005, 0.005, 0.054, 8), dark, 0, -0.012, -u, 0, 0, Math.PI / 2); // goupilles
+  // garde-main arrondi sous le pont
+  k.prof(roundedRect(0.16, -0.05, 0.4, 0.03, 0.014), 0.054, body, 0, { bevel: 0.012, segments: 3 });
+  // POIGNÉE DE TRANSPORT en pont : deux montants + arche bombée
+  k.prof([[-0.1, 0.03], [-0.06, 0.03], [-0.03, 0.082], [-0.062, 0.082]], 0.024, body, 0, { bevel: 0.004 });
+  k.prof([[0.33, 0.03], [0.37, 0.03], [0.332, 0.082], [0.3, 0.082]], 0.024, body, 0, { bevel: 0.004 });
+  k.prof([...arc(-0.07, 0.34, 0.082, 0.03), ...arc(-0.05, 0.32, 0.076, 0.022).reverse()], 0.024, body, 0, { bevel: 0.003 });
+  k.box(-0.045, -0.03, 0.05, 0.08, 0.008, dark);                       // œilleton
+  k.box(0.296, 0.304, 0.05, 0.08, 0.004, dark);                        // guidon
+  k.prof([[0.1, 0.03], [0.18, 0.03], [0.17, 0.052], [0.11, 0.052]], 0.014, dark, 0, { bevel: 0.002 }); // levier d'armement sous l'arche
+  // canon, bagues de lance-grenades, cache-flamme
+  k.tube(0.0095, 0.4, 0.64, 0, dark);
+  k.tube(0.0125, 0.47, 0.6, 0, steel, 0, 12);
+  for (const u of [0.48, 0.515, 0.55, 0.585]) k.tube(0.0145, u, u + 0.008, 0, dark, 0, 12);
+  k.tube(0.012, 0.6, 0.645, 0, steel, 0, 12);
+  // bipied replié : deux jambes le long du garde-main, articulées à l'avant
+  for (const x of [-0.031, 0.031]) {
+    k.place(new THREE.CylinderGeometry(0.0045, 0.0045, 0.3, 6), steel, x, 0.006, -0.25, Math.PI / 2);
+    k.place(new THREE.SphereGeometry(0.007, 8, 6), steel, x, 0.006, -0.4);
+  }
+  // poignée pistolet, pontet, détente
+  k.prof([[0.04, -0.046], [0.092, -0.046], [0.072, -0.15], [0.03, -0.156], [0.016, -0.144]], 0.034, body, 0, { bevel: 0.007, segments: 3 });
+  triggerGuard(k, 0.09, 0.2, -0.046, body);
+  // chargeur droit de 25, derrière la poignée
+  magazine(k, PBR.gunmetal(0x232427), { u: -0.13, len: 0.15, curve: 0.004, top: -0.066, half: 0.027, w: 0.028 });
   return k.bake();
 }
 
 // --- Kar98k : fût bois d'une pièce, verrou coudé, hausse à curseur, bretelle ---
-export function buildKar98kModel() {
+export function buildKar98kModel(scoped = false) {
   const k = kit();
   const wood = PBR.wood(0x7d4a22), steel = PBR.gunmetal(0x24262a), bright = PBR.steel(0x9aa0a8), dark = PBR.gunmetal(0x111214);
   // crosse à poignée pistolet esquissée + fût long jusqu'à la grenadière
@@ -188,6 +223,17 @@ export function buildKar98kModel() {
   // magasin interne (plancher), pontet, détente
   k.box(0.1, 0.19, -0.04, -0.033, 0.03, steel);
   triggerGuard(k, 0.03, 0.1, -0.058, steel);
+  // lunette de tireur (version à lunette) : deux colliers, tube, bonnettes
+  if (scoped) {
+    const black = PBR.gunmetal(0x151618);
+    for (const u of [0.06, 0.2]) k.prof(roundedRect(u, 0.024, u + 0.018, 0.075, 0.004), 0.03, black, 0, { bevel: 0.002 });
+    k.tube(0.013, 0.01, 0.27, 0.062, black, 0, 14);
+    k.tube(0.018, -0.03, 0.02, 0.062, black, 0, 14, 0.016);   // oculaire
+    k.tube(0.02, 0.26, 0.32, 0.062, black, 0, 14, 0.014);     // objectif
+    k.tube(0.0185, 0.316, 0.321, 0.062, PBR.glass(0x2a5570), 0, 14);
+    k.place(new THREE.CylinderGeometry(0.008, 0.008, 0.016, 10), black, 0, 0.083, -0.13);
+    k.place(new THREE.CylinderGeometry(0.008, 0.008, 0.016, 10), black, 0.02, 0.062, -0.13, 0, 0, Math.PI / 2);
+  }
   // bretelle en cuir, du fût à la crosse
   k.prof([[0.42, -0.036], [0.425, -0.04], [-0.2, -0.085], [-0.2, -0.079]], 0.022, PBR.fabric(0x4a3220), 0);
   return k.bake();
