@@ -110,6 +110,50 @@ export const audio = {
     noise(0.07, { freq: 320 + Math.random() * 180, gain: 0.07 + 0.09 * intensity });
   },
 
+  // VOIX DES ARMES de l'arène : chaque arme a son claquement (aigu sec),
+  // son corps (grave) et sa queue (résonance). true = son joué.
+  //  mp5 : 9 mm sec et court · m4 : claquant · m16 : plus plein, plus long
+  //  famas : nerveux, métallique · kar98k : détonation lourde + verrou
+  shotOf(id) {
+    if (!ctx) return false;
+    const S = {
+      mp5: { crack: [2100, 0.05, 0.26], body: [240, 95, 0.06, 0.16], tail: [900, 0.09, 0.1], click: 3200 },
+      m4: { crack: [2600, 0.06, 0.36], body: [170, 60, 0.09, 0.22], tail: [600, 0.16, 0.2], click: 2800 },
+      m16: { crack: [2200, 0.07, 0.36], body: [150, 52, 0.11, 0.24], tail: [480, 0.22, 0.24], click: 2500 },
+      famas: { crack: [3000, 0.05, 0.34], body: [190, 70, 0.07, 0.2], tail: [750, 0.12, 0.16], click: 3600 },
+      kar98k: { crack: [1500, 0.12, 0.5], body: [110, 36, 0.3, 0.34], tail: [320, 0.5, 0.42], click: 1900 },
+    }[id];
+    if (!S) return false;
+    noise(S.crack[1], { type: 'highpass', freq: S.crack[0], gain: S.crack[2] });
+    tone(S.body[0], S.body[2], { type: 'square', gain: S.body[3], slideTo: S.body[1] });
+    noise(S.tail[1], { type: 'lowpass', freq: S.tail[0], gain: S.tail[2], at: 0.012 });
+    tone(S.click, 0.018, { type: 'sine', gain: 0.08 });
+    if (id === 'kar98k') {
+      // verrou : levée, recul, poussée, verrouillage
+      for (const [at, f] of [[0.42, 1500], [0.56, 900], [0.78, 1100], [0.92, 1900]]) {
+        tone(f, 0.035, { type: 'square', gain: 0.09, at });
+        noise(0.04, { type: 'highpass', freq: 2200, gain: 0.07, at: at + 0.01 });
+      }
+    }
+    return true;
+  },
+  // Coups de mêlée : sifflement de la lame (bruit filtré qui glisse) + tintement
+  swingOf(id) {
+    if (!ctx) return false;
+    const S = { epee: [0.26, 700, 0.2, 1900], dagues: [0.12, 1500, 0.12, 2900], lance: [0.3, 450, 0.2, 1300] }[id];
+    if (!S) return false;
+    noise(S[0], { type: 'bandpass', freq: S[1], q: 2.5, gain: S[2] });
+    noise(S[0] * 0.6, { type: 'bandpass', freq: S[1] * 2.2, q: 3, gain: S[2] * 0.6, at: S[0] * 0.35 });
+    tone(S[3], 0.12, { type: 'triangle', gain: 0.035, at: S[0] * 0.5, slideTo: S[3] * 0.92 });
+    return true;
+  },
+  // Lame qui touche : choc mat + acier qui sonne
+  bladeHit() {
+    if (!ctx) return;
+    noise(0.07, { type: 'lowpass', freq: 500, gain: 0.3 });
+    tone(2300, 0.22, { type: 'triangle', gain: 0.07, slideTo: 2150 });
+    tone(3400, 0.14, { type: 'sine', gain: 0.04 });
+  },
   gunshot() {
     if (!ctx) return;
     noise(0.1, { type: 'highpass', freq: 700, gain: 0.3 });

@@ -206,6 +206,7 @@ export function createWeapon(camera, scene, shootables, {
   let mouse0 = false, mouse2 = false;
   const ext = { r: false, l: false, ads: false };
   let sniperHeld = false;
+  let boltT = 0, swingSide = 1; // verrou du Kar98k en cours, main des dagues
   let recoil = 0;
   let swing = 0; // coup de marteau en cours (1 → 0)
   let bobTime = 0;
@@ -577,7 +578,8 @@ export function createWeapon(camera, scene, shootables, {
     // --- Marteau : un grand coup devant soi, pas de munitions ---
     if (spec.melee) {
       swing = 1;
-      audio.thud();
+      swingSide = -swingSide; // dagues : une main puis l'autre
+      if (!audio.swingOf?.(curId)) audio.thud();
       raycaster.setFromCamera({ x: 0, y: 0 }, camera);
       assistRay(spec.range + 0.5, 0.4, 1.3); // un moulinet, ça ratisse large
       const hits = raycaster.intersectObjects(shootables, false);
@@ -588,6 +590,7 @@ export function createWeapon(camera, scene, shootables, {
         hits[0].object.userData.onHit?.(hits[0]);
         spawnImpact(hits[0].point);
         navigator.vibrate?.(24);
+        if (curId === 'epee' || curId === 'dagues' || curId === 'lance') audio.bladeHit?.();
       } else if (wallD <= spec.range) {
         spawnImpact(raycaster.ray.at(wallD, new THREE.Vector3())); // toc, le mur
       }
@@ -604,7 +607,8 @@ export function createWeapon(camera, scene, shootables, {
     flash.rotation.z = Math.random() * Math.PI;
     if (spec.rocket) audio.rocket();
     else if (spec.pellets) audio.shotgun();
-    else audio.gunshot();
+    else if (!audio.shotOf?.(curId)) audio.gunshot();
+    if (curId === 'kar98k') boltT = 1; // manœuvre du verrou après chaque coup
     if (!spec.rocket) spawnShell();
     onAmmoChange(ammo, false, spec);
 
@@ -857,16 +861,37 @@ export function createWeapon(camera, scene, shootables, {
     const swingArc = Math.sin(swing * Math.PI); // lève puis abat
     // Marteau : le bras remonte jusqu'EN HAUT de l'écran (grand moulinet)
     // avant de s'abattre. Akimbo : porte-arme centré, un pistolet par côté.
-    const lift = spec.melee ? swingArc * 0.55 : swingArc * 0.1;
-    const swingTilt = swingArc * (spec.melee ? 2.5 : 1.1);
+    // GESTES PROPRES À CHAQUE ARME (px/py/pz = décalage, ry/rz = lacet/roulis) :
+    //  épée : taille en diagonale · dagues : estocs alternés · lance : coup
+    //  d'estoc droit devant · Kar98k : verrou levé, tiré, repoussé ·
+    //  rechargement des fusils : l'arme bascule sur le flanc, chargeur dehors
+    let lift = spec.melee ? swingArc * 0.55 : swingArc * 0.1;
+    let swingTilt = swingArc * (spec.melee ? 2.5 : 1.1);
+    let px = 0, py = 0, pz = 0, ry = 0, rz = 0;
+    if (curId === 'epee') {
+      lift = swingArc * 0.3; swingTilt = swingArc * 1.3;
+      rz = -swingArc * 1.25; ry = swingArc * 0.8; px = -swingArc * 0.22;
+    } else if (curId === 'dagues') {
+      lift = 0; swingTilt = swingArc * 0.25;
+      pz = -swingArc * 0.3; px = swingSide * swingArc * 0.07; ry = swingSide * swingArc * 0.3;
+    } else if (curId === 'lance') {
+      lift = swingArc * 0.05; swingTilt = 0;
+      pz = -swingArc * 0.62; rz = swingArc * 0.12;
+    }
+    if (boltT > 0) {
+      boltT = Math.max(0, boltT - dt / 0.85);
+      const b = Math.sin(Math.min(1, (1 - boltT) * 1.25) * Math.PI); // lève – tire – repousse
+      rz += b * 0.42; pz += b * 0.07; py -= b * 0.03;
+    }
+    if (reloadDip > 0 && !spec.melee) { rz += reloadDip * 2.6; ry -= reloadDip * 1.4; }
     // À l'épaule : l'arme vient dans l'axe de l'œil, le balancement se calme
     const calm = 1 - 0.8 * ads;
     holder.position.set(
-      (spec.akimbo ? 0 : 0.26 * (1 - ads)) + bobX * calm,
-      -0.24 + 0.075 * ads - bobY * calm - reloadDip + lift,
-      -0.45 + 0.1 * ads + recoil * 0.06 * (1 - 0.4 * ads)
+      (spec.akimbo ? 0 : 0.26 * (1 - ads)) + bobX * calm + px,
+      -0.24 + 0.075 * ads - bobY * calm - reloadDip + lift + py,
+      -0.45 + 0.1 * ads + recoil * 0.06 * (1 - 0.4 * ads) + pz
     );
-    holder.rotation.set(recoil * 0.09 - reloadDip * 0.8 - swingTilt, 0, 0);
+    holder.rotation.set(recoil * 0.09 - reloadDip * 0.8 - swingTilt, ry, rz);
   }
 
   return {

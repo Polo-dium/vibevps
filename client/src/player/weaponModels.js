@@ -36,7 +36,7 @@ export function buildWeaponModel(id) {
 }
 
 // Outils de modelage : tout s'exprime en (u, v) comme sur un plan d'armurier
-function kit() {
+export function kit() {
   const parts = []; // { geo, mat }
   const place = (geo, mat, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => {
     const m = new THREE.Matrix4().compose(
@@ -78,7 +78,7 @@ function kit() {
 }
 
 // Pontet en U (profil) entre u0 et u1, sous la carcasse à v0
-function triggerGuard(k, u0, u1, v0, mat, t = 0.006) {
+export function triggerGuard(k, u0, u1, v0, mat, t = 0.006) {
   const d = 0.034;
   k.prof([
     [u0, v0], [u0 + t, v0], [u0 + t, v0 - d + t], [u1 - t, v0 - d + t],

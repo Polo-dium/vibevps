@@ -373,8 +373,13 @@ npm start          # serveur de prod (sert client/dist)
   - ARSENAL DE L'ARÈNE ET CLASSES : `mp5`, `m16`, `m4`, `famas`, `kar98k`,
     `epee`, `dagues`, `lance` (lance et bouclier) ajoutés en FIN de
     `WEAPON_IDS` (codes 10 à 17 ; grenade et quenelle du fil des
-    éliminations passées à 100/101). Modèles simples dans
-    `weaponModels2.js` — animations, sons et finitions restent à faire.
+    éliminations passées à 100/101). Modèles détaillés dans
+    `weaponModels2.js` (même atelier `kit()` que l'AK : profils extrudés,
+    fusion par matériau). Sons : `audio.shotOf(id)` (claquement / corps /
+    queue par arme, verrou du Kar98k), `swingOf(id)`, `bladeHit()`.
+    Gestes dans la pose de `weapon.js` : taille de l'épée, estocs alternés
+    des dagues (`swingSide`), coup de lance, verrou (`boltT`), bascule de
+    l'arme au rechargement.
     Bouclier : `ws.js` réduit à 40 % un coup reçu de face par un joueur qui
     tient la lance (code 17). CLASSE (arenaMatch.js) : 2 armes parmi
     `CLASS_WEAPONS`, menu touche K / bouton CLASSE, `localStorage

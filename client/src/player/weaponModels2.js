@@ -1,109 +1,274 @@
 import * as THREE from 'three';
+import { PBR, roundedRect } from '../render/materials.js';
+import { kit, triggerGuard } from './weaponModels.js';
 
-// Armes de l'arène (2e fournée : MP5, M16, M4, FAMAS, Kar98k, épée, doubles
-// dagues, lance et bouclier). Modèles en volumes simples — canon vers −z,
-// poignée près de l'origine, comme ceux de weaponModels.js. Les finitions
-// (profils, animations, sons propres) viendront dans une passe dédiée.
-const mats = new Map();
-const M = (color, metal = 0.6, rough = 0.5) => {
-  const k = `${color}|${metal}|${rough}`;
-  if (!mats.has(k)) mats.set(k, new THREE.MeshStandardMaterial({ color, metalness: metal, roughness: rough }));
-  return mats.get(k);
-};
-const box = (g, w, h, d, mat, x, y, z, rx = 0) => {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-  m.position.set(x, y, z);
-  m.rotation.x = rx;
-  g.add(m);
-  return m;
-};
-const tube = (g, r, len, mat, x, y, z) => {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 10), mat);
-  m.rotation.x = Math.PI / 2;
-  m.position.set(x, y, z);
-  g.add(m);
-  return m;
-};
-const STEEL = 0x25272b, BLACK = 0x141518, WOOD = 0x8a5a2e, TAN = 0x6f6a55;
+// ARSENAL DE L'ARÈNE — modèles détaillés. Même atelier que l'AK
+// (weaponModels.js) : tout se dessine en (u, v) comme sur un plan
+// d'armurier — u le long du canon (0 = arrière du boîtier, la bouche vers
+// les u positifs), v la hauteur (0 = axe du canon) — par profils extrudés
+// et biseautés, puis fusion par matériau (2 à 4 draw calls par arme).
 
-// Fusil générique : boîtier, canon, garde-main, chargeur, poignée, crosse
-function rifle({ body = 0.34, barrel = 0.34, guard = 0.24, stock = 0.24, mag = 0.16, magZ = -0.12, magTilt = 0.18,
-  colBody = STEEL, colGuard = BLACK, colStock = BLACK, handle = false, bullpup = false, sight = true }) {
-  const g = new THREE.Group();
-  box(g, 0.05, 0.075, body, M(colBody), 0, 0, -body / 2 + 0.06);
-  tube(g, 0.012, barrel, M(STEEL, 0.8, 0.35), 0, 0.012, -body + 0.06 - barrel / 2);
-  box(g, 0.052, 0.058, guard, M(colGuard, 0.2, 0.7), 0, 0.002, -body + 0.06 - guard / 2 + 0.02);
-  box(g, 0.036, mag, 0.06, M(BLACK, 0.5, 0.5), 0, -0.05 - mag / 2, bullpup ? 0.16 : magZ, magTilt);
-  box(g, 0.036, 0.11, 0.045, M(BLACK, 0.2, 0.8), 0, -0.085, 0.0, -0.3);
-  if (stock > 0) box(g, 0.042, 0.07, stock, M(colStock, 0.2, 0.7), 0, -0.012, 0.06 + stock / 2);
-  if (handle) {
-    box(g, 0.02, 0.012, 0.2, M(colBody), 0, 0.085, -0.12);
-    box(g, 0.02, 0.05, 0.02, M(colBody), 0, 0.06, -0.03);
-    box(g, 0.02, 0.05, 0.02, M(colBody), 0, 0.06, -0.21);
+// Chargeur droit ou courbe : axe échantillonné, comme celui de l'AK
+function magazine(k, mat, { u = 0.2, w = 0.03, len = 0.16, curve = 0.02, top = -0.03, half = 0.028 }) {
+  const back = [], front = [];
+  for (let i = 0; i <= 8; i++) {
+    const t = i / 8;
+    const cu = u + curve * Math.pow(t, 1.6), cv = top - len * t;
+    back.push([cu - half, cv]);
+    front.unshift([cu + half, cv]);
   }
-  if (sight) box(g, 0.012, 0.03, 0.012, M(BLACK), 0, 0.05, -body + 0.06 - barrel + 0.05);
+  k.prof([...back, ...front], w, mat, 0, { bevel: 0.003 });
+}
+// Poignée pistolet inclinée, striée
+function grip(k, mat, dark, u = 0.06, v = -0.03) {
+  k.prof([[u, v], [u + 0.048, v], [u + 0.03, v - 0.105], [u - 0.004, v - 0.11], [u - 0.02, v - 0.1]], 0.032, mat, 0, { bevel: 0.006, segments: 3 });
+  for (let i = 0; i < 4; i++) k.box(u - 0.012 + i * 0.004, u + 0.036 - i * 0.004, v - 0.03 - i * 0.018, v - 0.026 - i * 0.018, 0.0335, dark);
+}
+// Rail Picatinny (créneaux) de u0 à u1 à la hauteur v
+function rail(k, mat, u0, u1, v, w = 0.02) {
+  k.box(u0, u1, v, v + 0.006, w, mat);
+  for (let u = u0 + 0.004; u < u1 - 0.006; u += 0.012) k.box(u, u + 0.006, v + 0.006, v + 0.011, w, mat);
+}
+// Cache-flamme à fentes
+function flashHider(k, mat, dark, u0, len = 0.045, r = 0.013) {
+  k.tube(r, u0, u0 + len, 0, mat, 0, 12);
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + 0.4;
+    k.box(u0 + 0.01, u0 + len - 0.006, Math.sin(a) * r - 0.002, Math.sin(a) * r + 0.002, 0.004, dark, Math.cos(a) * r);
+  }
+}
+
+// --- M16 : poignée de transport, garde-main triangulaire, crosse fixe ---------
+export function buildM16Model() {
+  const k = kit();
+  const black = PBR.gunmetal(0x1b1c1f), dark = PBR.gunmetal(0x101113), poly = PBR.polymer(0x1c1d20);
+  // carcasses haute et basse
+  k.prof([[0, -0.032], [0.2, -0.032], [0.215, -0.044], [0.27, -0.044], [0.27, -0.02], [0.3, -0.02], [0.3, 0.026], [0, 0.026]], 0.04, black, 0, { bevel: 0.003 });
+  k.prof(roundedRect(0.02, 0.024, 0.3, 0.036, 0.004), 0.034, black, 0, { bevel: 0.003 });
+  k.box(0.13, 0.2, 0.0, 0.016, 0.042, dark); // fenêtre d'éjection
+  k.place(new THREE.CylinderGeometry(0.008, 0.008, 0.012, 10), dark, 0.024, 0.0, -0.06, 0, 0, Math.PI / 2); // assistance de culasse
+  // poignée de transport + hausse
+  k.prof([[0.03, 0.036], [0.05, 0.036], [0.065, 0.07], [0.215, 0.07], [0.235, 0.036], [0.255, 0.036], [0.23, 0.084], [0.05, 0.084]], 0.022, black, 0, { bevel: 0.003 });
+  k.box(0.055, 0.085, 0.084, 0.098, 0.026, dark);
+  // garde-main triangulaire nervuré
+  k.prof([[0.3, -0.04], [0.6, -0.034], [0.6, 0.028], [0.3, 0.03]], 0.05, poly, 0, { bevel: 0.01, segments: 3 });
+  for (let u = 0.32; u < 0.59; u += 0.03) k.box(u, u + 0.012, -0.038, 0.027, 0.0525, dark);
+  k.tube(0.027, 0.6, 0.612, 0, black, 0, 12); // bague avant
+  // canon, tour de guidon, tenon de baïonnette, cache-flamme
+  k.tube(0.0095, 0.3, 0.86, 0, dark);
+  k.prof([[0.66, -0.012], [0.7, -0.012], [0.692, 0.07], [0.672, 0.07]], 0.018, black, 0, { bevel: 0.002 });
+  k.box(0.679, 0.685, 0.07, 0.092, 0.004, dark);
+  k.box(0.7, 0.725, -0.022, -0.012, 0.012, black);
+  flashHider(k, black, dark, 0.85);
+  // chargeur, poignée, pontet
+  magazine(k, PBR.gunmetal(0x26282b), { u: 0.24, len: 0.15, curve: 0.022, top: -0.044, half: 0.026 });
+  grip(k, poly, dark, 0.045, -0.032);
+  triggerGuard(k, 0.092, 0.2, -0.032, black);
+  // tube tampon + crosse fixe + plaque de couche
+  k.tube(0.014, -0.06, 0, 0.004, dark);
+  k.prof([[0, 0.022], [0, -0.03], [-0.05, -0.036], [-0.25, -0.085], [-0.262, -0.085], [-0.262, 0.03], [-0.05, 0.03]], 0.038, poly, 0, { bevel: 0.007, segments: 3 });
+  k.box(-0.27, -0.261, -0.084, 0.029, 0.04, dark);
+  return k.bake();
+}
+
+// --- M4 : crosse télescopique, rails, poignée avant, viseur point rouge -------
+export function buildM4Model() {
+  const k = kit();
+  const black = PBR.gunmetal(0x1b1c1f), dark = PBR.gunmetal(0x101113), tan = PBR.polymer(0x74694f), poly = PBR.polymer(0x1c1d20);
+  k.prof([[0, -0.032], [0.2, -0.032], [0.215, -0.044], [0.27, -0.044], [0.27, -0.02], [0.3, -0.02], [0.3, 0.026], [0, 0.026]], 0.04, black, 0, { bevel: 0.003 });
+  k.box(0.13, 0.2, 0.0, 0.016, 0.042, dark);
+  rail(k, black, 0.01, 0.3, 0.026);
+  // garde-main à quatre rails
+  k.prof(roundedRect(0.3, -0.03, 0.5, 0.03, 0.008), 0.046, tan, 0, { bevel: 0.006, segments: 3 });
+  rail(k, black, 0.3, 0.5, 0.03);
+  k.box(0.31, 0.49, -0.036, -0.03, 0.02, black);
+  for (const x of [-0.025, 0.025]) k.box(0.31, 0.49, -0.006, 0.006, 0.006, black, x);
+  // poignée avant verticale
+  k.prof([[0.37, -0.036], [0.41, -0.036], [0.405, -0.125], [0.375, -0.125]], 0.028, tan, 0, { bevel: 0.006, segments: 3 });
+  // viseur point rouge : embase, tube, lentille
+  k.box(0.1, 0.19, 0.037, 0.05, 0.03, dark);
+  k.tube(0.021, 0.09, 0.2, 0.073, black, 0, 14);
+  k.tube(0.0185, 0.196, 0.202, 0.073, PBR.glass(0xa02a1c), 0, 14);
+  k.place(new THREE.CylinderGeometry(0.008, 0.008, 0.016, 8), dark, 0, 0.1, -0.145);
+  // canon court, guidon rabattable, cache-flamme
+  k.tube(0.0095, 0.3, 0.68, 0, dark);
+  k.prof([[0.535, -0.012], [0.565, -0.012], [0.56, 0.064], [0.542, 0.064]], 0.018, black, 0, { bevel: 0.002 });
+  flashHider(k, black, dark, 0.67);
+  magazine(k, PBR.gunmetal(0x26282b), { u: 0.24, len: 0.15, curve: 0.022, top: -0.044, half: 0.026 });
+  grip(k, tan, dark, 0.045, -0.032);
+  triggerGuard(k, 0.092, 0.2, -0.032, black);
+  // tube tampon + crosse télescopique ajourée
+  k.tube(0.013, -0.2, 0, 0.004, dark);
+  k.prof([[-0.09, 0.03], [-0.09, -0.02], [-0.12, -0.03], [-0.21, -0.085], [-0.225, -0.085], [-0.225, 0.03]], 0.036, tan, 0, { bevel: 0.006, segments: 3 });
+  k.box(-0.232, -0.224, -0.084, 0.029, 0.038, dark);
+  k.box(-0.14, -0.1, -0.03, -0.024, 0.012, black); // levier de réglage
+  return k.bake();
+}
+
+// --- MP5 : tube d'armement au-dessus du canon, guidon annulaire, chargeur courbe ---
+export function buildMp5Model() {
+  const k = kit();
+  const black = PBR.gunmetal(0x1a1b1e), dark = PBR.gunmetal(0x0f1012), poly = PBR.polymer(0x1b1c1f);
+  // boîtier embouti arrondi + tube d'armement
+  k.prof(roundedRect(0, -0.03, 0.3, 0.03, 0.01), 0.04, black, 0, { bevel: 0.006, segments: 3 });
+  k.tube(0.014, 0.2, 0.44, 0.03, black, 0, 12);
+  k.place(new THREE.CylinderGeometry(0.006, 0.006, 0.034, 8), dark, -0.03, 0.03, -0.33, 0, 0, Math.PI / 2); // levier d'armement (à gauche)
+  k.box(0.1, 0.17, -0.004, 0.012, 0.042, dark); // fenêtre d'éjection
+  // hausse à tambour + guidon annulaire
+  k.tube(0.013, 0.03, 0.06, 0.045, dark, 0, 12);
+  k.place(new THREE.TorusGeometry(0.014, 0.004, 6, 14), black, 0, 0.058, -0.43, 0, Math.PI / 2);
+  k.box(0.427, 0.433, 0.03, 0.058, 0.004, dark);
+  // garde-main bombé
+  k.prof(roundedRect(0.3, -0.04, 0.44, 0.012, 0.014), 0.048, poly, 0, { bevel: 0.01, segments: 3 });
+  for (let u = 0.32; u < 0.43; u += 0.025) k.box(u, u + 0.008, -0.039, -0.02, 0.0495, dark);
+  // canon court et ses trois tenons
+  k.tube(0.0095, 0.3, 0.5, 0, dark);
+  k.tube(0.012, 0.47, 0.485, 0, black, 0, 10);
+  // chargeur courbe 30 coups, puits, poignée, pontet
+  k.box(0.2, 0.26, -0.05, -0.03, 0.034, black);
+  magazine(k, PBR.gunmetal(0x232427), { u: 0.232, len: 0.19, curve: 0.05, top: -0.045, half: 0.02, w: 0.026 });
+  grip(k, poly, dark, 0.05, -0.03);
+  triggerGuard(k, 0.098, 0.19, -0.03, black);
+  // crosse coulissante : deux tiges + plaque de couche
+  for (const x of [-0.016, 0.016]) k.place(new THREE.CylinderGeometry(0.004, 0.004, 0.22, 6), dark, x, 0.012, 0.11, Math.PI / 2);
+  k.prof(roundedRect(-0.235, -0.06, -0.218, 0.04, 0.006), 0.04, poly, 0, { bevel: 0.004 });
+  k.prof(roundedRect(-0.02, -0.03, 0, 0.03, 0.006), 0.042, black, 0, { bevel: 0.004 }); // flasque arrière
+  return k.bake();
+}
+
+// --- FAMAS : le « clairon » — bullpup, longue poignée de transport, bipied replié ---
+export function buildFamasModel() {
+  const k = kit();
+  const grey = PBR.polymer(0x3b4036), dark = PBR.gunmetal(0x121315), black = PBR.gunmetal(0x1c1d20);
+  // carcasse monobloc (crosse comprise : l'arme recule jusque derrière la poignée)
+  k.prof([[-0.3, -0.07], [-0.02, -0.05], [0.24, -0.04], [0.36, -0.03], [0.36, 0.03], [-0.02, 0.032], [-0.3, 0.036]], 0.046, grey, 0, { bevel: 0.008, segments: 3 });
+  k.box(-0.31, -0.299, -0.069, 0.035, 0.048, dark); // plaque de couche
+  k.box(-0.15, -0.08, -0.005, 0.014, 0.048, dark);  // fenêtre d'éjection
+  k.prof(roundedRect(-0.26, -0.01, -0.17, 0.03, 0.008), 0.05, PBR.polymer(0x2a2d27), 0, { bevel: 0.006 }); // appui-joue
+  // longue poignée de transport (le clairon) abritant la visée
+  k.prof([[-0.08, 0.032], [-0.05, 0.032], [-0.02, 0.085], [0.27, 0.085], [0.3, 0.032], [0.33, 0.032], [0.29, 0.1], [-0.04, 0.1]], 0.02, grey, 0, { bevel: 0.004 });
+  k.box(0.0, 0.02, 0.05, 0.085, 0.006, dark);  // hausse
+  k.box(0.25, 0.262, 0.05, 0.085, 0.004, dark); // guidon
+  k.box(0.1, 0.16, 0.036, 0.05, 0.012, dark);   // levier d'armement sous la poignée
+  // canon, cache-flamme long (lance-grenades)
+  k.tube(0.0105, 0.36, 0.56, 0, dark);
+  k.tube(0.014, 0.46, 0.56, 0, black, 0, 12);
+  for (let u = 0.475; u < 0.55; u += 0.02) k.tube(0.0155, u, u + 0.006, 0, dark, 0, 12);
+  // bipied replié le long du fût
+  for (const x of [-0.027, 0.027]) k.place(new THREE.CylinderGeometry(0.004, 0.004, 0.26, 6), black, x, 0.012, -0.2, Math.PI / 2);
+  // chargeur droit DERRIÈRE la poignée (bullpup), poignée, grand pontet
+  magazine(k, PBR.gunmetal(0x232427), { u: -0.1, len: 0.14, curve: 0.006, top: -0.055, half: 0.026 });
+  grip(k, grey, dark, 0.07, -0.04);
+  k.prof([[0.115, -0.04], [0.26, -0.04], [0.26, -0.046], [0.24, -0.046], [0.13, -0.13], [0.105, -0.14], [0.1, -0.134], [0.12, -0.124], [0.225, -0.046], [0.115, -0.046]], 0.012, grey, 0, { bevel: 0.002 });
+  return k.bake();
+}
+
+// --- Kar98k : fût bois d'une pièce, verrou coudé, hausse à curseur, bretelle ---
+export function buildKar98kModel() {
+  const k = kit();
+  const wood = PBR.wood(0x7d4a22), steel = PBR.gunmetal(0x24262a), bright = PBR.steel(0x9aa0a8), dark = PBR.gunmetal(0x111214);
+  // crosse à poignée pistolet esquissée + fût long jusqu'à la grenadière
+  k.prof([[-0.33, -0.1], [-0.31, -0.105], [-0.08, -0.06], [-0.03, -0.075], [0.03, -0.06], [0.08, -0.034], [0.62, -0.03], [0.62, -0.006],
+    [0.12, -0.004], [0.02, 0.004], [-0.06, 0.004], [-0.1, -0.006], [-0.31, 0.012], [-0.33, 0.008]], 0.044, wood, 0, { bevel: 0.009, segments: 3 });
+  k.box(-0.338, -0.329, -0.1, 0.008, 0.046, steel); // plaque de couche
+  k.prof(roundedRect(0.3, -0.006, 0.52, 0.02, 0.008), 0.036, wood, 0, { bevel: 0.006, segments: 3 }); // garde-main supérieur
+  // grenadières (deux bagues) + embouchoir
+  for (const u of [0.42, 0.6]) k.prof(roundedRect(u, -0.034, u + 0.018, 0.024, 0.005), 0.05, steel, 0, { bevel: 0.002 });
+  // canon, guidon sous tunnel, hausse à curseur
+  k.tube(0.0095, 0.1, 0.78, 0.008, steel);
+  k.place(new THREE.TorusGeometry(0.012, 0.003, 6, 12), steel, 0, 0.03, -0.75, 0, Math.PI / 2);
+  k.box(0.747, 0.753, 0.016, 0.03, 0.003, dark);
+  k.prof([[0.26, 0.02], [0.33, 0.02], [0.33, 0.03], [0.26, 0.04]], 0.02, steel, 0, { bevel: 0.002 });
+  // boîte de culasse, culasse, levier coudé à boule (flanc droit), sûreté
+  k.tube(0.016, 0.0, 0.14, 0.01, steel, 0, 12);
+  k.tube(0.012, -0.05, 0.0, 0.01, bright, 0, 10);
+  k.place(new THREE.CylinderGeometry(0.005, 0.005, 0.045, 8), bright, 0.03, 0.006, 0.03, 0, 0, Math.PI / 2 - 0.5);
+  k.place(new THREE.SphereGeometry(0.011, 10, 8), bright, 0.05, -0.006, 0.03);
+  k.box(-0.062, -0.05, 0.01, 0.03, 0.008, steel);
+  // magasin interne (plancher), pontet, détente
+  k.box(0.1, 0.19, -0.04, -0.033, 0.03, steel);
+  triggerGuard(k, 0.03, 0.1, -0.058, steel);
+  // bretelle en cuir, du fût à la crosse
+  k.prof([[0.42, -0.036], [0.425, -0.04], [-0.2, -0.085], [-0.2, -0.079]], 0.022, PBR.fabric(0x4a3220), 0);
+  return k.bake();
+}
+
+// --- Épée : lame à gouttière, quillons relevés, fusée gainée de cuir, pommeau ---
+export function buildEpeeModel() {
+  const k = kit();
+  const blade = PBR.steel(0xc4cad2), brass = PBR.steel(0xb38a3a), leather = PBR.fabric(0x3a2416), dark = PBR.gunmetal(0x2a2b2f);
+  // lame : profil effilé, vue de chant (large de 5 cm, épaisse de 7 mm)
+  k.prof([[0.1, -0.026], [0.86, -0.02], [0.99, 0], [0.86, 0.02], [0.1, 0.026]], 0.007, blade, 0, { bevel: 0.003 });
+  k.box(0.12, 0.72, -0.006, 0.006, 0.009, dark); // gouttière
+  // garde : quillons relevés vers la lame, écusson
+  k.prof([[0.07, -0.1], [0.095, -0.11], [0.105, -0.03], [0.105, 0.03], [0.095, 0.11], [0.07, 0.1], [0.082, 0.03], [0.082, -0.03]], 0.02, brass, 0, { bevel: 0.004, segments: 2 });
+  k.prof(roundedRect(0.07, -0.022, 0.115, 0.022, 0.006), 0.03, brass, 0, { bevel: 0.004 });
+  // fusée gainée (filigrane torsadé), pommeau
+  k.tube(0.015, -0.09, 0.07, 0, leather, 0, 10, 0.013);
+  for (let u = -0.08; u < 0.06; u += 0.022) k.tube(0.0162, u, u + 0.004, 0, brass, 0, 10);
+  k.place(new THREE.SphereGeometry(0.026, 12, 10), brass, 0, 0, 0.115);
+  const g = k.bake();
+  g.rotation.x = 0.55; // tenue pointe relevée
   return g;
 }
 
-export const buildMp5Model = () => rifle({ body: 0.3, barrel: 0.1, guard: 0.16, stock: 0.2, mag: 0.19, magTilt: 0.3, colGuard: BLACK });
-export const buildM16Model = () => rifle({ body: 0.36, barrel: 0.42, guard: 0.3, stock: 0.28, mag: 0.15, handle: true, colBody: BLACK });
-export const buildM4Model = () => rifle({ body: 0.34, barrel: 0.26, guard: 0.22, stock: 0.2, mag: 0.15, colBody: BLACK, colGuard: TAN, colStock: TAN });
-export const buildFamasModel = () => rifle({ body: 0.5, barrel: 0.12, guard: 0.14, stock: 0, mag: 0.14, bullpup: true, handle: true, colBody: 0x3a4032, colGuard: 0x3a4032 });
-export function buildKar98kModel() {
-  const g = new THREE.Group();
-  box(g, 0.046, 0.06, 0.9, M(WOOD, 0.05, 0.6), 0, -0.012, -0.2);          // fût en bois d'un seul tenant
-  box(g, 0.044, 0.085, 0.26, M(WOOD, 0.05, 0.6), 0, -0.03, 0.3, 0.12);    // crosse
-  tube(g, 0.011, 0.62, M(STEEL, 0.8, 0.35), 0, 0.03, -0.42);              // canon
-  tube(g, 0.016, 0.16, M(STEEL, 0.8, 0.3), 0, 0.03, 0.0);                 // culasse
-  box(g, 0.07, 0.014, 0.014, M(STEEL, 0.8, 0.3), 0.04, 0.03, 0.05);       // levier d'armement
-  box(g, 0.01, 0.025, 0.01, M(BLACK), 0, 0.052, -0.7);
-  return g;
-}
-export function buildEpeeModel() {
-  const g = new THREE.Group();
-  box(g, 0.012, 0.055, 0.92, M(0xc9ced6, 0.95, 0.2), 0, 0.02, -0.56);    // lame
-  box(g, 0.2, 0.03, 0.035, M(0xb08d3c, 0.9, 0.35), 0, 0.02, -0.09);      // garde
-  box(g, 0.03, 0.035, 0.17, M(0x3a2618, 0.1, 0.8), 0, 0.02, 0.0);        // fusée
-  box(g, 0.045, 0.045, 0.045, M(0xb08d3c, 0.9, 0.35), 0, 0.02, 0.1);     // pommeau
-  g.rotation.x = 0.5; // tenue pointe relevée
-  return g;
-}
+// --- Doubles dagues : lame à double tranchant, garde courte, manche annelé ----
 export function buildDaguesModel() {
   const g = new THREE.Group();
   for (const s of [-1, 1]) {
-    const d = new THREE.Group();
-    box(d, 0.01, 0.04, 0.3, M(0xc9ced6, 0.95, 0.2), 0, 0, -0.2);
-    box(d, 0.07, 0.02, 0.02, M(0x2a2b2f, 0.8, 0.4), 0, 0, -0.045);
-    box(d, 0.026, 0.03, 0.1, M(0x1b1c1f, 0.1, 0.9), 0, 0, 0.01);
+    const k = kit();
+    const blade = PBR.steel(0xc4cad2), dark = PBR.gunmetal(0x17181b), grip2 = PBR.polymer(0x1a1b1e);
+    k.prof([[0.06, -0.02], [0.27, -0.014], [0.36, 0], [0.27, 0.014], [0.06, 0.02]], 0.006, blade, 0, { bevel: 0.0025 });
+    k.box(0.07, 0.25, -0.003, 0.003, 0.0075, dark);
+    k.prof(roundedRect(0.04, -0.038, 0.062, 0.038, 0.006), 0.016, dark, 0, { bevel: 0.003 });
+    k.tube(0.013, -0.07, 0.04, 0, grip2, 0, 10, 0.012);
+    for (let u = -0.06; u < 0.03; u += 0.02) k.tube(0.0142, u, u + 0.005, 0, dark, 0, 10);
+    k.place(new THREE.CylinderGeometry(0.016, 0.014, 0.014, 10), dark, 0, 0, 0.077, Math.PI / 2);
+    const d = k.bake();
     d.position.set(0.16 * s, -0.02, -0.16);
     d.rotation.set(0.35, -0.12 * s, 0);
     g.add(d);
   }
   return g;
 }
+
+// --- Lance et bouclier : fer en feuille, hampe cerclée ; bouclier rond bombé au
+// lion (Lyon oblige), tenu bas à gauche pour ne pas boucher la vue ----------------
 export function buildLanceModel() {
   const g = new THREE.Group();
-  const lance = new THREE.Group();
-  tube(lance, 0.014, 1.9, M(0x6b4a2a, 0.05, 0.7), 0, 0, -0.55);           // hampe
-  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.28, 8), M(0xc9ced6, 0.95, 0.2));
-  tip.rotation.x = -Math.PI / 2;
-  tip.position.set(0, 0, -1.62);
-  lance.add(tip);
+  const k = kit();
+  const woodM = PBR.wood(0x6b4a2a), blade = PBR.steel(0xc4cad2), brass = PBR.steel(0xb38a3a);
+  k.tube(0.014, -0.4, 1.42, 0, woodM, 0, 10);
+  k.prof([[1.4, -0.016], [1.5, -0.04], [1.72, 0], [1.5, 0.04], [1.4, 0.016]], 0.008, blade, 0, { bevel: 0.003 }); // fer en feuille
+  k.tube(0.02, 1.36, 1.43, 0, brass, 0, 10);     // douille
+  for (const u of [0.1, 0.5, 0.9]) k.tube(0.0165, u, u + 0.02, 0, brass, 0, 10); // viroles
+  k.place(new THREE.ConeGeometry(0.016, 0.07, 8), brass, 0, 0, 0.43, Math.PI / 2); // talon
+  const lance = k.bake();
   lance.position.set(0.1, 0.02, 0);
   g.add(lance);
-  // bouclier rond au bras gauche, tenu bas à gauche pour ne pas boucher la
-  // vue : disque de bois (visible des deux côtés) cerclé de bronze, umbo
-  const shMat = new THREE.MeshStandardMaterial({ color: 0x8c2f24, metalness: 0.3, roughness: 0.6, side: THREE.DoubleSide });
-  const sh = new THREE.Mesh(new THREE.CircleGeometry(0.3, 24), shMat);
-  sh.position.set(-0.36, -0.17, -0.34);
+
+  const sh = new THREE.Group();
+  const rouge = new THREE.MeshStandardMaterial({ color: 0x8c2f24, metalness: 0.25, roughness: 0.6, side: THREE.DoubleSide });
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(0.62, 28, 6, 0, Math.PI * 2, 0, 0.5), rouge); // calotte bombée
+  dome.rotation.x = -Math.PI / 2;
+  dome.position.z = 0.545;
+  sh.add(dome);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.297, 0.017, 8, 32), brass);
+  sh.add(rim);
+  const umbo = new THREE.Mesh(new THREE.SphereGeometry(0.075, 14, 10), brass);
+  umbo.position.z = -0.07;
+  sh.add(umbo);
+  for (let i = 0; i < 8; i++) { // rivets
+    const a = (i / 8) * Math.PI * 2;
+    const r = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), brass);
+    r.position.set(Math.cos(a) * 0.24, Math.sin(a) * 0.24, -0.03);
+    sh.add(r);
+  }
+  const strap = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.035, 0.012), PBR.fabric(0x3a2416)); // énarme (dos du bouclier)
+  strap.position.z = 0.03;
+  sh.add(strap);
+  sh.position.set(-0.4, -0.25, -0.36);
   sh.rotation.y = 0.35;
   g.add(sh);
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.016, 6, 28), M(0xb08d3c, 0.9, 0.35));
-  rim.position.copy(sh.position);
-  rim.rotation.y = 0.35;
-  g.add(rim);
-  const umbo = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 8), M(0xb08d3c, 0.9, 0.35));
-  umbo.position.set(-0.37, -0.17, -0.37);
-  g.add(umbo);
   return g;
 }
