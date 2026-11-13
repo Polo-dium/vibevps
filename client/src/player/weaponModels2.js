@@ -14,6 +14,22 @@ const TUBE = new THREE.MeshStandardMaterial({ color: 0x141517, metalness: 0.6, r
 const LENS = new THREE.MeshBasicMaterial({ color: 0x9fc4d8, transparent: true, opacity: 0.08, depthWrite: false });
 const DOT = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
 
+// ŒILLETON : disque percé (plaque vue de face, trou de `hole` de rayon) cerclé
+// d'un jonc — on vise le guidon AU TRAVERS du trou
+const APERTURE = new THREE.MeshStandardMaterial({ color: 0x0d0e10, metalness: 0.25, roughness: 0.75, side: THREE.DoubleSide });
+// organes de visée : noir MAT (un métal brillant renvoyait le ciel en blanc
+// juste devant l'œil)
+const SIGHT = new THREE.MeshStandardMaterial({ color: 0x141518, metalness: 0.3, roughness: 0.78 });
+function aperture(k, mat, u, v, r, hole = 0.0022) {
+  k.place(new THREE.RingGeometry(hole, r, 32), APERTURE, 0, v, -u);
+  k.place(new THREE.TorusGeometry(r, 0.0016, 6, 32), SIGHT, 0, v, -u);
+  k.place(new THREE.TorusGeometry(hole, 0.0005, 4, 24), SIGHT, 0, v, -u - 0.0005);
+}
+// Oreilles de protection (deux lames de part et d'autre d'un organe de visée)
+function ears(k, mat, u0, u1, v0, v1, gap, t = 0.0025) {
+  for (const s of [-1, 1]) k.box(u0, u1, v0, v1, Math.min(t, 0.0025), SIGHT, s * (gap + Math.min(t, 0.0025) / 2));
+}
+
 // Chargeur droit ou courbe : axe échantillonné, comme celui de l'AK
 function magazine(k, mat, { u = 0.2, w = 0.03, len = 0.16, curve = 0.02, top = -0.03, half = 0.028 }) {
   const back = [], front = [];
@@ -56,8 +72,8 @@ export function buildM16Model() {
   // poignée de transport + hausse
   k.prof([[0.03, 0.036], [0.05, 0.036], [0.065, 0.07], [0.215, 0.07], [0.235, 0.036], [0.255, 0.036], [0.23, 0.084], [0.05, 0.084]], 0.022, black, 0, { bevel: 0.003 });
   // hausse : œilleton (anneau) entre deux oreilles — on voit le guidon au travers
-  for (const x of [-0.011, 0.011]) k.box(0.055, 0.085, 0.084, 0.1, 0.004, dark, x);
-  k.place(new THREE.TorusGeometry(0.0055, 0.002, 6, 14), dark, 0, 0.091, -0.07);
+  ears(k, dark, 0.06, 0.08, 0.084, 0.0985, 0.0085);
+  aperture(k, dark, 0.07, 0.091, 0.0072, 0.0019);                     // petit œilleton (A1)
   // garde-main triangulaire nervuré
   k.prof([[0.3, -0.04], [0.6, -0.034], [0.6, 0.028], [0.3, 0.03]], 0.05, poly, 0, { bevel: 0.01, segments: 3 });
   for (let u = 0.32; u < 0.59; u += 0.03) k.box(u, u + 0.012, -0.038, 0.027, 0.0525, dark);
@@ -65,7 +81,8 @@ export function buildM16Model() {
   // canon, tour de guidon, tenon de baïonnette, cache-flamme
   k.tube(0.0095, 0.3, 0.86, 0, dark);
   k.prof([[0.66, -0.012], [0.7, -0.012], [0.692, 0.07], [0.672, 0.07]], 0.018, black, 0, { bevel: 0.002 });
-  k.box(0.679, 0.685, 0.07, 0.087, 0.003, dark); // guidon : 4 mm sous la ligne de mire
+  k.box(0.6805, 0.6835, 0.07, 0.089, 0.003, SIGHT);                    // guidon : pointe 2 mm sous la ligne
+  ears(k, black, 0.676, 0.688, 0.07, 0.094, 0.0065);                  // oreilles du guidon
   k.box(0.7, 0.725, -0.022, -0.012, 0.012, black);
   flashHider(k, black, dark, 0.85);
   // chargeur, poignée, pontet
@@ -104,7 +121,7 @@ export function buildM4Model() {
   k.place(new THREE.CylinderGeometry(0.008, 0.008, 0.016, 8), dark, 0, 0.1, -0.145);
   // canon court, guidon rabattable, cache-flamme
   k.tube(0.0095, 0.3, 0.68, 0, dark);
-  k.prof([[0.535, -0.012], [0.565, -0.012], [0.56, 0.064], [0.542, 0.064]], 0.018, black, 0, { bevel: 0.002 });
+  k.prof([[0.535, -0.012], [0.565, -0.012], [0.56, 0.045], [0.542, 0.045]], 0.018, black, 0, { bevel: 0.002 }); // guidon rabattu
   flashHider(k, black, dark, 0.67);
   magazine(k, PBR.gunmetal(0x26282b), { u: 0.24, len: 0.15, curve: 0.022, top: -0.044, half: 0.026 });
   grip(k, tan, dark, 0.045, -0.032);
@@ -143,10 +160,12 @@ export function buildMp5Model() {
   // hausse à tambour sur son embase
   k.box(0.02, 0.07, 0.03, 0.04, 0.03, black);
   k.place(new THREE.CylinderGeometry(0.014, 0.014, 0.022, 14), dark, 0, 0.052, -0.045);
+  aperture(k, dark, 0.045, 0.072, 0.0095, 0.0032);                    // œilleton du tambour (on y voit l'anneau du guidon)
+  ears(k, black, 0.036, 0.054, 0.045, 0.086, 0.0115, 0.004);
   // tour de guidon : anneau protecteur + guidon, à cheval sur le tube
   k.prof([[0.488, 0.03], [0.512, 0.03], [0.508, 0.062], [0.492, 0.062]], 0.03, black, 0, { bevel: 0.002 });
-  k.place(new THREE.TorusGeometry(0.0125, 0.0035, 6, 16), black, 0, 0.074, -0.5, 0, Math.PI / 2);
-  k.box(0.498, 0.502, 0.062, 0.071, 0.003, dark);
+  k.place(new THREE.TorusGeometry(0.0125, 0.003, 8, 24), black, 0, 0.072, -0.5); // anneau, face à l'œil
+  k.box(0.4985, 0.5015, 0.058, 0.070, 0.003, SIGHT);                    // guidon : pointe 2 mm sous le centre
   // garde-main « tropical » : large, galbé, strié
   k.prof([[0.31, -0.018], [0.33, -0.042], [0.47, -0.046], [0.49, -0.03], [0.49, 0.026], [0.31, 0.026]], 0.05, poly, 0, { bevel: 0.011, segments: 3 });
   for (let u = 0.34; u < 0.47; u += 0.022) k.box(u, u + 0.007, -0.045, -0.01, 0.0515, dark);
@@ -187,13 +206,17 @@ export function buildFamasModel() {
   k.prof(roundedRect(0.16, -0.05, 0.4, 0.03, 0.014), 0.054, body, 0, { bevel: 0.012, segments: 3 });
   // POIGNÉE DE TRANSPORT en pont : deux montants + arche bombée
   // (montants en DEUX joues : le canal de visée reste ouvert entre elles)
-  for (const x of [-0.0105, 0.0105]) {
-    k.prof([[-0.1, 0.03], [-0.06, 0.03], [-0.03, 0.082], [-0.062, 0.082]], 0.004, body, x, { bevel: 0.001 });
-    k.prof([[0.33, 0.03], [0.37, 0.03], [0.332, 0.082], [0.3, 0.082]], 0.004, body, x, { bevel: 0.001 });
-  }
-  k.prof([...arc(-0.07, 0.34, 0.082, 0.03), ...arc(-0.05, 0.32, 0.076, 0.022).reverse()], 0.024, body, 0, { bevel: 0.003 });
-  k.place(new THREE.TorusGeometry(0.0065, 0.002, 6, 14), dark, 0, 0.068, 0.037); // œilleton (anneau)
-  k.box(0.297, 0.303, 0.04, 0.064, 0.003, dark);                       // guidon (sommet 4 mm sous la ligne de mire)
+  k.prof([[-0.1, 0.03], [-0.06, 0.03], [-0.03, 0.084], [-0.062, 0.084]], 0.024, body, 0, { bevel: 0.003 });
+  k.prof([[0.33, 0.03], [0.37, 0.03], [0.332, 0.084], [0.3, 0.084]], 0.024, body, 0, { bevel: 0.003 });
+  k.prof(roundedRect(-0.075, 0.08, 0.345, 0.1, 0.007), 0.026, body, 0, { bevel: 0.004, segments: 2 });
+  // visée PAR-DESSUS la poignée : œilleton à l'arrière, guidon à l'avant,
+  // chacun entre ses oreilles de protection
+  k.box(-0.058, -0.022, 0.1, 0.106, 0.026, dark);
+  aperture(k, dark, -0.04, 0.118, 0.0085);
+  ears(k, dark, -0.052, -0.028, 0.1, 0.131, 0.0105, 0.004);
+  k.box(0.296, 0.326, 0.1, 0.104, 0.022, dark);
+  k.box(0.3085, 0.3115, 0.104, 0.116, 0.003, SIGHT);                   // guidon : pointe 2 mm sous la ligne
+  ears(k, dark, 0.302, 0.318, 0.1, 0.123, 0.0075);
   k.prof([[0.1, 0.03], [0.18, 0.03], [0.17, 0.052], [0.11, 0.052]], 0.014, dark, 0, { bevel: 0.002 }); // levier d'armement sous l'arche
   // canon, bagues de lance-grenades, cache-flamme
   k.tube(0.0095, 0.4, 0.64, 0, dark);
@@ -226,9 +249,12 @@ export function buildKar98kModel(scoped = false) {
   for (const u of [0.42, 0.6]) k.prof(roundedRect(u, -0.034, u + 0.018, 0.024, 0.005), 0.05, steel, 0, { bevel: 0.002 });
   // canon, guidon sous tunnel, hausse à curseur
   k.tube(0.0095, 0.1, 0.78, 0.008, steel);
-  k.place(new THREE.TorusGeometry(0.012, 0.003, 6, 12), steel, 0, 0.03, -0.75, 0, Math.PI / 2);
-  k.box(0.747, 0.753, 0.016, 0.03, 0.003, dark);
-  k.prof([[0.26, 0.02], [0.33, 0.02], [0.33, 0.03], [0.26, 0.04]], 0.02, steel, 0, { bevel: 0.002 });
+  k.place(new THREE.TorusGeometry(0.012, 0.0025, 6, 20, Math.PI), steel, 0, 0.032, -0.75); // tunnel (arche face à l'œil)
+  k.box(0.7485, 0.7515, 0.016, 0.03, 0.003, SIGHT);                    // guidon : pointe 2 mm sous la ligne
+  k.prof([[0.26, 0.02], [0.33, 0.02], [0.33, 0.03], [0.27, 0.036], [0.26, 0.036]], 0.02, steel, 0, { bevel: 0.002 });
+  // cran de mire : lame transversale entaillée (4 mm), arêtes à hauteur de ligne
+  k.box(0.257, 0.265, 0.036, 0.043, 0.024, steel);
+  for (const s of [-1, 1]) k.box(0.257, 0.265, 0.043, 0.048, 0.01, steel, s * 0.007);
   // boîte de culasse, culasse, levier coudé à boule (flanc droit), sûreté
   k.tube(0.016, 0.0, 0.14, 0.01, steel, 0, 12);
   k.tube(0.012, -0.05, 0.0, 0.01, bright, 0, 10);

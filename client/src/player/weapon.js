@@ -105,16 +105,22 @@ const HANDLING = {
 // LIGNE DE MIRE par arme : [u, v] de la hausse puis [u, v] du guidon, relevés
 // sur les modèles (u le long du canon, v la hauteur — voir weaponModels*.js).
 // La visée à l'épaule amène cette ligne dans l'axe de l'œil.
+// 5e valeur : distance RÉELLE de l'œil à la hausse (joue posée sur la crosse).
+// La ligne passe 2 mm au-dessus de la pointe du guidon (il affleure sous le
+// point visé sans le cacher) et par le haut du cran / le centre de l'œilleton.
 const SIGHTS = {
-  // (la ligne passe 3-4 mm AU-DESSUS du sommet du guidon : il affleure sous
-  // le point visé sans le cacher ; œilletons : centre de l'anneau)
-  ak: [0.362, 0.061, 0.6, 0.0715],
-  m16: [0.07, 0.091, 0.682, 0.091],
-  m4: [0.09, 0.073, 0.2, 0.073],       // axe du point rouge
-  mp5: [0.045, 0.067, 0.5, 0.074],
-  famas: [-0.037, 0.068, 0.3, 0.068],
-  kar98k: [0.26, 0.044, 0.75, 0.034],
+  ak: [0.3635, 0.064, 0.6, 0.070, 0.30],
+  m16: [0.07, 0.091, 0.682, 0.091, 0.09],
+  m4: [0.09, 0.073, 0.2, 0.073, 0.22],     // axe du point rouge
+  mp5: [0.045, 0.072, 0.5, 0.072, 0.11],
+  famas: [-0.04, 0.118, 0.31, 0.118, 0.15],
+  kar98k: [0.261, 0.048, 0.75, 0.032, 0.30],
 };
+// En visée, l'arme (et les mains, enfants du porte-arme) est AGRANDIE de
+// ADS_SCALE autour de l'œil : l'image est celle d'une arme à taille réelle,
+// joue sur la crosse, mais rien ne passe sous le plan proche de la caméra
+// (0,1 m) — sans ça la hausse devait rester à 70 cm de l'œil.
+const ADS_SCALE = 2;
 
 // Prises en main, par arme (repère du porte-arme, voir weaponModels.js) :
 // main DROITE sur la poignée pistolet, index vers la détente (paume contre
@@ -928,23 +934,28 @@ export function createWeapon(camera, scene, shootables, {
     }
     if (reloadDip > 0 && !spec.melee) { rz += reloadDip * 2.6; ry -= reloadDip * 1.4; }
     // À l'épaule : l'arme vient dans l'axe de l'œil, le balancement se calme
-    const calm = 1 - 0.8 * ads;
+    const calm = 1 - 0.95 * ads;
     // VISÉE ALIGNÉE : à l'épaule, la ligne de mire (hausse → guidon) passe
     // PAR L'ŒIL et reste parallèle au regard — l'arme pique du nez de
     // l'angle qui met les deux organes de visée à la même hauteur, puis
     // descend de ce qu'il faut pour que la hausse soit dans l'axe. Sans
     // relevé de mire (SIGHTS) : ancienne pose, un peu sous l'œil.
     const sg = SIGHTS[curId];
-    let adsY = -0.165, adsPitch = 0;
+    let adsY = -0.165, adsZ = -0.35, adsPitch = 0, sc = 1;
     if (sg) {
+      // hausse au point (0, 0, −œil) ; ligne hausse → guidon dans l'axe
       adsPitch = Math.atan2(sg[3] - sg[1], sg[2] - sg[0]);
-      adsY = -(sg[1] * Math.cos(adsPitch) - sg[0] * Math.sin(adsPitch));
+      const c = Math.cos(adsPitch), s = Math.sin(adsPitch);
+      adsY = -(sg[1] * c - sg[0] * s);
+      adsZ = -sg[4] + sg[1] * s + sg[0] * c;
+      sc = 1 + (ADS_SCALE - 1) * ads;
     }
     holder.position.set(
       (spec.akimbo || spec.dual ? 0 : 0.26 * (1 - ads)) + bobX * calm + px,
       -0.24 + (adsY + 0.24) * ads - bobY * calm - reloadDip + lift + py,
-      -0.45 + 0.1 * ads + recoil * 0.06 * (1 - 0.4 * ads) + pz
-    );
+      -0.45 + (adsZ + 0.45) * ads + recoil * 0.06 * (1 - 0.4 * ads) + pz
+    ).multiplyScalar(sc);
+    holder.scale.setScalar(sc);
     holder.rotation.set(recoil * 0.09 * (1 - 0.6 * ads) - adsPitch * ads - reloadDip * 0.8 - swingTilt, ry, rz);
   }
 
@@ -978,6 +989,8 @@ export function createWeapon(camera, scene, shootables, {
     toggleAds() { adsToggle = !adsToggle; return adsToggle; },
     setAds(down) { ext.ads = Boolean(down); }, // gâchette gauche de la manette
     get ads() { return ads; },
+    // vrai quand on vise aux organes de visée (le réticule s'efface)
+    get sightsUp() { return Boolean(SIGHTS[curId]) && ads > 0.55 && state.weaponEquipped; },
     get canAds() { return Boolean(HANDLING[curId]?.ads); },
     // Dispersion courante (unités d'écran) : le réticule s'ouvre avec
     get spread() { return spreadNow; },

@@ -104,7 +104,9 @@ function buildAkModel() {
   k.box(0.04, 0.29, 0.043, 0.047, 0.006, black); // nervure du couvercle
   // Bloc de hausse + feuille de hausse
   k.prof([[0.33, -0.02], [0.4, -0.02], [0.4, 0.034], [0.37, 0.05], [0.33, 0.05]], 0.038, steel, 0, { bevel: 0.003 });
-  k.box(0.35, 0.375, 0.05, 0.057, 0.03, black);
+  // feuille de hausse à cran en U (3 mm) : on pose la pointe du guidon dedans
+  k.box(0.355, 0.372, 0.05, 0.059, 0.03, black);
+  for (const s of [-1, 1]) k.box(0.355, 0.372, 0.059, 0.064, 0.0135, black, s * 0.00825);
   // Garde-mains bois (bas + haut autour du tube emprunt de gaz)
   k.prof(roundedRect(0.4, -0.042, 0.545, 0.012, 0.013), 0.054, wood, 0, { bevel: 0.008, segments: 3 });
   k.prof(roundedRect(0.4, 0.02, 0.525, 0.05, 0.013), 0.04, wood, 0, { bevel: 0.006, segments: 3 });

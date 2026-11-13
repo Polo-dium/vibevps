@@ -404,8 +404,15 @@ npm start          # serveur de prod (sert client/dist)
     même hauteur et descend pour que la ligne passe par l'œil. Une hausse
     doit laisser VOIR le guidon (œilleton en anneau, pas de bloc plein) ;
     tout nouveau modèle à visée ouverte doit avoir son entrée `SIGHTS`.
-    La ligne passe 3-4 mm AU-DESSUS du sommet du guidon (il ne cache pas le
-    point visé). Optiques (point rouge du M4) : tube CREUX
+    `SIGHTS[id]` = [u, v hausse, u, v guidon, distance RÉELLE œil → hausse].
+    En visée, le porte-arme (mains comprises) est agrandi de `ADS_SCALE` = 2
+    autour de l'œil : même image qu'une arme réelle joue posée, mais rien
+    sous le plan proche (0,1 m). La ligne passe 2 mm au-dessus de la pointe
+    du guidon et par le haut du cran / le centre de l'œilleton. Organes de
+    visée en noir MAT (`SIGHT`, `APERTURE`, aides `aperture()` et `ears()`
+    dans weaponModels2.js) ; un anneau doit FAIRE FACE à l'œil (pas de
+    rotation y). Réticule masqué quand `weapon.sightsUp`. Contrôle chiffré :
+    projeter hausse et guidon à l'écran (doivent tomber au centre). Optiques (point rouge du M4) : tube CREUX
     (`CylinderGeometry` ouvert, matériau `TUBE` double face), lentille
     `LENS` quasi transparente, point `DOT` — jamais de cylindre plein.
     POSES DES AVATARS ARMÉS (`poseArmed`, avatars.js) par famille, choisie

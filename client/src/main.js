@@ -2282,7 +2282,7 @@ async function boot() {
     arms.setVisible(!controls.vehicle || rcSolView);
     // Pas de réticule en vue « pilote au sol » (rien à viser) ni dans la
     // lunette du sniper (elle a son propre point fin de 3 px).
-    ui.showCrosshair(!rcSolView && !weapon.aiming);
+    ui.showCrosshair(!rcSolView && !weapon.aiming && !weapon.sightsUp); // (visée aux organes : pas de réticule)
     // La voile suit le joueur tant qu'elle est ouverte.
     parachute.visible = controls.parachuteOpen;
     if (parachute.visible) {
